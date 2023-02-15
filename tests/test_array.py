@@ -1,4 +1,4 @@
-from funlib.persistence import Array
+from funlib.persistence.arrays import Array
 from funlib.geometry import Roi, Coordinate
 import numpy as np
 import unittest
