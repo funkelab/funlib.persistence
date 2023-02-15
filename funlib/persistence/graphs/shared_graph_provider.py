@@ -1,11 +1,12 @@
-from __future__ import absolute_import
 from daisy.client import Client
 from daisy.task import Task
 from daisy import run_blockwise
 from funlib.geometry import Roi
+
+import numpy as np
+
 from queue import Empty
 import multiprocessing
-import numpy as np
 import logging
 import time
 

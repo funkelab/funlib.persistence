@@ -1,8 +1,10 @@
-from __future__ import absolute_import
+from .shared_graph_provider import SharedGraphProvider, SharedSubGraph
+
 from funlib.geometry import Coordinate
 from funlib.geometry import Roi
-from .shared_graph_provider import SharedGraphProvider, SharedSubGraph
+
 from networkx import Graph, DiGraph
+
 import itertools
 import json
 import logging

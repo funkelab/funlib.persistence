@@ -1,8 +1,9 @@
 from .array import Array
-from .coordinate import Coordinate
 from .ext import zarr, h5py
 from .klb_adaptor import KlbAdaptor
-from .roi import Roi
+
+from funlib.geometry import Coordinate, Roi
+
 import json
 import logging
 import os

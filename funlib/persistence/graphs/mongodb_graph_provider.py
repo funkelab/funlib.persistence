@@ -1,13 +1,15 @@
-from __future__ import absolute_import
+from .shared_graph_provider import SharedGraphProvider, SharedSubGraph
+
 from funlib.geometry import Coordinate
 from funlib.geometry import Roi
-from .shared_graph_provider import SharedGraphProvider, SharedSubGraph
+
 from networkx import Graph, DiGraph
-from pymongo import MongoClient, ASCENDING, ReplaceOne, UpdateOne
-from pymongo.errors import BulkWriteError, WriteError
-import logging
 import numpy as np
 import networkx as nx
+from pymongo import MongoClient, ASCENDING, ReplaceOne, UpdateOne
+from pymongo.errors import BulkWriteError, WriteError
+
+import logging
 
 logger = logging.getLogger(__name__)
 
