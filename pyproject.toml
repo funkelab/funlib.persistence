@@ -1,26 +1,29 @@
 [build-system]
-requires = ["setuptools", "wheel"]
 build-backend = "setuptools.build_meta"
+requires = ["setuptools", "wheel"]
 
 [project]
 name = "funlib.persistence"
-version = "0.1"
-authors = [
-    {name = "William Patton", email = "pattonw@hhmi.org"},
-    {name = "Jan Funke", email = "funkej@hhmi.org"},
-]
 description = "Interfaces for data (arrays and graphs) and storage formats (databases and file formats)"
-readme = "README.rst"
-requires-python = ">=3.7"
-keywords = []
+version = "0.1"
 license = {text = "MIT"}
-classifiers = [
-    "Programming Language :: Python :: 3",
+readme = "README.rst"
+authors = [
+  {name = "William Patton", email = "pattonw@hhmi.org"},
+  {name = "Jan Funke", email = "funkej@hhmi.org"},
 ]
+
+requires-python = ">=3.7"
+classifiers = [
+  "Programming Language :: Python :: 3",
+]
+keywords = []
+
 dependencies = [
-    "funlib.geometry",
-    "daisy @ git+https://github.com/funkelab/daisy.git@master",
-    "networkx",
-    "zarr",
-    "pymongo",
+  "funlib.geometry",
+  "daisy @ git+https://github.com/funkelab/daisy.git@master",
+  "networkx",
+  "zarr",
+  "pymongo",
+  "numpy",
 ]
