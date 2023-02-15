@@ -1,4 +1,3 @@
-from __future__ import absolute_import, division
 from .array import Array
 from .coordinate import Coordinate
 from .ext import zarr, h5py
@@ -31,7 +30,6 @@ tempfile.NamedTemporaryFile = UmaskNamedTemporaryFile
 
 
 def _read_voxel_size_offset(ds, order="C"):
-
     voxel_size = None
     offset = None
     dims = None
@@ -124,7 +122,6 @@ def open_ds(filename, ds_name, mode="r", attr_filename=None):
     filename = str(filename)
 
     if filename.endswith(".zarr"):
-
         logger.debug("opening zarr dataset %s in %s", ds_name, filename)
         try:
             ds = zarr.open(filename, mode=mode)[ds_name]
@@ -142,7 +139,6 @@ def open_ds(filename, ds_name, mode="r", attr_filename=None):
         return Array(ds, roi, voxel_size, chunk_shape=chunk_shape)
 
     elif filename.endswith(".n5"):
-
         logger.debug("opening N5 dataset %s in %s", ds_name, filename)
         ds = zarr.open(filename, mode=mode)[ds_name]
 
@@ -156,7 +152,6 @@ def open_ds(filename, ds_name, mode="r", attr_filename=None):
         return Array(ds, roi, voxel_size, chunk_shape=chunk_shape)
 
     elif filename.endswith(".h5") or filename.endswith(".hdf"):
-
         logger.debug("opening H5 dataset %s in %s", ds_name, filename)
         ds = h5py.File(filename, mode=mode)[ds_name]
 
@@ -170,7 +165,6 @@ def open_ds(filename, ds_name, mode="r", attr_filename=None):
         return Array(ds, roi, voxel_size, chunk_shape=chunk_shape)
 
     elif filename.endswith(".json"):
-
         logger.debug("found JSON container spec")
         with open(filename, "r") as f:
             spec = json.load(f)
@@ -185,7 +179,6 @@ def open_ds(filename, ds_name, mode="r", attr_filename=None):
         )
 
     elif filename.endswith(".klb"):
-
         logger.debug("opening KLB dataset %s", filename)
         adaptor = KlbAdaptor(filename, attr_filename=attr_filename)
 
@@ -206,7 +199,6 @@ def open_ds(filename, ds_name, mode="r", attr_filename=None):
         )
 
     else:
-
         logger.error("don't know data format of %s in %s", ds_name, filename)
         raise RuntimeError("Unknown file format for %s" % filename)
 
@@ -288,7 +280,6 @@ def prepare_ds(
     ), "The provided ROI offset is not a multiple of voxel_size"
 
     if write_roi is not None:
-
         logger.warning("write_roi is deprecated, please use write_size instead")
 
         if write_size is None:
@@ -324,7 +315,6 @@ def prepare_ds(
     shape = total_roi.shape / voxel_size
 
     if num_channels is not None:
-
         shape = (num_channels,) + shape
 
         if chunk_shape is not None:
@@ -332,14 +322,12 @@ def prepare_ds(
         voxel_size_with_channels = Coordinate((1,) + voxel_size)
 
     if not os.path.isdir(filename):
-
         logger.debug("Creating new %s", filename)
         os.makedirs(filename)
 
         zarr.open(filename, mode="w")
 
     if not os.path.isdir(os.path.join(filename, ds_name)):
-
         logger.debug(
             "Creating new %s in %s with chunk_size %s and write_size %s",
             ds_name,
@@ -371,7 +359,6 @@ def prepare_ds(
         return Array(ds, total_roi, voxel_size, chunk_shape=chunk_shape)
 
     else:
-
         logger.debug("Trying to reuse existing dataset %s in %s...", ds_name, filename)
         ds = open_ds(filename, ds_name, mode="a")
 
@@ -398,7 +385,6 @@ def prepare_ds(
             compatible = False
 
         if not compatible:
-
             if not delete:
                 raise RuntimeError(
                     "Existing dataset is not compatible, please manually "
@@ -420,7 +406,6 @@ def prepare_ds(
             )
 
         else:
-
             logger.info("Reusing existing dataset")
             return ds
 
@@ -436,7 +421,6 @@ def get_chunk_shape(block_shape):
 
 
 def get_chunk_size_dim(b, target_chunk_size):
-
     best_k = None
     best_target_diff = 0
 

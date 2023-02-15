@@ -1,4 +1,3 @@
-from __future__ import absolute_import
 from funlib.geometry import Coordinate, Roi
 from .freezable import Freezable
 import numpy as np
