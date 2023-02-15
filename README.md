@@ -4,3 +4,10 @@
 
 # funlib.persistence
 Interfaces for data (arrays and graphs) and storage formats (databases and file formats)
+
+# installation
+regular installation for usage:
+`pip install .`
+developer installation including pytest etc.:
+`pip install ".[dev]"`
+
