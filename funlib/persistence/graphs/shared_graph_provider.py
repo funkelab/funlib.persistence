@@ -3,7 +3,6 @@ from daisy.task import Task
 from daisy import run_blockwise
 from funlib.geometry import Roi
 
-import numpy as np
 
 from queue import Empty
 import multiprocessing
@@ -72,7 +71,6 @@ class SharedGraphProvider(object):
 
         i = 0
         while True:
-
             try:
                 start = time.time()
                 block = block_queue.get(timeout=0.1)
@@ -191,7 +189,6 @@ class SharedSubGraph:
 
 
 def read_blockwise_master(graph_provider, roi, block_size, num_workers, block_queue):
-
     task = Task(
         "ReadGraphBlockwise",
         roi,
@@ -216,11 +213,9 @@ def read_blockwise_master(graph_provider, roi, block_size, num_workers, block_qu
 
 
 def read_blockwise_worker(graph_provider, block_queue):
-
     client = Client()
 
     while True:
-
         with client.acquire_block() as block:
             if block is None:
                 break
@@ -240,7 +235,6 @@ def read_blockwise_worker(graph_provider, block_queue):
 
 
 def read_block(graph_provider, block, block_queue):
-
     start = time.time()
     logger.debug("Reading graph in block %s", block)
     graph = graph_provider[block.read_roi]
@@ -251,7 +245,6 @@ def read_block(graph_provider, block, block_queue):
 
     start = time.time()
     for node, data in graph.nodes(data=True):
-
         # skip over nodes that are not part of this block (they have been
         # pulled in by edges leaving this block and don't have a position
         # attribute)
@@ -270,7 +263,6 @@ def read_block(graph_provider, block, block_queue):
             nodes[k].append(v)
 
     for u, v, data in graph.edges(data=True):
-
         edges["u"].append(np.uint64(u))
         edges["v"].append(np.uint64(v))
         for k, v in data.items():

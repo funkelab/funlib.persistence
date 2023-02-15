@@ -65,7 +65,6 @@ class FileGraphProvider(SharedGraphProvider):
         edges_collection="edges",
         position_attribute="position",
     ):
-
         self.directory = directory
         self.chunk_size = Coordinate(chunk_size)
         self.mode = mode
@@ -80,7 +79,6 @@ class FileGraphProvider(SharedGraphProvider):
         self.meta_collection = os.path.join(self.directory, ".meta.json")
 
         if mode == "w":
-
             logger.info(
                 "dropping collections %s, %s",
                 self.nodes_collection_name,
@@ -125,7 +123,6 @@ class FileGraphProvider(SharedGraphProvider):
         return os.path.join(self.edges_collection, *[str(i) for i in chunk_index])
 
     def __get_roi_filter(self, nodes, roi):
-
         if type(self.position_attribute) == list:
             num_nodes = len(nodes[self.position_attribute[0]])
             roi_filter = np.ones((num_nodes,), dtype=np.bool)
@@ -151,7 +148,6 @@ class FileGraphProvider(SharedGraphProvider):
         return roi_filter
 
     def _write_nodes_to_chunk(self, chunk_index, nodes, roi=None):
-
         chunk_roi = Roi(chunk_index, (1,) * self.chunk_size.dims)
         chunk_roi *= self.chunk_size
 
@@ -163,7 +159,6 @@ class FileGraphProvider(SharedGraphProvider):
             json.dump({"attributes": attributes}, f)
 
         if roi is not None and not roi.contains(chunk_roi):
-
             roi_filter = self.__get_roi_filter(nodes, roi)
             for k, v in nodes.items():
                 nodes[k] = list(np.array(nodes[k])[roi_filter])
@@ -171,7 +166,6 @@ class FileGraphProvider(SharedGraphProvider):
             np.savez_compressed(os.path.join(path, k), nodes=v)
 
     def _write_edges_to_chunk(self, chunk_index, edges, edge_positions, roi=None):
-
         chunk_roi = Roi(chunk_index, (1,) * self.chunk_size.dims)
         chunk_roi *= self.chunk_size
 
@@ -183,7 +177,6 @@ class FileGraphProvider(SharedGraphProvider):
             json.dump({"attributes": attributes}, f)
 
         if roi is not None and not roi.contains(chunk_roi):
-
             roi_filter = np.ones((len(edges),), dtype=np.bool)
             for d in range(roi.dims):
                 ge = edge_positions[d] >= roi.get_begin()[d]
@@ -197,7 +190,6 @@ class FileGraphProvider(SharedGraphProvider):
             np.savez_compressed(os.path.join(path, k), edges=v)
 
     def _read_nodes_from_chunk(self, chunk_index, roi=None):
-
         chunk_roi = Roi(chunk_index, (1,) * self.chunk_size.dims)
         chunk_roi *= self.chunk_size
 
@@ -222,7 +214,6 @@ class FileGraphProvider(SharedGraphProvider):
         return nodes
 
     def _read_edges_from_chunk(self, chunk_index, roi=None, node_ids=None):
-
         chunk_roi = Roi(chunk_index, (1,) * self.chunk_size.dims)
         chunk_roi *= self.chunk_size
 
@@ -297,7 +288,6 @@ class FileGraphProvider(SharedGraphProvider):
 
         edges = {}
         for chunk_index in self.get_chunks(roi):
-
             chunk_edges = self._read_edges_from_chunk(chunk_index, roi, nodes["id"])
             if len(chunk_edges) == 0 or len(chunk_edges["u"]) == 0:
                 continue
@@ -313,7 +303,6 @@ class FileGraphProvider(SharedGraphProvider):
         return edges
 
     def __getitem__(self, roi):
-
         # get all nodes within roi
         nodes = self.read_nodes(roi)
         edges = self.read_edges(roi, nodes)
@@ -400,7 +389,6 @@ class FileGraphProvider(SharedGraphProvider):
 
 class FileSharedSubGraph(SharedSubGraph):
     def __init__(self, graph_provider, roi):
-
         super().__init__()
 
         self.graph_provider = graph_provider
@@ -408,21 +396,16 @@ class FileSharedSubGraph(SharedSubGraph):
         self.pos_list = type(self.graph_provider.position_attribute) == list
 
     def __get_node_pos(self, n):
-
         try:
-
             if self.pos_list:
-
                 return Coordinate(
                     (n[pos_attr] for pos_attr in self.graph_provider.position_attribute)
                 )
 
             else:
-
                 return Coordinate(n[self.graph_provider.position_attribute])
 
         except KeyError:
-
             return None
 
     def write_edges(

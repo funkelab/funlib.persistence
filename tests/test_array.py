@@ -6,7 +6,6 @@ import unittest
 
 class TestArray(unittest.TestCase):
     def test_constructor(self):
-
         data = np.zeros((10, 10, 10), dtype=np.float32)
         roi = Roi((0, 0, 0), (10, 10, 10))
 
@@ -50,7 +49,6 @@ class TestArray(unittest.TestCase):
             Array(data, roi, (2, 2, 2), data_offset=(0, 0, 2))
 
     def test_shape(self):
-
         # ROI fits data
 
         a1 = Array(np.zeros((10,)), Roi((0,), (10,)), (1,))
@@ -86,14 +84,12 @@ class TestArray(unittest.TestCase):
         assert a5_3_2_1.shape == (1, 2, 3, 4, 4, 4, 4, 4)
 
     def test_dtype(self):
-
         for dtype in [np.float32, np.uint8, np.uint64]:
             assert (
                 Array(np.zeros((1,), dtype=dtype), Roi((0,), (1,)), (1,)).dtype == dtype
             )
 
     def test_getitem(self):
-
         a = Array(np.arange(0, 10).reshape(2, 5), Roi((0, 0), (2, 5)), (1, 1))
 
         assert a[Coordinate((0, 0))] == 0
@@ -133,7 +129,6 @@ class TestArray(unittest.TestCase):
             b[Coordinate((0, -1))]
 
     def test_setitem(self):
-
         # set entirely with numpy array
 
         a = Array(np.zeros((2, 5)), Roi((0, 0), (2, 5)), (1, 1))
@@ -208,7 +203,6 @@ class TestArray(unittest.TestCase):
         assert a[Coordinate((1, 2))] == 2
 
     def test_materialize(self):
-
         a = Array(np.arange(0, 10).reshape(2, 5), Roi((0, 0), (2, 5)), (1, 1))
 
         b = a[Roi((0, 0), (2, 2))]
@@ -223,7 +217,6 @@ class TestArray(unittest.TestCase):
         assert b.data.shape == (2, 2)
 
     def test_to_ndarray(self):
-
         a = Array(np.arange(0, 10).reshape(2, 5), Roi((0, 0), (2, 5)), (1, 1))
 
         # not within ROI of a and no fill value provided
@@ -255,7 +248,6 @@ class TestArray(unittest.TestCase):
         np.testing.assert_array_equal(b, compare)
 
     def test_intersect(self):
-
         a = Array(np.arange(0, 10).reshape(2, 5), Roi((0, 0), (2, 5)), (1, 1))
 
         b = a.intersect(Roi((1, 1), (10, 10)))

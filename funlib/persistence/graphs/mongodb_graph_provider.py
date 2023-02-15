@@ -79,7 +79,6 @@ class MongoDbGraphProvider(SharedGraphProvider):
         meta_collection="meta",
         position_attribute="position",
     ):
-
         self.db_name = db_name
         self.host = host
         self.mode = mode
@@ -97,7 +96,6 @@ class MongoDbGraphProvider(SharedGraphProvider):
         self.position_attribute = position_attribute
 
         try:
-
             self.__connect()
 
             if mode != "w":
@@ -109,7 +107,6 @@ class MongoDbGraphProvider(SharedGraphProvider):
             self.__open_db()
 
             if mode == "w":
-
                 logger.info(
                     "dropping collections %s, %s, and %s",
                     self.nodes_collection_name,
@@ -139,12 +136,10 @@ class MongoDbGraphProvider(SharedGraphProvider):
                 self.__create_edge_collection()
 
         except Exception as e:
-
             self.__disconnect()
             raise e
 
     def __del__(self):
-
         self.__disconnect()
 
     def read_nodes(self, roi, attr_filter=None, read_attrs=None):
@@ -170,7 +165,6 @@ class MongoDbGraphProvider(SharedGraphProvider):
             attr_filter = {}
 
         try:
-
             self.__connect()
             self.__open_db()
             self.__open_collections()
@@ -192,7 +186,6 @@ class MongoDbGraphProvider(SharedGraphProvider):
             nodes = list(nodes)
 
         except Exception as e:
-
             self.__disconnect()
             raise e
 
@@ -205,7 +198,6 @@ class MongoDbGraphProvider(SharedGraphProvider):
         """Return the number of nodes in the roi."""
 
         try:
-
             self.__connect()
             self.__open_db()
             self.__open_collections()
@@ -213,7 +205,6 @@ class MongoDbGraphProvider(SharedGraphProvider):
             num = self.nodes.count(self.__pos_query(roi))
 
         except Exception as e:
-
             self.__disconnect()
             raise e
 
@@ -223,7 +214,6 @@ class MongoDbGraphProvider(SharedGraphProvider):
         """Returns true if there is at least one edge in the roi."""
 
         try:
-
             self.__connect()
             self.__open_db()
             self.__open_collections()
@@ -243,7 +233,6 @@ class MongoDbGraphProvider(SharedGraphProvider):
             num_chunks = (length - 1) // query_size + 1
 
             for i in range(num_chunks):
-
                 i_b = i * query_size
                 i_e = min((i + 1) * query_size, len(node_ids))
                 assert i_b < len(node_ids)
@@ -255,7 +244,6 @@ class MongoDbGraphProvider(SharedGraphProvider):
                 assert i_e == len(node_ids)
 
         except Exception as e:
-
             self.__disconnect()
             raise e
 
@@ -297,7 +285,6 @@ class MongoDbGraphProvider(SharedGraphProvider):
             attr_filter = {}
 
         try:
-
             self.__connect()
             self.__open_db()
             self.__open_collections()
@@ -319,7 +306,6 @@ class MongoDbGraphProvider(SharedGraphProvider):
                     projection[attr] = True
 
             for i in range(num_chunks):
-
                 i_b = i * query_size
                 i_e = min((i + 1) * query_size, len(node_ids))
                 assert i_b < len(node_ids)
@@ -337,7 +323,6 @@ class MongoDbGraphProvider(SharedGraphProvider):
             logger.debug("first 100 edges read: %s", edges[:100])
 
         except Exception as e:
-
             self.__disconnect()
             raise e
 
@@ -348,7 +333,6 @@ class MongoDbGraphProvider(SharedGraphProvider):
         return edges
 
     def __getitem__(self, roi):
-
         return self.get_graph(roi)
 
     def get_graph(
@@ -571,7 +555,6 @@ class MongoDbGraphProvider(SharedGraphProvider):
 
 class MongoDbSharedSubGraph(SharedSubGraph):
     def __init__(self, graph_provider, roi):
-
         super().__init__()
 
         self.provider = graph_provider
@@ -606,7 +589,6 @@ class MongoDbSharedSubGraph(SharedSubGraph):
         nodes = []
 
         for node_id, data in self.nodes(data=True):
-
             if not self.__contains(roi, node_id):
                 logger.debug(
                     "Skipping node {} with data {} because not in roi {}".format(
@@ -709,7 +691,6 @@ class MongoDbSharedSubGraph(SharedSubGraph):
             raise
 
     def update_node_attrs(self, roi=None, attributes=None):
-
         if self.provider.mode == "r":
             raise RuntimeError("Trying to write to read-only DB")
 
@@ -721,7 +702,6 @@ class MongoDbSharedSubGraph(SharedSubGraph):
         updates = []
 
         for node_id, data in self.nodes(data=True):
-
             if not self.__contains(roi, node_id):
                 logger.debug(
                     "Skipping node {} with data {} because not in roi {}".format(
@@ -759,7 +739,6 @@ class MongoDbSharedSubGraph(SharedSubGraph):
             raise
 
     def update_edge_attrs(self, roi=None, attributes=None):
-
         if self.provider.mode == "r":
             raise RuntimeError("Trying to write to read-only DB")
 
