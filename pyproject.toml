@@ -7,7 +7,7 @@ name = "funlib.persistence"
 description = "Interfaces for data (arrays and graphs) and storage formats (databases and file formats)"
 version = "0.1"
 license = {text = "MIT"}
-readme = "README.rst"
+readme = "README.md"
 authors = [
   {name = "William Patton", email = "pattonw@hhmi.org"},
   {name = "Jan Funke", email = "funkej@hhmi.org"},
