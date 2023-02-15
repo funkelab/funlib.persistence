@@ -1,6 +1,7 @@
 from funlib.geometry import Roi, Coordinate
 
-import pyklb
+# import pyklb
+# pyklb not installable via pip. maybe do the whole .ext ModuleDoesNotExist thing.
 
 import glob
 import json

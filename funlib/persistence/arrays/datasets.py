@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 # data, until zarr fixes this issue:
 # https://github.com/zarr-developers/zarr/issues/325
 
-
+# no idea whats going on here
 def UmaskNamedTemporaryFile(*args, **kargs):
     fdesc = tempfile.NamedTemporaryFile2(*args, **kargs)
     umask = os.umask(0)
