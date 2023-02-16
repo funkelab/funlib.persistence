@@ -9,15 +9,14 @@ import logging
 import unittest
 
 logger = logging.getLogger(__name__)
-# daisy.scheduler._NO_SPAWN_STATUS_THREAD = True
 
 
 class TestGraph(unittest.TestCase):
     def mongo_provider_factory(self, mode):
-        return MongoDbGraphProvider("test_daisy_graph", mode=mode)
+        return MongoDbGraphProvider("test_mongo_graph", mode=mode)
 
     def file_provider_factory(self, mode):
-        return FileGraphProvider("test_daisy_graph", chunk_size=(10, 10, 10), mode=mode)
+        return FileGraphProvider("test_file_graph", chunk_size=(10, 10, 10), mode=mode)
 
     # test basic graph io
     def test_graph_io_mongo(self):

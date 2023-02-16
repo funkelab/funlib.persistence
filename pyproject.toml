@@ -21,7 +21,6 @@ keywords = []
 
 dependencies = [
   "funlib.geometry",
-  "daisy @ git+https://github.com/funkelab/daisy.git@master",
   "networkx",
   "zarr",
   "pymongo",

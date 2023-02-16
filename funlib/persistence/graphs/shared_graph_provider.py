@@ -1,13 +1,4 @@
-from daisy.client import Client
-from daisy.task import Task
-from daisy import run_blockwise
-from funlib.geometry import Roi
-
-
-from queue import Empty
-import multiprocessing
 import logging
-import time
 
 logger = logging.getLogger(__name__)
 
@@ -21,7 +12,7 @@ class SharedGraphProvider(object):
         # provider is a SharedGraphProvider
 
         # slicing with ROI to extract a subgraph
-        sub_graph = provider[daisy.Roi((0, 0, 0), (10, 10, 10))]
+        sub_graph = provider[Roi((0, 0, 0), (10, 10, 10))]
 
         # sub_graph should inherit from an implementation of
         SharedSubGraph, and either Graph or DiGraph

@@ -143,24 +143,30 @@ class MongoDbGraphProvider(SharedGraphProvider):
     def __del__(self):
         self.__disconnect()
 
-    def read_nodes(self, roi, attr_filter=None, read_attrs=None, join_collection=None):
+    def read_nodes(
+        self,
+        roi: Roi,
+        attr_filter: Optional[dict[str, Any]] = None,
+        read_attrs: Optional[list[str]] = None,
+        join_collection: Optional[str] = None,
+    ) -> list[dict[str, Any]]:
         """Return a list of nodes within roi.
         Arguments:
 
-            roi (``daisy.Roi``):
+            roi:
 
                 Get nodes that fall within this roi
 
-            attr_filter (``dict``):
+            attr_filter:
 
                 Only return nodes that have attribute=value for
                 each attribute value pair in attr_filter.
 
-            read_attrs (``list`` of ``string``):
+            read_attrs:
 
                 Attributes to return. Others will be ignored
 
-            join_collection (``string``):
+            join_collection:
 
                 Compute (left) join of the nodes collection and this
                 collection using the id attribute.
@@ -284,26 +290,32 @@ class MongoDbGraphProvider(SharedGraphProvider):
 
         return False
 
-    def read_edges(self, roi, nodes=None, attr_filter=None, read_attrs=None):
+    def read_edges(
+        self,
+        roi: Roi,
+        nodes: Optional[dict[str, Any]] = None,
+        attr_filter: Optional[dict[str, Any]] = None,
+        read_attrs: Optional[list[str]] = None,
+    ) -> list[dict[int, Any]]:
         """Returns a list of edges within roi.
         Arguments:
 
-            roi (``daisy.Roi``):
+            roi:
 
                 Get nodes that fall within this roi
 
-            nodes (``dict``):
+            nodes:
 
                 Return edges with sources in this nodes list. If none,
                 reads nodes in roi using read_nodes. Dictionary format
                 is string attribute -> value, including 'id' as an attribute.
 
-            attr_filter (``dict``):
+            attr_filter:
 
                 Only return nodes that have attribute=value for
                 each attribute value pair in attr_filter.
 
-            read_attrs (``list`` of ``string``):
+            read_attrs:
 
                 Attributes to return. Others will be ignored
         """
@@ -372,41 +384,41 @@ class MongoDbGraphProvider(SharedGraphProvider):
 
     def get_graph(
         self,
-        roi,
-        nodes_filter=None,
-        edges_filter=None,
-        node_attrs=None,
-        edge_attrs=None,
-        join_collection=None,
+        roi: Roi,
+        nodes_filter: Optional[dict[str, Any]] = None,
+        edges_filter: Optional[dict[str, Any]] = None,
+        node_attrs: Optional[list[str]] = None,
+        edge_attrs: Optional[list[str]] = None,
+        join_collection: Optional[str] = None,
     ):
         """Return a graph within roi, optionally filtering by
         node and edge attributes.
 
         Arguments:
 
-            roi (``daisy.Roi``):
+            roi:
 
                 Get nodes and edges whose source is within this roi
 
-            nodes_filter (``dict``):
-            edges_filter (``dict``):
+            nodes_filter:
+            edges_filter:
 
                 Only return nodes/edges that have attribute=value for
                 each attribute value pair in nodes/edges_filter.
 
-            node_attrs (``list`` of ``string``):
+            node_attrs:
 
                 Only return these attributes for nodes. Other
                 attributes will be ignored, but id and position attribute(s)
                 will always be included. If None (default), return all attrs.
 
-            edge_attrs (``list`` of ``string``):
+            edge_attrs:
 
                 Only return these attributes for edges. Other
                 attributes will be ignored, but source and target
                 will always be included. If None (default), return all attrs.
 
-            join_collection (``string``):
+            join_collection:
 
                 Compute (left) join of the nodes collection and this
                 collection using the id attribute.

@@ -8,7 +8,7 @@ import unittest
 class TestMetaCollection(unittest.TestCase):
     def get_mongo_graph_provider(self, mode, directed, total_roi):
         return MongoDbGraphProvider(
-            "test_daisy_graph", directed=directed, total_roi=total_roi, mode=mode
+            "test_mongo_graph", directed=directed, total_roi=total_roi, mode=mode
         )
 
     def test_graph_read_meta_values(self):

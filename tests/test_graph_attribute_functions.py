@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 
 class TestFilterMongoGraph(unittest.TestCase):
     def get_mongo_graph_provider(self, mode):
-        return MongoDbGraphProvider("test_daisy_graph", directed=True, mode=mode)
+        return MongoDbGraphProvider("test_mongo_graph", directed=True, mode=mode)
 
     def test_graph_filtering(self):
         graph_provider = self.get_mongo_graph_provider("w")

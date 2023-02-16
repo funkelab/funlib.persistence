@@ -9,6 +9,7 @@ import json
 import logging
 import os
 import shutil
+from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -83,25 +84,25 @@ def _read_voxel_size_offset(ds, order="C"):
     return Coordinate(voxel_size), Coordinate(offset)
 
 
-def open_ds(filename, ds_name, mode="r"):
-    """Open a Zarr, N5, or HDF5 dataset as a :class:`daisy.Array`. If the
+def open_ds(filename: str, ds_name:str, mode:str="r") -> Array:
+    """Open a Zarr, N5, or HDF5 dataset as an :class:`Array`. If the
     dataset has attributes ``resolution`` and ``offset``, those will be
     used to determine the meta-information of the returned array.
 
     Args:
 
-        filename (``string``):
+        filename:
 
             The name of the container "file" (which is a directory for Zarr and
             N5).
 
-        ds_name (``string``):
+        ds_name:
 
             The name of the dataset to open.
 
     Returns:
 
-        A :class:`daisy.Array` pointing to the dataset.
+        A :class:`Array` pointing to the dataset.
     """
 
     if filename.endswith(".zarr") or filename.endswith(".zip"):
@@ -171,68 +172,68 @@ def open_ds(filename, ds_name, mode="r"):
 
 
 def prepare_ds(
-    filename,
-    ds_name,
-    total_roi,
-    voxel_size,
+    filename:str,
+    ds_name:str,
+    total_roi:Roi,
+    voxel_size:Coordinate,
     dtype,
-    write_roi=None,
-    write_size=None,
-    num_channels=None,
-    compressor="default",
-    delete=False,
-    force_exact_write_size=False,
-):
+    write_roi:Roi=None,
+    write_size:Coordinate=None,
+    num_channels:Optional[int]=None,
+    compressor:str="default",
+    delete:bool=False,
+    force_exact_write_size:bool=False,
+) -> Array:
     """Prepare a Zarr or N5 dataset.
 
     Args:
 
-        filename (``string``):
+        filename:
 
             The name of the container "file" (which is actually a directory).
 
-        ds_name (``string``):
+        ds_name:
 
             The name of the dataset to prepare.
 
-        total_roi (:class:`daisy.Roi`):
+        total_roi:
 
             The ROI of the dataset to prepare in world units.
 
-        voxel_size (:class:`daisy.Coordinate`):
+        voxel_size:
 
             The size of one voxel in the dataset in world units.
 
-        write_size (:class:`daisy.Coordinate`):
+        write_size:
 
             The size of anticipated writes to the dataset, in world units. The
             chunk size of the dataset will be set such that ``write_size`` is a
             multiple of it. This allows concurrent writes to the dataset if the
             writes are aligned with ``write_size``.
 
-        num_channels (``int``, optional):
+        num_channels:
 
             The number of channels.
 
-        compressor (``string``, optional):
+        compressor:
 
             The compressor to use. See `zarr.get_codec` for available options.
             Defaults to gzip level 5.
 
-        delete (``bool``, optional):
+        delete:
 
             Whether to delete an existing dataset if it was found to be
             incompatible with the other requirements. The default is not to
             delete the dataset and raise an exception instead.
 
-        force_exact_write_size (``bool``, optional):
+        force_exact_write_size:
 
             Whether to use `write_size` as-is, or to first process it with
             `get_chunk_size`.
 
     Returns:
 
-        A :class:`daisy.Array` pointing to the newly created dataset.
+        A :class:`Array` pointing to the newly created dataset.
     """
 
     voxel_size = Coordinate(voxel_size)
