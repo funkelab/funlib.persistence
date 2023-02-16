@@ -84,7 +84,7 @@ def _read_voxel_size_offset(ds, order="C"):
     return Coordinate(voxel_size), Coordinate(offset)
 
 
-def open_ds(filename: str, ds_name:str, mode:str="r") -> Array:
+def open_ds(filename: str, ds_name: str, mode: str = "r") -> Array:
     """Open a Zarr, N5, or HDF5 dataset as an :class:`Array`. If the
     dataset has attributes ``resolution`` and ``offset``, those will be
     used to determine the meta-information of the returned array.
@@ -172,17 +172,17 @@ def open_ds(filename: str, ds_name:str, mode:str="r") -> Array:
 
 
 def prepare_ds(
-    filename:str,
-    ds_name:str,
-    total_roi:Roi,
-    voxel_size:Coordinate,
+    filename: str,
+    ds_name: str,
+    total_roi: Roi,
+    voxel_size: Coordinate,
     dtype,
-    write_roi:Roi=None,
-    write_size:Coordinate=None,
-    num_channels:Optional[int]=None,
-    compressor:str="default",
-    delete:bool=False,
-    force_exact_write_size:bool=False,
+    write_roi: Roi = None,
+    write_size: Coordinate = None,
+    num_channels: Optional[int] = None,
+    compressor: str = "default",
+    delete: bool = False,
+    force_exact_write_size: bool = False,
 ) -> Array:
     """Prepare a Zarr or N5 dataset.
 
