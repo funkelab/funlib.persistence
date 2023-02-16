@@ -63,9 +63,7 @@ class TestFilterMongoGraph(unittest.TestCase):
         graph.add_node(2, position=(2, 2, 2), selected=True, test="test")
         graph.add_node(42, position=(1, 1, 1), selected=False, test="test2")
         graph.add_node(23, position=(5, 5, 5), selected=True, test="test2")
-        graph.add_node(
-            57, position=Coordinate((7, 7, 7)), selected=True, test="test"
-        )
+        graph.add_node(57, position=Coordinate((7, 7, 7)), selected=True, test="test")
 
         graph.add_edge(42, 23, selected=False, a=100, b=3)
         graph.add_edge(57, 23, selected=True, a=100, b=2)
@@ -111,9 +109,7 @@ class TestFilterMongoGraph(unittest.TestCase):
         graph.add_node(2, position=(2, 2, 2), selected=True, test="test")
         graph.add_node(42, position=(1, 1, 1), selected=False, test="test2")
         graph.add_node(23, position=(5, 5, 5), selected=True, test="test2")
-        graph.add_node(
-            57, position=Coordinate((7, 7, 7)), selected=True, test="test"
-        )
+        graph.add_node(57, position=Coordinate((7, 7, 7)), selected=True, test="test")
 
         graph.add_edge(42, 23, selected=False, a=100, b=3)
         graph.add_edge(57, 23, selected=True, a=100, b=2)
@@ -158,9 +154,7 @@ class TestFilterMongoGraph(unittest.TestCase):
         graph.add_node(2, position=(2, 2, 2), selected=True, test="test")
         graph.add_node(42, position=(1, 1, 1), selected=False, test="test2")
         graph.add_node(23, position=(5, 5, 5), selected=True, test="test2")
-        graph.add_node(
-            57, position=Coordinate((7, 7, 7)), selected=True, test="test"
-        )
+        graph.add_node(57, position=Coordinate((7, 7, 7)), selected=True, test="test")
 
         graph.add_edge(42, 23, selected=False, a=100, b=3)
         graph.add_edge(57, 23, selected=True, a=100, b=2)
