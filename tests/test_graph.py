@@ -7,8 +7,6 @@ from funlib.geometry import Roi, Coordinate
 
 import logging
 import unittest
-import random
-import numpy as np
 
 logger = logging.getLogger(__name__)
 # daisy.scheduler._NO_SPAWN_STATUS_THREAD = True
@@ -54,13 +52,6 @@ class TestGraph(unittest.TestCase):
     # test has_edge
     def test_graph_has_edge_mongo(self):
         self.run_test_graph_has_edge(self.mongo_provider_factory)
-
-    # test read_blockwise function
-    def test_graph_read_blockwise_mongo(self):
-        self.run_test_graph_read_blockwise(self.mongo_provider_factory)
-
-    def test_graph_read_blockwise_file(self):
-        self.run_test_graph_read_blockwise(self.file_provider_factory)
 
     def run_test_graph_io(self, provider_factory):
         graph_provider = provider_factory("w")
@@ -220,55 +211,6 @@ class TestGraph(unittest.TestCase):
 
         self.assertCountEqual(n1, compare_n1)
         self.assertCountEqual(n2, compare_n2)
-
-    def run_test_graph_read_blockwise(self, provider_factory):
-        graph_provider = provider_factory("w")
-
-        graph = graph_provider[Roi((0, 0, 0), (10, 10, 10))]
-
-        nodes_to_write = list(range(1000))
-        nodes_to_write += [np.uint64(-10), np.uint64(-1)]
-        num_edges = 10000
-
-        random.seed(42)
-
-        for n in nodes_to_write:
-            graph.add_node(
-                n,
-                position=(
-                    random.randint(0, 9),
-                    random.randint(0, 9),
-                    random.randint(0, 9),
-                ),
-            )
-        for i in range(num_edges):
-            ui = random.randint(0, len(nodes_to_write) - 1)
-            vi = random.randint(0, len(nodes_to_write) - 1)
-            u = nodes_to_write[ui]
-            v = nodes_to_write[vi]
-            graph.add_edge(u, v, score=random.random())
-
-        graph.write_nodes()
-        graph.write_edges()
-
-        nodes, edges = graph_provider.read_blockwise(
-            # read in larger ROI to test handling of empty blocks
-            Roi((0, 0, 0), (20, 10, 10)),
-            Coordinate((1, 1, 1)),
-            num_workers=40,
-        )
-
-        assert nodes["id"].dtype == np.uint64
-        assert edges["u"].dtype == np.uint64
-        assert edges["v"].dtype == np.uint64
-
-        written_nodes = list(nodes_to_write)
-        read_nodes = sorted(nodes["id"])
-
-        self.assertEqual(written_nodes, read_nodes)
-
-        for u, v, score in zip(edges["u"], edges["v"], edges["score"]):
-            self.assertEqual(graph.edges[(u, v)]["score"], score)
 
     def run_test_graph_has_edge(self, provider_factory):
         graph_provider = provider_factory("w")

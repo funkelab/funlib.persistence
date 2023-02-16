@@ -125,7 +125,7 @@ class FileGraphProvider(SharedGraphProvider):
     def __get_roi_filter(self, nodes, roi):
         if type(self.position_attribute) == list:
             num_nodes = len(nodes[self.position_attribute[0]])
-            roi_filter = np.ones((num_nodes,), dtype=np.bool)
+            roi_filter = np.ones((num_nodes,), dtype=bool)
             for d in range(roi.dims):
                 node_dim_values = nodes[self.position_attribute[d]]
                 ge = np.array(
@@ -139,7 +139,7 @@ class FileGraphProvider(SharedGraphProvider):
         else:
             node_positions = nodes[self.position_attribute]
             num_nodes = len(node_positions)
-            roi_filter = np.ones((num_nodes,), dtype=np.bool)
+            roi_filter = np.ones((num_nodes,), dtype=bool)
             for d in range(roi.dims):
                 ge = np.array([pos[d] >= roi.get_begin()[d] for pos in node_positions])
                 lt = np.array([pos[d] < roi.get_end()[d] for pos in node_positions])
@@ -177,7 +177,7 @@ class FileGraphProvider(SharedGraphProvider):
             json.dump({"attributes": attributes}, f)
 
         if roi is not None and not roi.contains(chunk_roi):
-            roi_filter = np.ones((len(edges),), dtype=np.bool)
+            roi_filter = np.ones((len(edges),), dtype=bool)
             for d in range(roi.dims):
                 ge = edge_positions[d] >= roi.get_begin()[d]
                 lt = edge_positions[d] < roi.get_end()[d]
