@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 # data, until zarr fixes this issue:
 # https://github.com/zarr-developers/zarr/issues/325
 
-# no idea whats going on here
+
 def UmaskNamedTemporaryFile(*args, **kargs):
     fdesc = tempfile.NamedTemporaryFile2(*args, **kargs)
     umask = os.umask(0)
@@ -86,6 +86,11 @@ def _read_voxel_size_offset(ds, order="C"):
         voxel_size = Coordinate(voxel_size[::-1])
 
     if voxel_size is not None and (offset / voxel_size) * voxel_size != offset:
+        # offset is not a multiple of voxel_size. This is often due to someone defining
+        # offset to the point source of each array element i.e. the center of the rendered
+        # voxel, vs the offset to the corner of the voxel.
+        # apparently this can be a heated discussion. See here for arguments against
+        # the convention we are using: http://alvyray.com/Memos/CG/Microsoft/6_pixel.pdf
         logger.debug(
             f"Offset: {offset} being rounded to nearest voxel size: {voxel_size}"
         )
@@ -122,9 +127,12 @@ def open_ds(filename, ds_name, mode="r", attr_filename=None):
 
         A :class:`daisy.Array` pointing to the dataset.
     """
-    filename = str(filename)
 
-    if filename.endswith(".zarr"):
+    if filename.endswith(".zarr") or filename.endswith(".zip"):
+        assert (
+            not filename.endswith(".zip") or mode == "r"
+        ), "Only reading supported for zarr ZipStore"
+
         logger.debug("opening zarr dataset %s in %s", ds_name, filename)
         try:
             ds = zarr.open(filename, mode=mode)[ds_name]
@@ -191,14 +199,6 @@ def open_ds(filename, ds_name, mode="r", attr_filename=None):
             adaptor.voxel_size,
             adaptor.roi.begin,
             chunk_shape=adaptor.chunk_shape,
-        )
-
-    elif filename.endswith(".tif"):
-        logger.debug("opening tiff dataset %s", filename)
-
-        raise ValueError("Where do I read the metadata?")
-        return Array(
-            tifffile.TiffFile(filename).values,
         )
 
     else:
