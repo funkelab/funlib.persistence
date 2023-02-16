@@ -10,6 +10,7 @@ from pymongo import MongoClient, ASCENDING, ReplaceOne, UpdateOne
 from pymongo.errors import BulkWriteError, WriteError
 
 import logging
+from typing import Optional, Any
 
 logger = logging.getLogger(__name__)
 
@@ -293,7 +294,7 @@ class MongoDbGraphProvider(SharedGraphProvider):
     def read_edges(
         self,
         roi: Roi,
-        nodes: Optional[dict[str, Any]] = None,
+        nodes: Optional[list[dict[str, Any]]] = None,
         attr_filter: Optional[dict[str, Any]] = None,
         read_attrs: Optional[list[str]] = None,
     ) -> list[dict[int, Any]]:
