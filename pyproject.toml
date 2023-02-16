@@ -27,7 +27,6 @@ dependencies = [
   "pymongo",
   "numpy",
   'h5py',
-  # 'pyklb', not installable via pip (ugh)
 ]
 
 [project.optional-dependencies]

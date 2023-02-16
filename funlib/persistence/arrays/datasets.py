@@ -1,5 +1,4 @@
 from .array import Array
-from .klb_adaptor import KlbAdaptor
 
 from funlib.geometry import Coordinate, Roi
 
@@ -84,7 +83,7 @@ def _read_voxel_size_offset(ds, order="C"):
     return Coordinate(voxel_size), Coordinate(offset)
 
 
-def open_ds(filename, ds_name, mode="r", attr_filename=None):
+def open_ds(filename, ds_name, mode="r"):
     """Open a Zarr, N5, or HDF5 dataset as a :class:`daisy.Array`. If the
     dataset has attributes ``resolution`` and ``offset``, those will be
     used to determine the meta-information of the returned array.
@@ -99,11 +98,6 @@ def open_ds(filename, ds_name, mode="r", attr_filename=None):
         ds_name (``string``):
 
             The name of the dataset to open.
-
-        attr_filename (``string``):
-
-            KLB only: the name of the attributes json file. Default is
-            "attributes.json".
 
     Returns:
 
@@ -169,18 +163,6 @@ def open_ds(filename, ds_name, mode="r", attr_filename=None):
             array.voxel_size,
             array.roi.begin,
             chunk_shape=array.chunk_shape,
-        )
-
-    elif filename.endswith(".klb"):
-        logger.debug("opening KLB dataset %s", filename)
-        adaptor = KlbAdaptor(filename, attr_filename=attr_filename)
-
-        return Array(
-            adaptor,
-            adaptor.roi,
-            adaptor.voxel_size,
-            adaptor.roi.begin,
-            chunk_shape=adaptor.chunk_shape,
         )
 
     else:
