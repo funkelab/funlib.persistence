@@ -1,5 +1,4 @@
-from daisy.logging import set_log_basedir
-import daisy
+from funlib.persistence.graphs import FileGraphProvider, MongoDbGraphProvider
 
 import pytest
 import pymongo
@@ -12,11 +11,6 @@ def mongo_db_available():
         return True
     except pymongo.errors.ConnectionFailure:
         return False
-
-
-@pytest.fixture(autouse=True)
-def daisy_test_logging(tmpdir):
-    return set_log_basedir(tmpdir)
 
 
 @pytest.fixture(
@@ -37,12 +31,12 @@ def provider_factory(request, tmpdir):
     # to avoid artifacts
 
     def mongo_provider_factory(mode, directed=None, total_roi=None):
-        return daisy.persistence.MongoDbGraphProvider(
+        return MongoDbGraphProvider(
             "test_mongo_graph", mode=mode, directed=directed, total_roi=total_roi
         )
 
     def file_provider_factory(mode, directed=None, total_roi=None):
-        return daisy.persistence.FileGraphProvider(
+        return FileGraphProvider(
             tmpdir / "test_file_graph",
             chunk_size=(10, 10, 10),
             mode=mode,
