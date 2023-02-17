@@ -45,7 +45,9 @@ def provider_factory(request, tmpdir):
         )
 
     if request.param == "mongo":
-        return mongo_provider_factory
+        yield mongo_provider_factory
+        mongo_client = pymongo.MongoClient()
+        mongo_client.drop_database("test_mongo_graph")
     else:
-        return file_provider_factory
+        yield file_provider_factory
 
