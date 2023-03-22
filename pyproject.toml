@@ -5,13 +5,13 @@ requires = ["setuptools", "wheel"]
 [project]
 name = "funlib.persistence"
 description = "Interfaces for data (arrays and graphs) and storage formats (databases and file formats)"
-version = "0.1"
 license = {text = "MIT"}
 readme = "README.md"
 authors = [
   {name = "William Patton", email = "pattonw@hhmi.org"},
   {name = "Jan Funke", email = "funkej@hhmi.org"},
 ]
+dynamic = ['version']
 
 requires-python = ">=3.7"
 classifiers = [
@@ -27,6 +27,9 @@ dependencies = [
   "numpy",
   'h5py',
 ]
+
+[tool.setuptools.dynamic]
+version = {attr = "funlib.persistence.__version__"}
 
 [project.optional-dependencies]
 dev = [
