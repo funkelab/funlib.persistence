@@ -103,4 +103,3 @@ class SharedSubGraph:
 
     def name(self):
         return type(self).__name__
-

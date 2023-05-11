@@ -31,7 +31,7 @@ def test_graph_filtering(provider_factory):
     filtered_edge_endpoints = [(edge["u"], edge["v"]) for edge in filtered_edges]
     expected_edge_endpoints = [(57, 23), (2, 42)]
     for u, v in expected_edge_endpoints:
-        assert (u,v) in filtered_edge_endpoints or (v,u) in filtered_edge_endpoints
+        assert (u, v) in filtered_edge_endpoints or (v, u) in filtered_edge_endpoints
 
     filtered_subgraph = graph_reader.get_graph(
         roi, nodes_filter={"selected": True}, edges_filter={"selected": True}
@@ -42,7 +42,10 @@ def test_graph_filtering(provider_factory):
     assert expected_node_ids == nodes_with_position
     assert len(filtered_subgraph.edges()) == len(expected_edge_endpoints)
     for u, v in expected_edge_endpoints:
-        assert (u,v) in filtered_subgraph.edges() or (v,u) in filtered_subgraph.edges()
+        assert (u, v) in filtered_subgraph.edges() or (
+            v,
+            u,
+        ) in filtered_subgraph.edges()
 
 
 def test_graph_filtering_complex(provider_factory):
@@ -77,7 +80,7 @@ def test_graph_filtering_complex(provider_factory):
     filtered_edge_endpoints = [(edge["u"], edge["v"]) for edge in filtered_edges]
     expected_edge_endpoints = [(57, 23)]
     for u, v in expected_edge_endpoints:
-        assert (u,v) in filtered_edge_endpoints or (v,u) in filtered_edge_endpoints
+        assert (u, v) in filtered_edge_endpoints or (v, u) in filtered_edge_endpoints
 
     filtered_subgraph = graph_provider.get_graph(
         roi,
@@ -90,7 +93,10 @@ def test_graph_filtering_complex(provider_factory):
     assert expected_node_ids == nodes_with_position
     assert len(filtered_subgraph.edges()) == len(expected_edge_endpoints)
     for u, v in expected_edge_endpoints:
-        assert (u,v) in filtered_subgraph.edges() or (v,u) in filtered_subgraph.edges()
+        assert (u, v) in filtered_subgraph.edges() or (
+            v,
+            u,
+        ) in filtered_subgraph.edges()
 
 
 def test_graph_read_and_update_specific_attrs(provider_factory):

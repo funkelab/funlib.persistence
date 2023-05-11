@@ -50,4 +50,3 @@ def provider_factory(request, tmpdir):
         mongo_client.drop_database("test_mongo_graph")
     else:
         yield file_provider_factory
-

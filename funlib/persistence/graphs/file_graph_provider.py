@@ -424,7 +424,9 @@ class FileSharedSubGraph(SharedSubGraph):
         if fail_if_exists:
             raise NotImplementedError("Fail if exists not implemented for file backend")
         if fail_if_not_exists:
-            raise NotImplementedError("Fail if not exists not implemented for file backend")
+            raise NotImplementedError(
+                "Fail if not exists not implemented for file backend"
+            )
         if attributes is not None:
             raise NotImplementedError("Attributes not implemented for file backend")
         if self.graph_provider.mode == "r":
@@ -477,9 +479,13 @@ class FileSharedSubGraph(SharedSubGraph):
         if delete:
             raise NotImplementedError("Delete not implemented for file backend")
         if fail_if_exists:
-            raise NotImplementedError("Fail if exists not implemented for " "file backend")
+            raise NotImplementedError(
+                "Fail if exists not implemented for " "file backend"
+            )
         if fail_if_not_exists:
-            raise NotImplementedError("Fail if not exists not implemented for " "file backend")
+            raise NotImplementedError(
+                "Fail if not exists not implemented for " "file backend"
+            )
         if attributes is not None:
             raise NotImplementedError("Attributes not implemented for file backend")
         if self.graph_provider.mode == "r":
