@@ -25,7 +25,7 @@ class SharedGraphProvider(object):
     """
 
     def __getitem__(self, roi):
-        raise RuntimeError("not implemented in %s" % self.name())
+        raise NotImplementedError("not implemented in %s" % self.name())
 
     def name(self):
         return type(self).__name__
@@ -61,7 +61,7 @@ class SharedSubGraph:
                 in subgraph.
 
         """
-        raise RuntimeError("not implemented in %s" % self.name())
+        raise NotImplementedError("not implemented in %s" % self.name())
 
     def write_nodes(
         self,
@@ -93,13 +93,13 @@ class SharedSubGraph:
                 in subgraph.
 
         """
-        raise RuntimeError("not implemented in %s" % self.name())
+        raise NotImplementedError("not implemented in %s" % self.name())
 
     def get_connected_components(self):
         """Returns a list of connected components from the nodes and edges
         in the subgraph. For directed graphs, weak connectivity is sufficient.
         """
-        raise RuntimeError("not implemented in %s" % self.name())
+        raise NotImplementedError("not implemented in %s" % self.name())
 
     def name(self):
         return type(self).__name__

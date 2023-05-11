@@ -489,9 +489,7 @@ class MongoDbGraphProvider(SharedGraphProvider):
         self.edges = None
         self.meta = None
         self.database = None
-        if self.client:
-            self.client.close()
-            self.client = None
+        self.client = None
 
     def __create_node_collection(self):
         """Creates the node collection, including indexes"""
@@ -633,7 +631,8 @@ class MongoDbSharedSubGraph(SharedSubGraph):
         fail_if_not_exists=False,
         delete=False,
     ):
-        assert not delete, "Delete not implemented"
+        if delete:
+            raise NotImplementedError("Delete not implemented for file backend")
         assert not (
             fail_if_exists and fail_if_not_exists
         ), "Cannot have fail_if_exists and fail_if_not_exists simultaneously"
@@ -691,7 +690,8 @@ class MongoDbSharedSubGraph(SharedSubGraph):
         fail_if_not_exists=False,
         delete=False,
     ):
-        assert not delete, "Delete not implemented"
+        if delete:
+            raise NotImplementedError("Delete not implemented for file backend")
         assert not (
             fail_if_exists and fail_if_not_exists
         ), "Cannot have fail_if_exists and fail_if_not_exists simultaneously"
@@ -710,6 +710,7 @@ class MongoDbSharedSubGraph(SharedSubGraph):
         for u, v, data in self.edges(data=True):
             if not self.is_directed():
                 u, v = min(u, v), max(u, v)
+
             if not self.__contains(roi, u):
                 logger.debug(
                     (
@@ -904,7 +905,8 @@ class MongoDbSharedSubGraph(SharedSubGraph):
 
                 see write_nodes or write_edges for explanations of these flags
         """
-        assert not delete, "Delete not implemented"
+        if delete:
+            raise NotImplementedError("Delete not implemented for file backend")
         match_docs = []
         for doc in docs:
             match_doc = {}
@@ -977,7 +979,7 @@ class MongoDbSharedSubGraph(SharedSubGraph):
         return roi.contains(Coordinate(coordinate))
 
     def is_directed(self):
-        raise RuntimeError("not implemented in %s" % self.name())
+        raise NotImplementedError("not implemented in %s" % self.name())
 
 
 class MongoDbSubGraph(MongoDbSharedSubGraph, Graph):

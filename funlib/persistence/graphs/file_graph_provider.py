@@ -416,18 +416,19 @@ class FileSharedSubGraph(SharedSubGraph):
         fail_if_not_exists=False,
         delete=False,
     ):
-        assert not delete, "Delete not implemented"
         assert not (
             fail_if_exists and fail_if_not_exists
         ), "Cannot have fail_if_exists and fail_if_not_exists simultaneously"
+        if delete:
+            raise NotImplementedError("Delete not implemented for file backend")
         if fail_if_exists:
-            raise RuntimeError("Fail if exists not implemented for " "file backend")
+            raise NotImplementedError("Fail if exists not implemented for file backend")
         if fail_if_not_exists:
-            raise RuntimeError("Fail if not exists not implemented for " "file backend")
+            raise NotImplementedError("Fail if not exists not implemented for file backend")
         if attributes is not None:
-            raise RuntimeError("Attributes not implemented for file backend")
+            raise NotImplementedError("Attributes not implemented for file backend")
         if self.graph_provider.mode == "r":
-            raise RuntimeError("Trying to write to read-only DB")
+            raise NotImplementedError("Trying to write to read-only DB")
         if roi is None:
             roi = self.roi
 
@@ -470,18 +471,19 @@ class FileSharedSubGraph(SharedSubGraph):
         fail_if_not_exists=False,
         delete=False,
     ):
-        assert not delete, "Delete not implemented"
         assert not (
             fail_if_exists and fail_if_not_exists
         ), "Cannot have fail_if_exists and fail_if_not_exists simultaneously"
+        if delete:
+            raise NotImplementedError("Delete not implemented for file backend")
         if fail_if_exists:
-            raise RuntimeError("Fail if exists not implemented for " "file backend")
+            raise NotImplementedError("Fail if exists not implemented for " "file backend")
         if fail_if_not_exists:
-            raise RuntimeError("Fail if not exists not implemented for " "file backend")
+            raise NotImplementedError("Fail if not exists not implemented for " "file backend")
         if attributes is not None:
-            raise RuntimeError("Attributes not implemented for file backend")
+            raise NotImplementedError("Attributes not implemented for file backend")
         if self.graph_provider.mode == "r":
-            raise RuntimeError("Trying to write to read-only DB")
+            raise NotImplementedError("Trying to write to read-only DB")
 
         if roi is None:
             roi = self.roi
@@ -528,7 +530,7 @@ class FileSharedSubGraph(SharedSubGraph):
         return roi.contains(Coordinate(node_data["position"]))
 
     def is_directed(self):
-        raise RuntimeError("not implemented in %s" % self.name())
+        raise NotImplementedError("not implemented in %s" % self.name())
 
 
 class FileSubGraph(FileSharedSubGraph, Graph):
