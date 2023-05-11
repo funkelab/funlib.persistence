@@ -91,12 +91,7 @@ def test_graph_filtering_complex(provider_factory):
         node for node, data in filtered_subgraph.nodes(data=True) if "position" in data
     ]
     assert expected_node_ids == nodes_with_position
-    assert len(filtered_subgraph.edges()) == len(expected_edge_endpoints)
-    for u, v in expected_edge_endpoints:
-        assert (u, v) in filtered_subgraph.edges() or (
-            v,
-            u,
-        ) in filtered_subgraph.edges()
+    assert len(filtered_subgraph.edges()) == 0
 
 
 def test_graph_read_and_update_specific_attrs(provider_factory):

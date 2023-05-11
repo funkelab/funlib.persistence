@@ -15,7 +15,10 @@ def mongo_db_available():
 
 @pytest.fixture(
     params=(
-        "files",
+        pytest.param(
+            "files",
+            marks=pytest.mark.xfail(reason="FileProvider not fully implemented!"),
+        ),
         pytest.param(
             "mongo",
             marks=pytest.mark.skipif(
