@@ -14,10 +14,19 @@ from typing import Optional
 logger = logging.getLogger(__name__)
 
 
+def access_parent(node):
+    """
+    Get the parent (zarr.Group) of a zarr array or group.
+    """
+    parent_path = "/".join(node.path.split("/")[:-1])
+    return zarr.open(node.store.path, mode="r")[parent_path]
+
+
 def _read_voxel_size_offset(ds, order="C"):
     voxel_size = None
     offset = None
     dims = None
+    group = access_parent(ds)
 
     if "resolution" in ds.attrs:
         voxel_size = Coordinate(ds.attrs["resolution"])
@@ -28,7 +37,6 @@ def _read_voxel_size_offset(ds, order="C"):
     elif "pixelResolution" in ds.attrs:
         voxel_size = Coordinate(ds.attrs["pixelResolution"]["dimensions"])
         dims = len(voxel_size)
-
     elif "transform" in ds.attrs:
         # Davis saves transforms in C order regardless of underlying
         # memory format (i.e. n5 or zarr). May be explicitly provided
@@ -37,6 +45,23 @@ def _read_voxel_size_offset(ds, order="C"):
         voxel_size = Coordinate(ds.attrs["transform"]["scale"])
         if transform_order != order:
             voxel_size = Coordinate(voxel_size[::-1])
+        dims = len(voxel_size)
+    elif (multiscales := group.attrs.get("multiscales", None)) is not None:
+        logger.info("Found multiscales attributes")
+        if len(multiscales) == 0:
+            raise ValueError("Multiscales attribute was empty.")
+        scale = ds.path.split("/")[-1]
+        for level in multiscales[0][
+            "datasets"
+        ]:  # TODO: flimsy parsing may break with other formats
+            if level["path"] == scale:
+                logger.info("Found scale attribute")
+                for attr in level["coordinateTransformations"]:
+                    if attr["type"] == "scale":
+                        voxel_size = Coordinate(attr["scale"])
+                    elif attr["type"] == "translation":
+                        offset = Coordinate(attr["translation"])
+                break
         dims = len(voxel_size)
 
     if "offset" in ds.attrs:
