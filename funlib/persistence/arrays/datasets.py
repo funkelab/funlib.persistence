@@ -10,6 +10,7 @@ import logging
 import os
 import shutil
 from typing import Optional
+from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
@@ -18,7 +19,7 @@ def access_parent(node):
     """
     Get the parent (zarr.Group) of a zarr array or group.
     """
-    parent_path = "/".join(node.path.split("/")[:-1])
+    parent_path = Path(node.path).parent.absolute()
     return zarr.open(node.store.path, mode="r")[parent_path]
 
 
