@@ -19,8 +19,7 @@ def access_parent(node):
     """
     Get the parent (zarr.Group) of a zarr array or group.
     """
-    parent_path = Path(node.path).parent.absolute()
-    return zarr.open(node.store.path, mode="r")[parent_path]
+    return zarr.open(node.store.path, mode="r")[Path(node.path).parent]
 
 
 def _read_voxel_size_offset(ds, order="C"):
