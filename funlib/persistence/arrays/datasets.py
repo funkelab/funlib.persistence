@@ -26,7 +26,8 @@ def _read_voxel_size_offset(ds, order="C"):
     voxel_size = None
     offset = None
     dims = None
-    group = access_parent(ds)
+    group = None
+    multiscales = None
 
     if "resolution" in ds.attrs:
         voxel_size = Coordinate(ds.attrs["resolution"])
@@ -46,7 +47,11 @@ def _read_voxel_size_offset(ds, order="C"):
         if transform_order != order:
             voxel_size = Coordinate(voxel_size[::-1])
         dims = len(voxel_size)
-    elif (multiscales := group.attrs.get("multiscales", None)) is not None:
+    else:
+        group = access_parent(ds)
+        multiscales = group.attrs.get("multiscales", None)
+
+    if multiscales is not None:
         logger.info("Found multiscales attributes")
         if len(multiscales) == 0:
             raise ValueError("Multiscales attribute was empty.")
@@ -334,7 +339,7 @@ def prepare_ds(
 
         root = zarr.open(filename, mode="a")
         ds = root.create_dataset(
-            ds_name, shape=shape, chunks=chunk_shape, dtype=dtype, compressor=compressor
+            ds_name, shape=shape, chunks=chunk_shape, dtype=dtype, compressor=compressor, overwrite=delete
         )
 
         if file_format == "zarr":
