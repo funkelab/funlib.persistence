@@ -174,10 +174,11 @@ class FileGraphProvider(SharedGraphProvider):
         )
         u, v = ["u", "v"]
 
-        logger.info(f'EDGES KEYS!!!!: {list(edges.keys())}')
+        logger.info(f"EDGES KEYS!!!!: {list(edges.keys())}")
 
         node_list = list(nodes["id"])
-        edge_list = list(zip(*(list(edges[u]), list(edges[v]))))
+        edge_attrs = ["u", "v"] + [k for k in edges if k not in ["u", "v"]]
+        edge_list = list(zip(*[list(edges[attr]) for attr in edge_attrs]))
 
         if self.directed:
             graph = FileSubDiGraph(self, roi)
@@ -189,6 +190,10 @@ class FileGraphProvider(SharedGraphProvider):
 
         # todo: debug this
         graph.add_edges_from(edge_list, **edges)
+        for u, v, *attrs in edge_list:
+            graph.add_edge(
+                u, v, **{attr: value for attr, value in zip(edge_attrs[2:], attrs)}
+            )
 
         return graph
 
@@ -272,7 +277,7 @@ class FileGraphProvider(SharedGraphProvider):
         logger.info(f"EDGES!!!!!!!: {edges}")
 
         for k, v in edges.items():
-            logger.info(f'{k},{v}')
+            logger.info(f"{k},{v}")
             np.savez_compressed(os.path.join(path, k), edges=v)
 
     def _read_nodes_from_chunk(self, chunk_index, roi=None):
@@ -548,10 +553,10 @@ class FileSharedSubGraph(SharedSubGraph):
         for k, v in edges.items():
             v += [None] * (num_entries - len(v))
 
-        logger.info(f'CHUNK!!!!!!!!')
+        logger.info(f"CHUNK!!!!!!!!")
 
         for chunk in self.graph_provider.get_chunks(roi):
-            logger.info(f'CHUNK!!!!!!!!: {chunk}')
+            logger.info(f"CHUNK!!!!!!!!: {chunk}")
             self.graph_provider._write_edges_to_chunk(chunk, edges, roi)
 
     def write_nodes(
@@ -627,7 +632,6 @@ class FileSharedSubGraph(SharedSubGraph):
 
     def is_directed(self):
         raise NotImplementedError("not implemented in %s" % self.name())
-
 
 
 class FileSubGraph(FileSharedSubGraph, Graph):
