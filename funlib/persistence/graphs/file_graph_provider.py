@@ -11,6 +11,7 @@ import logging
 import numpy as np
 import os
 import shutil
+from typing import Optional, Any
 
 logger = logging.getLogger(__name__)
 
@@ -116,6 +117,88 @@ class FileGraphProvider(SharedGraphProvider):
 
         return chunk_indices
 
+    def get_graph(
+        self,
+        roi: Roi,
+        nodes_filter: Optional[dict[str, Any]] = None,
+        edges_filter: Optional[dict[str, Any]] = None,
+        node_attrs: Optional[list[str]] = None,
+        edge_attrs: Optional[list[str]] = None,
+        join_collection: Optional[str] = None,
+    ):
+        """Return a graph within roi, optionally filtering by
+        node and edge attributes.
+
+        Arguments:
+
+            roi:
+
+                Get nodes and edges whose source is within this roi
+
+            nodes_filter:
+            edges_filter:
+
+                Only return nodes/edges that have attribute=value for
+                each attribute value pair in nodes/edges_filter.
+
+            node_attrs:
+
+                Only return these attributes for nodes. Other
+                attributes will be ignored, but id and position attribute(s)
+                will always be included. If None (default), return all attrs.
+
+            edge_attrs:
+
+                Only return these attributes for edges. Other
+                attributes will be ignored, but source and target
+                will always be included. If None (default), return all attrs.
+
+            join_collection:
+
+                Compute (left) join of the nodes collection and this
+                collection using the id attribute.
+                See read_nodes() for more information.
+
+        """
+        nodes = self.read_nodes(
+            roi,
+            # attr_filter=nodes_filter,
+            # read_attrs=node_attrs,
+            # join_collection=join_collection,
+        )
+        edges = self.read_edges(
+            roi,
+            nodes=nodes,
+            # attr_filter=edges_filter,
+            # read_attrs=edge_attrs
+        )
+        u, v = ["u", "v"]
+
+        logger.info(f'EDGES KEYS!!!!: {list(edges.keys())}')
+
+        node_list = list(nodes["id"])
+        edge_list = list(zip(*(list(edges[u]), list(edges[v]))))
+
+        if self.directed:
+            graph = FileSubDiGraph(self, roi)
+        else:
+            # create the subgraph
+            graph = FileSubGraph(self, roi)
+
+        graph.add_nodes_from(node_list)
+
+        # todo: debug this
+        graph.add_edges_from(edge_list, **edges)
+
+        return graph
+
+    def __remove_keys(self, dictionary, keys):
+        """Removes given keys from dictionary."""
+
+        for key in keys:
+            del dictionary[key]
+        return dictionary
+
     def __chunk_nodes_path(self, chunk_index):
         return os.path.join(self.nodes_collection, *[str(i) for i in chunk_index])
 
@@ -186,7 +269,10 @@ class FileGraphProvider(SharedGraphProvider):
             for k, v in edges.items():
                 edges[k] = edges[k][roi_filter]
 
+        logger.info(f"EDGES!!!!!!!: {edges}")
+
         for k, v in edges.items():
+            logger.info(f'{k},{v}')
             np.savez_compressed(os.path.join(path, k), edges=v)
 
     def _read_nodes_from_chunk(self, chunk_index, roi=None):
@@ -462,7 +548,10 @@ class FileSharedSubGraph(SharedSubGraph):
         for k, v in edges.items():
             v += [None] * (num_entries - len(v))
 
+        logger.info(f'CHUNK!!!!!!!!')
+
         for chunk in self.graph_provider.get_chunks(roi):
+            logger.info(f'CHUNK!!!!!!!!: {chunk}')
             self.graph_provider._write_edges_to_chunk(chunk, edges, roi)
 
     def write_nodes(
@@ -538,6 +627,7 @@ class FileSharedSubGraph(SharedSubGraph):
 
     def is_directed(self):
         raise NotImplementedError("not implemented in %s" % self.name())
+
 
 
 class FileSubGraph(FileSharedSubGraph, Graph):
