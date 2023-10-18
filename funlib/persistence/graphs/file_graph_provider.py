@@ -509,11 +509,12 @@ class FileSharedSubGraph(SharedSubGraph):
                 nodes[k].append(v)
 
         num_entries = len(nodes["id"])
-        logger.debug("ids have type %s" % type(nodes["id"][0]))
 
         if num_entries == 0:
             logger.debug("No nodes to insert in %s", roi)
             return
+
+        logger.debug("ids have type %s" % type(nodes["id"][0]))
 
         for k, v in nodes.items():
             v += [None] * (num_entries - len(v))
