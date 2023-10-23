@@ -33,15 +33,17 @@ def test_graph_nonmatching_meta_values(provider_factory):
 
 
 def test_graph_write_roi(provider_factory):
-    graph_provider = provider_factory("w")
+    graph_provider = provider_factory(
+        "w", node_attrs=["swip", "zap"], edge_attrs=["swop", "zop"]
+    )
     graph = graph_provider[Roi((0, 0, 0), (10, 10, 10))]
 
     n_2 = graph.add_node({"id": 2, "comment": "without position"})
     n_42 = graph.add_node({"id": 42, "z": 1, "y": 1, "x": 1})
     n_23 = graph.add_node({"id": 23, "z": 5, "y": 5, "x": 5, "swip": "swap"})
     n_57 = graph.add_node({"id": 57, "z": 7, "y": 7, "x": 7, "zap": "zip"})
-    graph.add_edge(n_42, n_23, {})
-    graph.add_edge(n_57, n_23, {})
+    graph.add_edge(n_42, n_23, {"swop": "swup"})
+    graph.add_edge(n_57, n_23, {"zop": "zup"})
     graph.add_edge(n_2, n_42, {})
 
     write_roi = Roi((0, 0, 0), (6, 6, 6))
@@ -56,16 +58,31 @@ def test_graph_write_roi(provider_factory):
     compare_nodes = [node_attrs["id"] for node_attrs in compare_graph.nodes()]
     compare_nodes = sorted(list(compare_nodes))
     edges = sorted(
-        [(graph.nodes()[u]["id"], graph.nodes()[v]["id"]) for u, v in graph.edge_list()]
-    )
-    edges.remove((2, 42))  # node 2 has no position and will not be queried
-    edges.remove((57, 23))  # node 57 is outside the roi and will not be queried
-    compare_edges = sorted(
         [
-            (compare_graph.nodes()[u]["id"], compare_graph.nodes()[v]["id"])
-            for u, v in compare_graph.edge_list()
+            (
+                graph.nodes()[u]["id"],
+                graph.nodes()[v]["id"],
+                edge_data.get("swop", None),
+            )
+            for (u, v), edge_data in zip(graph.edge_list(), graph.edges())
         ]
     )
+    edges.remove((2, 42, None))  # node 2 has no position and will not be queried
+    edges.remove((57, 23, None))  # node 57 is outside the roi and will not be queried
+    compare_edges = sorted(
+        [
+            (
+                compare_graph.nodes()[u]["id"],
+                compare_graph.nodes()[v]["id"],
+                edge_data.get("swop", None),
+            )
+            for (u, v), edge_data in zip(
+                compare_graph.edge_list(), compare_graph.edges()
+            )
+        ]
+    )
+
+    assert set([edge[2] for edge in compare_edges]) == {"swup"}, compare_edges
 
     assert nodes == compare_nodes
     assert edges == compare_edges

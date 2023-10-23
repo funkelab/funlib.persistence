@@ -137,19 +137,3 @@ class SharedGraphProvider(ABC):
         self.write_nodes(nodes, roi)
         self.write_edges(nodes, list(zip(*zip(*edge_list), edges)), roi)
 
-
-class SubGraph:
-    def __init__(self, graph: PyGraph, graph_provider: SharedGraphProvider):
-        self.__graph = graph
-        self.__graph_provider = graph_provider
-
-    def __getattr__(self, attr):
-        return getattr(self.graph, attr)
-
-    @property
-    def graph_provider(self) -> SharedGraphProvider:
-        return self.__graph_provider
-
-    @property
-    def graph(self) -> PyGraph:
-        return self.__graph

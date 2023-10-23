@@ -1,4 +1,4 @@
-from funlib.persistence.rustworkx import FileGraphProvider, MongoDbGraphProvider
+from funlib.persistence.rustworkx import FileGraphProvider
 
 import pytest
 import pymongo
@@ -37,22 +37,21 @@ def provider_factory(request, tmpdir):
 
     tmpdir = Path(tmpdir)
 
-    def mongo_provider_factory(mode, directed=None, total_roi=None):
-        return MongoDbGraphProvider(
-            "test_mongo_graph", mode=mode, directed=directed, total_roi=total_roi
-        )
+    # def mongo_provider_factory(mode, directed=None, total_roi=None):
+    #     return MongoDbGraphProvider(
+    #         "test_mongo_graph", mode=mode, directed=directed, total_roi=total_roi
+    #     )
 
-    def file_provider_factory(mode, directed=None, total_roi=None):
+    def file_provider_factory(
+        mode, directed=None, total_roi=None, node_attrs=None, edge_attrs=None
+    ):
         return FileGraphProvider(
             tmpdir / "test_file_graph.db",
             mode=mode,
             directed=directed,
             total_roi=total_roi,
+            node_attrs=node_attrs,
+            edge_attrs=edge_attrs,
         )
 
-    if request.param == "mongo":
-        yield mongo_provider_factory
-        mongo_client = pymongo.MongoClient()
-        mongo_client.drop_database("test_mongo_graph")
-    else:
-        yield file_provider_factory
+    yield file_provider_factory

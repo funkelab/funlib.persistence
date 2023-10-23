@@ -7,7 +7,6 @@ import sqlite3
 
 import json
 import logging
-import numpy as np
 import os
 from typing import Optional, Any, Iterable
 from pathlib import Path
@@ -63,6 +62,8 @@ class FileGraphProvider(SharedGraphProvider):
         nodes_collection: str = "nodes",
         edges_collection: str = "edges",
         position_attributes: Iterable[str] = "zyx",
+        node_attrs: Optional[Iterable[str]] = None,
+        edge_attrs: Optional[Iterable[str]] = None,
     ):
         self.db_file = db_file
         self.con = sqlite3.connect(db_file)
@@ -74,6 +75,8 @@ class FileGraphProvider(SharedGraphProvider):
         self.edges_collection_name = edges_collection
         self.meta_collection = self.db_file.parent / f"{self.db_file.stem}-meta.json"
         self.position_attributes = list(position_attributes)
+        self.node_attrs = node_attrs
+        self.edge_attrs = edge_attrs
 
         if mode == "w":
             self.drop_tables()
@@ -84,6 +87,22 @@ class FileGraphProvider(SharedGraphProvider):
             self.__check_metadata()
         else:
             self.__set_metadata()
+
+    @property
+    def node_attrs(self) -> list[str]:
+        return self.__node_attrs if self.__node_attrs is not None else []
+
+    @node_attrs.setter
+    def node_attrs(self, value: Iterable[str]) -> None:
+        self.__node_attrs = value
+
+    @property
+    def edge_attrs(self) -> list[str]:
+        return self.__edge_attrs if self.__edge_attrs is not None else []
+
+    @edge_attrs.setter
+    def edge_attrs(self, value: Iterable[str]) -> None:
+        self.__edge_attrs = value
 
     def drop_tables(self) -> None:
         logger.info(
@@ -102,10 +121,11 @@ class FileGraphProvider(SharedGraphProvider):
         self.cur.execute(
             f"CREATE TABLE IF NOT EXISTS "
             f"{self.nodes_collection_name}"
-            f"(id, {', '.join(self.position_attributes)})"
+            f"(id, {', '.join(self.position_attributes + self.node_attrs)})"
         )
         self.cur.execute(
-            f"CREATE TABLE IF NOT EXISTS {self.edges_collection_name}(u, v)"
+            "CREATE TABLE IF NOT EXISTS "
+            f"{self.edges_collection_name}({', '.join(['u', 'v'] + self.edge_attrs)})"
         )
 
     def roi_query(self, roi: Roi) -> str:
@@ -161,14 +181,7 @@ class FileGraphProvider(SharedGraphProvider):
         """
         return self.read_graph(roi)
 
-    def __remove_keys(self, dictionary, keys):
-        """Removes given keys from dictionary."""
-
-        for key in keys:
-            del dictionary[key]
-        return dictionary
-
-    def read_nodes(self, roi):
+    def read_nodes(self, roi: Roi) -> list[dict[str, Any]]:
         """Return a list of nodes within roi."""
 
         logger.debug("Reading nodes in roi %s" % roi)
@@ -176,25 +189,32 @@ class FileGraphProvider(SharedGraphProvider):
             f"SELECT * FROM {self.nodes_collection_name} "  # + self.roi_query(roi)
         )
         nodes = [
-            {key: val for key, val in zip(["id"] + self.position_attributes, values)}
+            {
+                key: val
+                for key, val in zip(
+                    ["id"] + self.position_attributes + self.node_attrs, values
+                )
+            }
             for values in self.cur.execute(select_statement)
         ]
 
         return nodes
 
-    def num_nodes(self, roi):
+    def num_nodes(self, roi: Roi) -> int:
         """Return the number of nodes in the roi."""
 
         # TODO: can be made more efficient
         return len(self.read_nodes(roi))
 
-    def has_edges(self, roi):
+    def has_edges(self, roi: Roi) -> bool:
         """Returns true if there is at least one edge in the roi."""
 
         # TODO: can be made more efficient
         return len(self.read_edges(roi)) > 0
 
-    def read_edges(self, roi, nodes=None):
+    def read_edges(
+        self, roi: Roi, nodes: Optional[list[dict[str, Any]]] = None
+    ) -> list[dict[str, Any]]:
         """Returns a list of edges within roi."""
 
         if nodes is None:
@@ -213,16 +233,16 @@ class FileGraphProvider(SharedGraphProvider):
         )
 
         edges = [
-            {key: val for key, val in zip(["u", "v"], values)}
+            {key: val for key, val in zip(["u", "v"] + self.edge_attrs, values)}
             for values in self.cur.execute(select_statement)
         ]
 
         return edges
 
-    def __getitem__(self, roi):
+    def __getitem__(self, roi: Roi):
         return self.get_graph(roi)
 
-    def __get_metadata(self):
+    def __get_metadata(self) -> dict[str, Any]:
         """Gets metadata out of the meta collection and returns it
         as a dictionary."""
 
@@ -262,6 +282,17 @@ class FileGraphProvider(SharedGraphProvider):
             self.total_roi = Roi(
                 metadata["total_roi_offset"], metadata["total_roi_shape"]
             )
+        if self.__node_attrs is not None:
+            assert self.node_attrs == metadata["node_attrs"], (
+                self.node_attrs,
+                metadata["node_attrs"],
+            )
+        else:
+            self.node_attrs = metadata["node_attrs"]
+        if self.__edge_attrs is not None:
+            assert self.edge_attrs == metadata["edge_attrs"]
+        else:
+            self.edge_attrs = metadata["edge_attrs"]
 
     def __set_metadata(self):
         """Sets the metadata in the meta collection to the provided values"""
@@ -280,6 +311,8 @@ class FileGraphProvider(SharedGraphProvider):
             "directed": self.directed,
             "total_roi_offset": self.total_roi.offset,
             "total_roi_shape": self.total_roi.shape,
+            "node_attrs": self.node_attrs,
+            "edge_attrs": self.edge_attrs,
         }
 
         with open(self.meta_collection, "w") as f:
@@ -289,6 +322,14 @@ class FileGraphProvider(SharedGraphProvider):
         return Coordinate(
             (n.get(pos_attr, None) for pos_attr in self.position_attributes)
         )
+
+    def __convert_to_sql(self, x: Any) -> str:
+        if isinstance(x, str):
+            return f"'{x}'"
+        elif x is None:
+            return "null"
+        else:
+            return str(x)
 
     def write_edges(
         self,
@@ -317,7 +358,8 @@ class FileGraphProvider(SharedGraphProvider):
             raise NotImplementedError("Trying to write to read-only DB")
 
         insert_statement = (
-            f"INSERT INTO {self.edges_collection_name} " f"(u, v) VALUES "
+            f"INSERT INTO {self.edges_collection_name} "
+            f"({', '.join(['u', 'v'] + self.edge_attrs)}) VALUES "
         )
         num_entries = 0
 
@@ -330,7 +372,11 @@ class FileGraphProvider(SharedGraphProvider):
 
             if num_entries > 0:
                 insert_statement += ", "
-            insert_statement += f"({nodes[u]['id']}, {nodes[v]['id']})"
+            edge_attributes = [nodes[u]["id"], nodes[v]["id"]] + [
+                data.get(attr, None) for attr in self.edge_attrs
+            ]
+            edge_attributes = [self.__convert_to_sql(x) for x in edge_attributes]
+            insert_statement += f"({', '.join(edge_attributes)})"
             num_entries += 1
 
         if num_entries == 0:
@@ -371,7 +417,7 @@ class FileGraphProvider(SharedGraphProvider):
 
         insert_statement = (
             f"INSERT INTO {self.nodes_collection_name} "
-            f"(id, {', '.join(self.position_attributes)}) VALUES "
+            f"(id, {', '.join(self.position_attributes + self.node_attrs)}) VALUES "
         )
 
         num_entries = 0
@@ -382,8 +428,8 @@ class FileGraphProvider(SharedGraphProvider):
             if num_entries > 0:
                 insert_statement += ", "
             id_pos_str = ", ".join(
-                str(data.get(attr, "null"))
-                for attr in ["id"] + self.position_attributes
+                self.__convert_to_sql(data.get(attr, None))
+                for attr in ["id"] + self.position_attributes + self.node_attrs
             )
             insert_statement += f"({id_pos_str})"
             num_entries += 1
