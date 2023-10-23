@@ -1,7 +1,9 @@
-from funlib.persistence.graphs import FileGraphProvider, MongoDbGraphProvider
+from funlib.persistence.rustworkx import FileGraphProvider, MongoDbGraphProvider
 
 import pytest
 import pymongo
+
+from pathlib import Path
 
 
 def mongo_db_available():
@@ -17,7 +19,7 @@ def mongo_db_available():
     params=(
         pytest.param(
             "files",
-            marks=pytest.mark.xfail(reason="FileProvider not fully implemented!"),
+            # marks=pytest.mark.xfail(reason="FileProvider not fully implemented!"),
         ),
         pytest.param(
             "mongo",
@@ -33,6 +35,8 @@ def provider_factory(request, tmpdir):
     # if file graph provider, will generate graph in a temporary directory
     # to avoid artifacts
 
+    tmpdir = Path(tmpdir)
+
     def mongo_provider_factory(mode, directed=None, total_roi=None):
         return MongoDbGraphProvider(
             "test_mongo_graph", mode=mode, directed=directed, total_roi=total_roi
@@ -40,8 +44,7 @@ def provider_factory(request, tmpdir):
 
     def file_provider_factory(mode, directed=None, total_roi=None):
         return FileGraphProvider(
-            tmpdir / "test_file_graph",
-            chunk_size=(10, 10, 10),
+            tmpdir / "test_file_graph.db",
             mode=mode,
             directed=directed,
             total_roi=total_roi,

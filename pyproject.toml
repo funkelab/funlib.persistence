@@ -5,39 +5,33 @@ requires = ["setuptools", "wheel"]
 [project]
 name = "funlib.persistence"
 description = "Interfaces for data (arrays and graphs) and storage formats (databases and file formats)"
-license = {text = "MIT"}
+license = { text = "MIT" }
 readme = "README.md"
 authors = [
-  {name = "William Patton", email = "pattonw@hhmi.org"},
-  {name = "Jan Funke", email = "funkej@hhmi.org"},
+    { name = "William Patton", email = "pattonw@hhmi.org" },
+    { name = "Jan Funke", email = "funkej@hhmi.org" },
 ]
 dynamic = ['version']
 
 requires-python = ">=3.7"
-classifiers = [
-  "Programming Language :: Python :: 3",
-]
+classifiers = ["Programming Language :: Python :: 3"]
 keywords = []
 
 dependencies = [
-  "funlib.geometry",
-  "networkx",
-  "zarr",
-  "pymongo",
-  "numpy",
-  'h5py',
+    "funlib.geometry",
+    "networkx",
+    "zarr",
+    "pymongo",
+    "numpy",
+    'h5py',
+    "rustworkx",
 ]
 
 [tool.setuptools.dynamic]
-version = {attr = "funlib.persistence.__version__"}
+version = { attr = "funlib.persistence.__version__" }
 
 [project.optional-dependencies]
-dev = [
-  'coverage>=5.0.3',
-  'pytest',
-  'black',
-  'mypy',
-]
+dev = ['coverage>=5.0.3', 'pytest', 'black', 'mypy']
 
 [tool.black]
 target_version = ['py36', 'py37', 'py38', 'py39', 'py310']
