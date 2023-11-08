@@ -24,7 +24,6 @@ dependencies = [
     "pymongo",
     "numpy",
     'h5py',
-    "rustworkx",
 ]
 
 [tool.setuptools.dynamic]
@@ -34,4 +33,4 @@ version = { attr = "funlib.persistence.__version__" }
 dev = ['coverage>=5.0.3', 'pytest', 'black', 'mypy']
 
 [tool.black]
-target_version = ['py36', 'py37', 'py38', 'py39', 'py310']
+target_version = ['py39', 'py310', 'py311']
