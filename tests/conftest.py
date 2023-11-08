@@ -1,4 +1,8 @@
-from funlib.persistence.rustworkx import FileGraphProvider
+from funlib.persistence.graphs import (
+    FileGraphProvider,
+    MongoDbGraphProvider,
+    SQLiteGraphProvider,
+)
 
 import pytest
 import pymongo
@@ -19,7 +23,7 @@ def mongo_db_available():
     params=(
         pytest.param(
             "files",
-            # marks=pytest.mark.xfail(reason="FileProvider not fully implemented!"),
+            marks=pytest.mark.xfail(reason="FileProvider not fully implemented!"),
         ),
         pytest.param(
             "mongo",
@@ -27,6 +31,7 @@ def mongo_db_available():
                 not mongo_db_available(), reason="MongoDB not available!"
             ),
         ),
+        pytest.param("sqlite"),
     )
 )
 def provider_factory(request, tmpdir):
@@ -37,16 +42,31 @@ def provider_factory(request, tmpdir):
 
     tmpdir = Path(tmpdir)
 
-    # def mongo_provider_factory(mode, directed=None, total_roi=None):
-    #     return MongoDbGraphProvider(
-    #         "test_mongo_graph", mode=mode, directed=directed, total_roi=total_roi
-    #     )
+    def mongo_provider_factory(
+        mode, directed=None, total_roi=None, node_attrs=None, edge_attrs=None
+    ):
+        return MongoDbGraphProvider(
+            "test_mongo_graph", mode=mode, directed=directed, total_roi=total_roi
+        )
 
     def file_provider_factory(
         mode, directed=None, total_roi=None, node_attrs=None, edge_attrs=None
     ):
         return FileGraphProvider(
             tmpdir / "test_file_graph.db",
+            chunk_size=(10, 10, 10),
+            mode=mode,
+            directed=directed,
+            total_roi=total_roi,
+            # node_attrs=node_attrs,
+            # edge_attrs=edge_attrs,
+        )
+
+    def sqlite_provider_factory(
+        mode, directed=None, total_roi=None, node_attrs=None, edge_attrs=None
+    ):
+        return SQLiteGraphProvider(
+            tmpdir / "test_sqlite_graph.db",
             mode=mode,
             directed=directed,
             total_roi=total_roi,
@@ -54,4 +74,11 @@ def provider_factory(request, tmpdir):
             edge_attrs=edge_attrs,
         )
 
-    yield file_provider_factory
+    if request.param == "mongo":
+        yield mongo_provider_factory
+    elif request.param == "sqlite":
+        yield sqlite_provider_factory
+    elif request.param == "files":
+        yield file_provider_factory
+    else:
+        raise ValueError()

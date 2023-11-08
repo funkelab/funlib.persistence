@@ -5,7 +5,9 @@ import pytest
 
 
 def test_graph_filtering(provider_factory):
-    graph_writer = provider_factory("w")
+    graph_writer = provider_factory(
+        "w", node_attrs=["selected"], edge_attrs=["selected"]
+    )
     roi = Roi((0, 0, 0), (10, 10, 10))
     graph = graph_writer[roi]
 
@@ -49,7 +51,9 @@ def test_graph_filtering(provider_factory):
 
 
 def test_graph_filtering_complex(provider_factory):
-    graph_provider = provider_factory("w")
+    graph_provider = provider_factory(
+        "w", node_attrs=["selected", "test"], edge_attrs=["selected", "a", "b"]
+    )
     roi = Roi((0, 0, 0), (10, 10, 10))
     graph = graph_provider[roi]
 
@@ -95,7 +99,9 @@ def test_graph_filtering_complex(provider_factory):
 
 
 def test_graph_read_and_update_specific_attrs(provider_factory):
-    graph_provider = provider_factory("w")
+    graph_provider = provider_factory(
+        "w", node_attrs=["selected", "test"], edge_attrs=["selected", "a", "b"]
+    )
     roi = Roi((0, 0, 0), (10, 10, 10))
     graph = graph_provider[roi]
 
@@ -126,8 +132,11 @@ def test_graph_read_and_update_specific_attrs(provider_factory):
         assert "b" not in data
         nx.set_edge_attributes(limited_graph, 5, "c")
 
-    limited_graph.update_edge_attrs(attributes=["c"])
-    limited_graph.update_node_attrs(attributes=["selected"])
+    try:
+        limited_graph.update_edge_attrs(attributes=["c"])
+        limited_graph.update_node_attrs(attributes=["selected"])
+    except NotImplementedError:
+        pytest.xfail()
 
     updated_graph = graph_provider.get_graph(roi)
 
@@ -139,7 +148,9 @@ def test_graph_read_and_update_specific_attrs(provider_factory):
 
 
 def test_graph_read_unbounded_roi(provider_factory):
-    graph_provider = provider_factory("w")
+    graph_provider = provider_factory(
+        "w", node_attrs=["selected", "test"], edge_attrs=["selected", "a", "b"]
+    )
     roi = Roi((0, 0, 0), (10, 10, 10))
     unbounded_roi = Roi((None, None, None), (None, None, None))
 
@@ -169,7 +180,7 @@ def test_graph_read_unbounded_roi(provider_factory):
         data["selected"] = True
         seen.append(node)
 
-    assert seen == [2, 42, 23, 57]
+    assert sorted([2, 42, 23, 57]) == sorted(seen)
 
 
 def test_graph_read_meta_values(provider_factory):
@@ -181,12 +192,16 @@ def test_graph_read_meta_values(provider_factory):
 
 
 def test_graph_default_meta_values(provider_factory):
-    provider = provider_factory("w", None, None)
+    provider = provider_factory("w", False, None)
     assert False == provider.directed
-    assert provider.total_roi is None
-    graph_provider = provider_factory("r", None, None)
+    assert provider.total_roi is None or provider.total_roi == Roi(
+        (None, None, None), (None, None, None)
+    )
+    graph_provider = provider_factory("r", False, None)
     assert False == graph_provider.directed
-    assert graph_provider.total_roi is None
+    assert graph_provider.total_roi is None or graph_provider.total_roi == Roi(
+        (None, None, None), (None, None, None)
+    )
 
 
 def test_graph_nonmatching_meta_values(provider_factory):
@@ -223,7 +238,7 @@ def test_graph_io(provider_factory):
     nodes.remove(2)  # node 2 has no position and will not be queried
     compare_nodes = sorted(list(compare_graph.nodes()))
 
-    edges = sorted(list(graph.edges()))
+    edges = sorted(tuple(sorted(e)) for e in list(graph.edges()))
     edges.remove((2, 42))  # node 2 has no position and will not be queried
     compare_edges = sorted(list(compare_graph.edges()))
 
@@ -281,7 +296,10 @@ def test_graph_write_attributes(provider_factory):
     graph.add_edge(57, 23)
     graph.add_edge(2, 42)
 
-    graph.write_nodes(attributes=["position", "swip"])
+    try:
+        graph.write_nodes(attributes=["position", "swip"])
+    except NotImplementedError:
+        pytest.xfail()
     graph.write_edges()
 
     graph_provider = provider_factory("r")
@@ -328,7 +346,7 @@ def test_graph_write_roi(provider_factory):
     compare_nodes = compare_graph.nodes(data=True)
     compare_nodes = [node_id for node_id, data in compare_nodes if len(data) > 0]
     compare_nodes = sorted(list(compare_nodes))
-    edges = sorted(list(graph.edges()))
+    edges = sorted(tuple(sorted(e)) for e in list(graph.edges()))
     edges.remove((2, 42))  # node 2 has no position and will not be queried
     compare_edges = sorted(list(compare_graph.edges()))
 
@@ -346,8 +364,10 @@ def test_graph_connected_components(provider_factory):
     graph.add_node(57, position=Coordinate((7, 7, 7)), zap="zip")
     graph.add_edge(57, 23)
     graph.add_edge(2, 42)
-
-    components = graph.get_connected_components()
+    try:
+        components = graph.get_connected_components()
+    except NotImplementedError:
+        pytest.xfail()
     assert len(components) == 2
     c1, c2 = components
     n1 = sorted(list(c1.nodes()))

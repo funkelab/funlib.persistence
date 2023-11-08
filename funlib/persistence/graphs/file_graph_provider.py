@@ -189,7 +189,6 @@ class FileGraphProvider(SharedGraphProvider):
         graph.add_nodes_from(node_list)
 
         # todo: debug this
-        graph.add_edges_from(edge_list, **edges)
         for u, v, *attrs in edge_list:
             graph.add_edge(
                 u, v, **{attr: value for attr, value in zip(edge_attrs[2:], attrs)}
