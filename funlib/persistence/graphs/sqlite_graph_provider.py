@@ -71,6 +71,9 @@ class SQLiteGraphProvider(SharedGraphProvider):
 
     """
 
+    __node_attrs: Optional[Iterable[str]] = None
+    __edge_attrs: Optional[Iterable[str]] = None
+
     def __init__(
         self,
         db_file: Path,
@@ -107,8 +110,8 @@ class SQLiteGraphProvider(SharedGraphProvider):
         else:
             raise ValueError(self.position_attribute)
         assert len(self.position_attributes) == ndim
-        self.node_attrs = node_attrs
-        self.edge_attrs = edge_attrs
+        self.__node_attrs = node_attrs
+        self.__edge_attrs = edge_attrs
 
         if mode == "w":
             self.drop_tables()
@@ -124,18 +127,18 @@ class SQLiteGraphProvider(SharedGraphProvider):
 
     @property
     def node_attrs(self) -> list[str]:
-        return self.__node_attrs if self.__node_attrs is not None else []
+        return list(self.__node_attrs) if self.__node_attrs is not None else []
 
     @node_attrs.setter
-    def node_attrs(self, value: Iterable[str]) -> None:
+    def node_attrs(self, value: Optional[Iterable[str]]) -> None:
         self.__node_attrs = value
 
     @property
     def edge_attrs(self) -> list[str]:
-        return self.__edge_attrs if self.__edge_attrs is not None else []
+        return list(self.__edge_attrs) if self.__edge_attrs is not None else []
 
     @edge_attrs.setter
-    def edge_attrs(self, value: Iterable[str]) -> None:
+    def edge_attrs(self, value: Optional[Iterable[str]]) -> None:
         self.__edge_attrs = value
 
     def drop_tables(self) -> None:
@@ -247,7 +250,7 @@ class SQLiteGraphProvider(SharedGraphProvider):
             ]
         except sqlite3.OperationalError as e:
             raise ValueError(select_statement) from e
-        
+
         if isinstance(self.position_attribute, str):
             for data in nodes:
                 data[self.position_attribute] = self.__get_node_pos(data)
@@ -279,7 +282,7 @@ class SQLiteGraphProvider(SharedGraphProvider):
             nodes = self.read_nodes(roi)
 
         if len(nodes) == 0:
-            return {}
+            return [{}]
 
         node_ids = ", ".join([str(node["id"]) for node in nodes])
         node_condition = f"u IN ({node_ids})"
@@ -495,7 +498,7 @@ class SQLiteGraphProvider(SharedGraphProvider):
 
     def write_nodes(
         self,
-        nodes: list[dict[str:Any]],
+        nodes: dict[Any, dict[str, Any]],
         roi=None,
         attributes=None,
         fail_if_exists=False,
@@ -552,22 +555,6 @@ class SQLiteGraphProvider(SharedGraphProvider):
         except sqlite3.OperationalError as e:
             raise ValueError(insert_statement, to_insert) from e
         self.con.commit()
-
-    def num_nodes(self, roi):
-        """Return the number of nodes in the roi."""
-
-        try:
-            self.__connect()
-            self.__open_db()
-            self.__open_collections()
-
-            num = self.nodes.count(self.__pos_query(roi))
-
-        except Exception as e:
-            self.__disconnect()
-            raise e
-
-        return num
 
     def __getitem__(self, roi):
         return self.get_graph(roi)
