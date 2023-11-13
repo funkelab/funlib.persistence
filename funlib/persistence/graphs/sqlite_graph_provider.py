@@ -282,7 +282,7 @@ class SQLiteGraphProvider(SharedGraphProvider):
             nodes = self.read_nodes(roi)
 
         if len(nodes) == 0:
-            return [{}]
+            return []
 
         node_ids = ", ".join([str(node["id"]) for node in nodes])
         node_condition = f"u IN ({node_ids})"
@@ -613,7 +613,10 @@ class SQLiteGraphProvider(SharedGraphProvider):
         )
         u, v = self.endpoint_names
         node_list = [(n["id"], self.__remove_keys(n, ["id"])) for n in nodes]
-        edge_list = [(e[u], e[v], self.__remove_keys(e, [u, v])) for e in edges]
+        try:
+            edge_list = [(e[u], e[v], self.__remove_keys(e, [u, v])) for e in edges]
+        except KeyError as e:
+            raise ValueError(edges[:5]) from e
         if self.directed:
             graph = SQLiteSubDiGraph(self, roi)
         else:
