@@ -122,8 +122,9 @@ class SQLiteGraphProvider(SharedGraphProvider):
 
         if mode == "w":
             self.drop_tables()
-            self.cur.execute("""PRAGMA synchronous = OFF""")
-            self.cur.execute("""PRAGMA journal_mode = OFF""")
+            # TODO: Do we need these?
+            # self.cur.execute("""PRAGMA synchronous = OFF""")
+            # self.cur.execute("""PRAGMA journal_mode = OFF""")
 
         self.create_tables()
 
