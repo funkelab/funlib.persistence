@@ -17,57 +17,64 @@ logger = logging.getLogger(__name__)
 
 
 class SQLiteGraphProvider(SharedGraphProvider):
-    """Provides shared graphs stored in a SQLite
-    .
+    """
+    Provides shared graphs stored in a SQLite Database.
 
-        Nodes are assumed to have at least an attribute ``id``. If the have a
-        position attribute (set via argument ``position_attribute``, defaults to
-        ``position``), it will be used for geometric slicing (see ``__getitem__``).
+    Nodes are assumed to have at least an attribute ``id``. If the have a
+    position attribute (set via argument ``position_attribute``, defaults to
+    ``position``), it will be used for geometric slicing (see ``__getitem__``).
 
-        Edges are assumed to have at least attributes ``u``, ``v``.
+    Edges are assumed to have at least attributes ``u``, ``v``.
 
-        Arguments:
+    Arguments:
 
-            db_name (``string``):
+        db_file (``Path``):
 
-                The name of the SQLite
-             database.
+            The file to store your database in.
 
-            host (``string``, optional):
+        mode (``string``, optional):
 
-                The URL of the SQLite
-             host.
+            One of ``r+`` or ``w``. Defaults to ``r+``. ``w`` drops the
+            node, edge, and meta collections.
 
-            mode (``string``, optional):
+        directed (``bool``):
 
-                One of ``r``, ``r+``, or ``w``. Defaults to ``r+``. ``w`` drops the
-                node, edge, and meta collections.
+            True if the graph is directed, false otherwise. If None, attempts
+            to read value from existing database. If not found, defaults to
+            false.
 
-            directed (``bool``):
+        nodes_collection (``string``):
 
-                True if the graph is directed, false otherwise. If None, attempts
-                to read value from existing database. If not found, defaults to
-                false.
+            The name of the nodes table. Defaults to ``nodes``.
+        
+        edges_collection (``string``):
 
-            nodes_collection (``string``):
-            edges_collection (``string``):
-            meta_collection (``string``):
+            The name of the edges table. Defaults to ``edges``.
 
-                Names of the nodes, edges. and meta collections, should they differ
-                from ``nodes``, ``edges``, and ``meta``.
+        endpoint_names (``list`` or ``tuple`` with two elements):
 
-            endpoint_names (``list`` or ``tuple`` with two elements):
+            What keys to use for the start and end of an edge. Default is
+            ['u', 'v']
 
-                What keys to use for the start and end of an edge. Default is
-                ['u', 'v']
+        position_attribute (``string`` or list of ``string``s, optional):
 
-            position_attribute (``string`` or list of ``string``s, optional):
+            The node attribute(s) that contain position information. This will
+            be used for slicing subgraphs via ``__getitem__``. If a single
+            string, the attribute is assumed to be an array. If a list, each
+            entry denotes the position coordinates in order (e.g.,
+            `position_z`, `position_y`, `position_x`).
 
-                The node attribute(s) that contain position information. This will
-                be used for slicing subgraphs via ``__getitem__``. If a single
-                string, the attribute is assumed to be an array. If a list, each
-                entry denotes the position coordinates in order (e.g.,
-                `position_z`, `position_y`, `position_x`).
+        node_attrs (``list`` of ``str`` or None):
+
+            The custom attributes to store on each node.
+
+        edge_attrs (``list`` of ``str`` or None):
+
+            The custom attributes to store on each edge.
+
+        ndim (``int``):
+
+            The number of spatial dimensions for your node positions.
 
     """
 
