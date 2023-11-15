@@ -197,22 +197,7 @@ class SQLiteGraphProvider(SharedGraphProvider):
             elif roi.begin[dim] is not None:
                 query += f"{pos_attr}>={roi.begin[dim]}"
             elif roi.begin[dim] is not None:
-                query += f"{pos_attr}<={roi.end[dim]}"
-            else:
-                query = query[:-5]
-        return query
-
-    def rtree_query(self, roi: Roi) -> str:
-        query = ""
-        for dim, pos_attr in enumerate(self.position_attributes):
-            if dim > 0:
-                query += " AND "
-            if roi.begin[dim] is not None and roi.end[dim] is not None:
-                query += f"min{pos_attr.upper()}<={roi.end[dim]} AND max{pos_attr.upper()}>={roi.begin[dim]}"
-            elif roi.begin[dim] is not None:
-                query += f"max{pos_attr.upper()} >= {roi.begin[dim]}"
-            elif roi.end[dim] is not None:
-                query += f"min{pos_attr.upper()} <= {roi.end[dim]}"
+                query += f"{pos_attr}<{roi.end[dim]}"
             else:
                 query = query[:-5]
         return query
@@ -289,10 +274,6 @@ class SQLiteGraphProvider(SharedGraphProvider):
 
         node_ids = ", ".join([str(node["id"]) for node in nodes])
         node_condition = f"u IN ({node_ids})"
-        if roi is not None:
-            rtree_condition = self.rtree_query(roi)
-        else:
-            rtree_condition = ""
 
         logger.debug("Reading nodes in roi %s" % roi)
         # TODO: AND vs OR here
@@ -300,7 +281,6 @@ class SQLiteGraphProvider(SharedGraphProvider):
         select_statement = (
             f"SELECT {desired_columns} FROM {self.edges_collection_name} WHERE "
             + node_condition
-            + ((" AND " + rtree_condition) if len(rtree_condition) > 0 else "")
         )
 
         edge_attrs = ["u", "v"] + (
