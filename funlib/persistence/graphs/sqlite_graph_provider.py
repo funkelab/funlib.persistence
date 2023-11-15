@@ -175,18 +175,14 @@ class SQLiteGraphProvider(SharedGraphProvider):
             f"{', '.join(columns)}"
             ")"
         )
-        edge_columns = ["+u INTEGER not null", "+v INTEGER not null"] + [
-            f"+{edge_attr}" for edge_attr in self.edge_attrs
+        self.cur.execute(
+            f"CREATE INDEX IF NOT EXISTS pos_index ON {self.nodes_collection_name}({','.join(self.position_attributes)})"
+        )
+        edge_columns = ["u INTEGER not null", "v INTEGER not null"] + [
+            f"{edge_attr}" for edge_attr in self.edge_attrs
         ]
         self.cur.execute(
-            f"CREATE VIRTUAL TABLE IF NOT EXISTS {self.edges_collection_name} USING rtree(id, "
-            + ", ".join(
-                [
-                    f"min{pos_attr.upper()}, max{pos_attr.upper()}"
-                    for pos_attr in self.position_attributes
-                ]
-            )
-            + ", "
+            f"CREATE TABLE IF NOT EXISTS {self.edges_collection_name}(id INTEGER not null PRIMARY KEY, "
             + f"{', '.join(edge_columns)}"
             + ")"
         )
