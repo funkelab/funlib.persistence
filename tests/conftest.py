@@ -20,6 +20,7 @@ def provider_factory(request, tmpdir):
     ):
         return SQLiteGraphDataBase(
             tmpdir / "test_sqlite_graph.db",
+            position_attributes=["z", "y", "x"],
             mode=mode,
             directed=directed,
             total_roi=total_roi,

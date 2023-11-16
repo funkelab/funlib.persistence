@@ -11,10 +11,10 @@ def test_graph_filtering(provider_factory):
     roi = Roi((0, 0, 0), (10, 10, 10))
     graph = graph_writer[roi]
 
-    graph.add_node(2, position=(2, 2, 2), selected=True)
-    graph.add_node(42, position=(1, 1, 1), selected=False)
-    graph.add_node(23, position=(5, 5, 5), selected=True)
-    graph.add_node(57, position=Coordinate((7, 7, 7)), selected=True)
+    graph.add_node(2, z=2, y=2, x=2, selected=True)
+    graph.add_node(42, z=1, y=1, x=1, selected=False)
+    graph.add_node(23, z=5, y=5, x=5, selected=True)
+    graph.add_node(57, z=7, y=7, x=7, selected=True)
     graph.add_edge(42, 23, selected=False)
     graph.add_edge(57, 23, selected=True)
     graph.add_edge(2, 42, selected=True)
@@ -39,7 +39,7 @@ def test_graph_filtering(provider_factory):
         roi, nodes_filter={"selected": True}, edges_filter={"selected": True}
     )
     nodes_with_position = [
-        node for node, data in filtered_subgraph.nodes(data=True) if "position" in data
+        node for node, data in filtered_subgraph.nodes(data=True) if "z" in data
     ]
     assert expected_node_ids == nodes_with_position
     assert len(filtered_subgraph.edges()) == len(expected_edge_endpoints)
@@ -57,10 +57,10 @@ def test_graph_filtering_complex(provider_factory):
     roi = Roi((0, 0, 0), (10, 10, 10))
     graph = graph_provider[roi]
 
-    graph.add_node(2, position=(2, 2, 2), selected=True, test="test")
-    graph.add_node(42, position=(1, 1, 1), selected=False, test="test2")
-    graph.add_node(23, position=(5, 5, 5), selected=True, test="test2")
-    graph.add_node(57, position=Coordinate((7, 7, 7)), selected=True, test="test")
+    graph.add_node(2, z=2, y=2, x=2, selected=True, test="test")
+    graph.add_node(42, z=1, y=1, x=1, selected=False, test="test2")
+    graph.add_node(23, z=5, y=5, x=5, selected=True, test="test2")
+    graph.add_node(57, z=7, y=7, x=7, selected=True, test="test")
 
     graph.add_edge(42, 23, selected=False, a=100, b=3)
     graph.add_edge(57, 23, selected=True, a=100, b=2)
@@ -92,7 +92,7 @@ def test_graph_filtering_complex(provider_factory):
         edges_filter={"selected": True, "a": 100},
     )
     nodes_with_position = [
-        node for node, data in filtered_subgraph.nodes(data=True) if "position" in data
+        node for node, data in filtered_subgraph.nodes(data=True) if "z" in data
     ]
     assert expected_node_ids == nodes_with_position
     assert len(filtered_subgraph.edges()) == 0
@@ -105,10 +105,10 @@ def test_graph_read_and_update_specific_attrs(provider_factory):
     roi = Roi((0, 0, 0), (10, 10, 10))
     graph = graph_provider[roi]
 
-    graph.add_node(2, position=(2, 2, 2), selected=True, test="test")
-    graph.add_node(42, position=(1, 1, 1), selected=False, test="test2")
-    graph.add_node(23, position=(5, 5, 5), selected=True, test="test2")
-    graph.add_node(57, position=Coordinate((7, 7, 7)), selected=True, test="test")
+    graph.add_node(2, z=2, y=2, x=2, selected=True, test="test")
+    graph.add_node(42, z=1, y=1, x=1, selected=False, test="test2")
+    graph.add_node(23, z=5, y=5, x=5, selected=True, test="test2")
+    graph.add_node(57, z=7, y=7, x=7, selected=True, test="test")
 
     graph.add_edge(42, 23, selected=False, a=100, b=3)
     graph.add_edge(57, 23, selected=True, a=100, b=2)
@@ -156,10 +156,10 @@ def test_graph_read_unbounded_roi(provider_factory):
 
     graph = graph_provider[roi]
 
-    graph.add_node(2, position=(2, 2, 2), selected=True, test="test")
-    graph.add_node(42, position=(1, 1, 1), selected=False, test="test2")
-    graph.add_node(23, position=(5, 5, 5), selected=True, test="test2")
-    graph.add_node(57, position=Coordinate((7, 7, 7)), selected=True, test="test")
+    graph.add_node(2, z=2, y=2, x=2, selected=True, test="test")
+    graph.add_node(42, z=1, y=1, x=1, selected=False, test="test2")
+    graph.add_node(23, z=5, y=5, x=5, selected=True, test="test2")
+    graph.add_node(57, z=7, y=7, x=7, selected=True, test="test")
 
     graph.add_edge(42, 23, selected=False, a=100, b=3)
     graph.add_edge(57, 23, selected=True, a=100, b=2)
@@ -225,10 +225,10 @@ def test_graph_io(provider_factory):
 
     graph = graph_provider[Roi((0, 0, 0), (10, 10, 10))]
 
-    graph.add_node(2, comment="without position")
-    graph.add_node(42, position=(1, 1, 1))
-    graph.add_node(23, position=(5, 5, 5), swip="swap")
-    graph.add_node(57, position=Coordinate((7, 7, 7)), zap="zip")
+    graph.add_node(2, z=0, y=0, x=0)
+    graph.add_node(42, z=1, y=1, x=1)
+    graph.add_node(23, z=5, y=5, x=5, swip="swap")
+    graph.add_node(57, z=7, y=7, x=7, zap="zip")
     graph.add_edge(42, 23)
     graph.add_edge(57, 23)
     graph.add_edge(2, 42)
@@ -242,7 +242,7 @@ def test_graph_io(provider_factory):
     )
 
     graph_provider = provider_factory("r")
-    compare_graph = graph_provider[Roi((0, 0, 0), (10, 10, 10))]
+    compare_graph = graph_provider[Roi((1, 1, 1), (9, 9, 9))]
 
     nodes = sorted(list(graph.nodes()))
     nodes.remove(2)  # node 2 has no position and will not be queried
@@ -260,10 +260,10 @@ def test_graph_fail_if_exists(provider_factory):
     graph_provider = provider_factory("w")
     graph = graph_provider[Roi((0, 0, 0), (10, 10, 10))]
 
-    graph.add_node(2, comment="without position")
-    graph.add_node(42, position=(1, 1, 1))
-    graph.add_node(23, position=(5, 5, 5), swip="swap")
-    graph.add_node(57, position=Coordinate((7, 7, 7)), zap="zip")
+    graph.add_node(2, z=0, y=0, x=0)
+    graph.add_node(42, z=1, y=1, x=1)
+    graph.add_node(23, z=5, y=5, x=5, swip="swap")
+    graph.add_node(57, z=7, y=7, x=7, zap="zip")
     graph.add_edge(42, 23)
     graph.add_edge(57, 23)
     graph.add_edge(2, 42)
@@ -279,10 +279,10 @@ def test_graph_fail_if_not_exists(provider_factory):
     graph_provider = provider_factory("w")
     graph = graph_provider[Roi((0, 0, 0), (10, 10, 10))]
 
-    graph.add_node(2, comment="without position")
-    graph.add_node(42, position=(1, 1, 1))
-    graph.add_node(23, position=(5, 5, 5), swip="swap")
-    graph.add_node(57, position=Coordinate((7, 7, 7)), zap="zip")
+    graph.add_node(2, z=0, y=0, x=0)
+    graph.add_node(42, z=1, y=1, x=1)
+    graph.add_node(23, z=5, y=5, x=5, swip="swap")
+    graph.add_node(57, z=7, y=7, x=7, zap="zip")
     graph.add_edge(42, 23)
     graph.add_edge(57, 23)
     graph.add_edge(2, 42)
@@ -299,27 +299,25 @@ def test_graph_write_attributes(provider_factory):
     graph_provider = provider_factory("w", node_attrs=["swip"])
     graph = graph_provider[Roi((0, 0, 0), (10, 10, 10))]
 
-    graph.add_node(2, comment="without position")
-    graph.add_node(42, position=(1, 1, 1))
-    graph.add_node(23, position=(5, 5, 5), swip="swap")
-    graph.add_node(57, position=(7, 7, 7), zap="zip")
+    graph.add_node(2, z=0, y=0, x=0)
+    graph.add_node(42, z=1, y=1, x=1)
+    graph.add_node(23, z=5, y=5, x=5, swip="swap")
+    graph.add_node(57, z=7, y=7, x=7, zap="zip")
     graph.add_edge(42, 23)
     graph.add_edge(57, 23)
     graph.add_edge(2, 42)
 
-    try:
-        graph_provider.write_graph(
-            graph, write_nodes=True, write_edges=False, node_attrs=["swip"]
-        )
-    except NotImplementedError:
-        pytest.xfail()
+    graph_provider.write_graph(
+        graph, write_nodes=True, write_edges=False, node_attrs=["swip"]
+    )
+
     graph_provider.write_edges(
         graph.nodes(),
         graph.edges(),
     )
 
     graph_provider = provider_factory("r")
-    compare_graph = graph_provider[Roi((0, 0, 0), (10, 10, 10))]
+    compare_graph = graph_provider[Roi((1, 1, 1), (10, 10, 10))]
 
     nodes = []
     for node, data in graph.nodes(data=True):
@@ -340,10 +338,10 @@ def test_graph_write_roi(provider_factory):
     graph_provider = provider_factory("w")
     graph = graph_provider[Roi((0, 0, 0), (10, 10, 10))]
 
-    graph.add_node(2, comment="without position")
-    graph.add_node(42, position=(1, 1, 1))
-    graph.add_node(23, position=(5, 5, 5), swip="swap")
-    graph.add_node(57, position=Coordinate((7, 7, 7)), zap="zip")
+    graph.add_node(2, z=0, y=0, x=0)
+    graph.add_node(42, z=1, y=1, x=1)
+    graph.add_node(23, z=5, y=5, x=5, swip="swap")
+    graph.add_node(57, z=7, y=7, x=7, zap="zip")
     graph.add_edge(42, 23)
     graph.add_edge(57, 23)
     graph.add_edge(2, 42)
@@ -352,7 +350,7 @@ def test_graph_write_roi(provider_factory):
     graph_provider.write_graph(graph, write_roi)
 
     graph_provider = provider_factory("r")
-    compare_graph = graph_provider[Roi((0, 0, 0), (10, 10, 10))]
+    compare_graph = graph_provider[Roi((1, 1, 1), (9, 9, 9))]
 
     nodes = sorted(list(graph.nodes()))
     nodes.remove(2)  # node 2 has no position and will not be queried
@@ -372,10 +370,10 @@ def test_graph_connected_components(provider_factory):
     graph_provider = provider_factory("w")
     graph = graph_provider[Roi((0, 0, 0), (10, 10, 10))]
 
-    graph.add_node(2, comment="without position")
-    graph.add_node(42, position=(1, 1, 1))
-    graph.add_node(23, position=(5, 5, 5), swip="swap")
-    graph.add_node(57, position=Coordinate((7, 7, 7)), zap="zip")
+    graph.add_node(2, z=0, y=0, x=0)
+    graph.add_node(42, z=1, y=1, x=1)
+    graph.add_node(23, z=5, y=5, x=5, swip="swap")
+    graph.add_node(57, z=7, y=7, x=7, zap="zip")
     graph.add_edge(57, 23)
     graph.add_edge(2, 42)
     try:
@@ -405,10 +403,10 @@ def test_graph_has_edge(provider_factory):
     roi = Roi((0, 0, 0), (10, 10, 10))
     graph = graph_provider[roi]
 
-    graph.add_node(2, comment="without position")
-    graph.add_node(42, position=(1, 1, 1))
-    graph.add_node(23, position=(5, 5, 5), swip="swap")
-    graph.add_node(57, position=Coordinate((7, 7, 7)), zap="zip")
+    graph.add_node(2, z=0, y=0, x=0)
+    graph.add_node(42, z=1, y=1, x=1)
+    graph.add_node(23, z=5, y=5, x=5, swip="swap")
+    graph.add_node(57, z=7, y=7, x=7, zap="zip")
     graph.add_edge(42, 23)
     graph.add_edge(57, 23)
 
