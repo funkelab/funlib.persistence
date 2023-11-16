@@ -132,7 +132,9 @@ def test_graph_read_and_update_specific_attrs(provider_factory):
         nx.set_edge_attributes(limited_graph, 5, "c")
 
     try:
-        graph_provider.write_attrs(limited_graph, edge_attrs=["c"], node_attrs=["selected"])
+        graph_provider.write_attrs(
+            limited_graph, edge_attrs=["c"], node_attrs=["selected"]
+        )
     except NotImplementedError:
         pytest.xfail()
 
@@ -163,8 +165,13 @@ def test_graph_read_unbounded_roi(provider_factory):
     graph.add_edge(57, 23, selected=True, a=100, b=2)
     graph.add_edge(2, 42, selected=True, a=101, b=3)
 
-    graph_provider.write_nodes(graph.nodes(), )
-    graph_provider.write_edges(graph.nodes(), graph.edges(), )
+    graph_provider.write_nodes(
+        graph.nodes(),
+    )
+    graph_provider.write_edges(
+        graph.nodes(),
+        graph.edges(),
+    )
 
     graph_provider = provider_factory("r+")
     limited_graph = graph_provider.read_graph(
@@ -226,8 +233,13 @@ def test_graph_io(provider_factory):
     graph.add_edge(57, 23)
     graph.add_edge(2, 42)
 
-    graph_provider.write_nodes(graph.nodes(), )
-    graph_provider.write_edges(graph.nodes(), graph.edges(), )
+    graph_provider.write_nodes(
+        graph.nodes(),
+    )
+    graph_provider.write_edges(
+        graph.nodes(),
+        graph.edges(),
+    )
 
     graph_provider = provider_factory("r")
     compare_graph = graph_provider[Roi((0, 0, 0), (10, 10, 10))]
@@ -278,7 +290,9 @@ def test_graph_fail_if_not_exists(provider_factory):
     with pytest.raises(Exception):
         graph_provider.write_nodes(graph.nodes(), fail_if_not_exists=True)
     with pytest.raises(Exception):
-        graph_provider.write_edges(graph.nodes(), graph.edges(), fail_if_not_exists=True)
+        graph_provider.write_edges(
+            graph.nodes(), graph.edges(), fail_if_not_exists=True
+        )
 
 
 def test_graph_write_attributes(provider_factory):
@@ -297,7 +311,10 @@ def test_graph_write_attributes(provider_factory):
         graph_provider.write_nodes(graph.nodes(), attributes=["position", "swip"])
     except NotImplementedError:
         pytest.xfail()
-    graph_provider.write_edges(graph.nodes(), graph.edges(), )
+    graph_provider.write_edges(
+        graph.nodes(),
+        graph.edges(),
+    )
 
     graph_provider = provider_factory("r")
     compare_graph = graph_provider[Roi((0, 0, 0), (10, 10, 10))]

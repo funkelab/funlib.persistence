@@ -1,6 +1,4 @@
-from funlib.persistence.graphs import (
-    SQLiteGraphDataBase
-)
+from funlib.persistence.graphs import SQLiteGraphDataBase
 
 import pytest
 import pymongo
@@ -8,11 +6,7 @@ import pymongo
 from pathlib import Path
 
 
-@pytest.fixture(
-    params=(
-        pytest.param("sqlite"),
-    )
-)
+@pytest.fixture(params=(pytest.param("sqlite"),))
 def provider_factory(request, tmpdir):
     # provides a factory function to generate graph provider
     # can provide either mongodb graph provider or file graph provider
