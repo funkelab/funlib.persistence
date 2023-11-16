@@ -22,8 +22,8 @@ class SQLiteGraphDataBase(SQLGraphDataBase):
         nodes_table: str = "nodes",
         edges_table: str = "edges",
         endpoint_names: Optional[tuple[str, str]] = None,
-        node_attrs: Optional[list[str]] = None,
-        edge_attrs: Optional[list[str]] = None,
+        node_attrs: Optional[dict[str, type]] = None,
+        edge_attrs: Optional[dict[str, type]] = None,
     ):
         self.db_file = db_file
         self.meta_collection = self.db_file.parent / f"{self.db_file.stem}-meta.json"
@@ -61,7 +61,7 @@ class SQLiteGraphDataBase(SQLGraphDataBase):
         columns = [
             position_template.format(pos_attr=pos_attr)
             for pos_attr in self.position_attributes
-        ] + self.node_attrs
+        ] + list(self.node_attrs.keys())
         self.cur.execute(
             f"CREATE TABLE IF NOT EXISTS "
             f"{self.nodes_table_name}("
@@ -75,7 +75,7 @@ class SQLiteGraphDataBase(SQLGraphDataBase):
         edge_columns = [
             f"{self.endpoint_names[0]} INTEGER not null",
             f"{self.endpoint_names[1]} INTEGER not null",
-        ] + [f"{edge_attr}" for edge_attr in self.edge_attrs]
+        ] + [f"{edge_attr}" for edge_attr in self.edge_attrs.keys()]
         self.cur.execute(
             f"CREATE TABLE IF NOT EXISTS {self.edges_table_name}("
             + f"{', '.join(edge_columns)}"

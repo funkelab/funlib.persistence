@@ -6,7 +6,7 @@ import pytest
 
 def test_graph_filtering(provider_factory):
     graph_writer = provider_factory(
-        "w", node_attrs=["selected"], edge_attrs=["selected"]
+        "w", node_attrs={"selected": bool}, edge_attrs={"selected": bool}
     )
     roi = Roi((0, 0, 0), (10, 10, 10))
     graph = graph_writer[roi]
@@ -52,7 +52,9 @@ def test_graph_filtering(provider_factory):
 
 def test_graph_filtering_complex(provider_factory):
     graph_provider = provider_factory(
-        "w", node_attrs=["selected", "test"], edge_attrs=["selected", "a", "b"]
+        "w",
+        node_attrs={"selected": bool, "test": str},
+        edge_attrs={"selected": bool, "a": int, "b": int},
     )
     roi = Roi((0, 0, 0), (10, 10, 10))
     graph = graph_provider[roi]
@@ -100,7 +102,9 @@ def test_graph_filtering_complex(provider_factory):
 
 def test_graph_read_and_update_specific_attrs(provider_factory):
     graph_provider = provider_factory(
-        "w", node_attrs=["selected", "test"], edge_attrs=["selected", "a", "b", "c"]
+        "w",
+        node_attrs={"selected": bool, "test": str},
+        edge_attrs={"selected": bool, "a": int, "b": int, "c": int},
     )
     roi = Roi((0, 0, 0), (10, 10, 10))
     graph = graph_provider[roi]
@@ -149,7 +153,9 @@ def test_graph_read_and_update_specific_attrs(provider_factory):
 
 def test_graph_read_unbounded_roi(provider_factory):
     graph_provider = provider_factory(
-        "w", node_attrs=["selected", "test"], edge_attrs=["selected", "a", "b"]
+        "w",
+        node_attrs={"selected": bool, "test": str},
+        edge_attrs={"selected": bool, "a": int, "b": int},
     )
     roi = Roi((0, 0, 0), (10, 10, 10))
     unbounded_roi = Roi((None, None, None), (None, None, None))
@@ -296,7 +302,7 @@ def test_graph_fail_if_not_exists(provider_factory):
 
 
 def test_graph_write_attributes(provider_factory):
-    graph_provider = provider_factory("w", node_attrs=["swip"])
+    graph_provider = provider_factory("w", node_attrs={"swip": str})
     graph = graph_provider[Roi((0, 0, 0), (10, 10, 10))]
 
     graph.add_node(2, z=0, y=0, x=0)

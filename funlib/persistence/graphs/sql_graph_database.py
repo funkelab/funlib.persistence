@@ -55,8 +55,8 @@ class SQLGraphDataBase(GraphDataBase):
             The custom attributes to store on each edge.
     """
 
-    _node_attrs: Optional[Iterable[str]] = None
-    _edge_attrs: Optional[Iterable[str]] = None
+    _node_attrs: Optional[dict[str, type]] = None
+    _edge_attrs: Optional[dict[str, type]] = None
 
     def __init__(
         self,
@@ -67,8 +67,8 @@ class SQLGraphDataBase(GraphDataBase):
         nodes_table: str = "nodes",
         edges_table: str = "edges",
         endpoint_names: Optional[tuple[str, str]] = None,
-        node_attrs: Optional[list[str]] = None,
-        edge_attrs: Optional[list[str]] = None,
+        node_attrs: Optional[dict[str, type]] = None,
+        edge_attrs: Optional[dict[str, type]] = None,
     ):
         self.position_attributes = position_attributes
         self.ndim = len(self.position_attributes)
@@ -205,16 +205,16 @@ class SQLGraphDataBase(GraphDataBase):
             )
 
     @property
-    def node_attrs(self) -> list[str]:
-        return list(self._node_attrs) if self._node_attrs is not None else []
+    def node_attrs(self) -> dict[str, type]:
+        return self._node_attrs if self._node_attrs is not None else {}
 
     @node_attrs.setter
-    def node_attrs(self, value: Optional[Iterable[str]]) -> None:
+    def node_attrs(self, value: dict[str, type]) -> None:
         self._node_attrs = value
 
     @property
-    def edge_attrs(self) -> list[str]:
-        return list(self._edge_attrs) if self._edge_attrs is not None else []
+    def edge_attrs(self) -> dict[str, type]:
+        return self._edge_attrs if self._edge_attrs is not None else {}
 
     @edge_attrs.setter
     def edge_attrs(self, value: Optional[Iterable[str]]) -> None:
@@ -244,7 +244,7 @@ class SQLGraphDataBase(GraphDataBase):
         read_attrs = (
             ["id"]
             + self.position_attributes
-            + (self.node_attrs if read_attrs is None else read_attrs)
+            + (list(self.node_attrs.keys()) if read_attrs is None else read_attrs)
         )
         attr_filter = attr_filter if attr_filter is not None else {}
         for k, v in attr_filter.items():
@@ -254,7 +254,7 @@ class SQLGraphDataBase(GraphDataBase):
             {
                 key: val
                 for key, val in zip(
-                    ["id"] + self.position_attributes + self.node_attrs, values
+                    ["id"] + self.position_attributes + list(self.node_attrs.keys()), values
                 )
                 if key in read_attrs and val is not None
             }
@@ -295,7 +295,7 @@ class SQLGraphDataBase(GraphDataBase):
 
         logger.debug("Reading nodes in roi %s" % roi)
         # TODO: AND vs OR here
-        desired_columns = ", ".join(self.endpoint_names + self.edge_attrs)
+        desired_columns = ", ".join(self.endpoint_names + list(self.edge_attrs.keys()))
         select_statement = (
             f"SELECT {desired_columns} FROM {self.edges_table_name} WHERE "
             + node_condition
@@ -307,7 +307,7 @@ class SQLGraphDataBase(GraphDataBase):
         )
 
         edge_attrs = self.endpoint_names + (
-            self.edge_attrs if read_attrs is None else read_attrs
+            list(self.edge_attrs.keys()) if read_attrs is None else read_attrs
         )
         attr_filter = attr_filter if attr_filter is not None else {}
         for k, v in attr_filter.items():
@@ -316,7 +316,7 @@ class SQLGraphDataBase(GraphDataBase):
         edges = [
             {
                 key: val
-                for key, val in zip(self.endpoint_names + self.edge_attrs, values)
+                for key, val in zip(self.endpoint_names + list(self.edge_attrs.keys()), values)
                 if key in edge_attrs
             }
             for values in self._select_query(select_statement)
@@ -339,7 +339,7 @@ class SQLGraphDataBase(GraphDataBase):
             raise RuntimeError("Trying to write to read-only DB")
 
         columns = self.endpoint_names + (
-            self.edge_attrs if attributes is None else attributes
+            list(self.edge_attrs.keys()) if attributes is None else attributes
         )
 
         if roi is None:
@@ -433,7 +433,7 @@ class SQLGraphDataBase(GraphDataBase):
 
         logger.debug("Writing nodes in %s", roi)
 
-        attrs = attributes if attributes is not None else self.node_attrs
+        attrs = attributes if attributes is not None else list(self.node_attrs.keys())
         columns = ("id",) + tuple(self.position_attributes) + tuple(attrs)
 
         values = []
@@ -520,8 +520,14 @@ class SQLGraphDataBase(GraphDataBase):
             "directed": self.directed,
             "total_roi_offset": self.total_roi.offset,
             "total_roi_shape": self.total_roi.shape,
-            "node_attrs": self.node_attrs,
-            "edge_attrs": self.edge_attrs,
+            "node_attrs": {
+                k: v.__name__
+                for k, v in self.node_attrs.items()
+            },
+            "edge_attrs": {
+                k: v.__name__
+                for k, v in self.edge_attrs.items()
+            },
         }
 
         return metadata
@@ -558,6 +564,14 @@ class SQLGraphDataBase(GraphDataBase):
             self.total_roi = Roi(
                 metadata["total_roi_offset"], metadata["total_roi_shape"]
             )
+        metadata["node_attrs"] = {
+            k: eval(v)
+            for k, v in metadata["node_attrs"].items()
+        }
+        metadata["edge_attrs"] = {
+            k: eval(v)
+            for k, v in metadata["edge_attrs"].items()
+        }
         if self._node_attrs is not None:
             assert self.node_attrs == metadata["node_attrs"], (
                 self.node_attrs,
