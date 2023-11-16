@@ -296,19 +296,21 @@ def test_graph_fail_if_not_exists(provider_factory):
 
 
 def test_graph_write_attributes(provider_factory):
-    graph_provider = provider_factory("w")
+    graph_provider = provider_factory("w", node_attrs=["swip"])
     graph = graph_provider[Roi((0, 0, 0), (10, 10, 10))]
 
     graph.add_node(2, comment="without position")
     graph.add_node(42, position=(1, 1, 1))
     graph.add_node(23, position=(5, 5, 5), swip="swap")
-    graph.add_node(57, position=Coordinate((7, 7, 7)), zap="zip")
+    graph.add_node(57, position=(7, 7, 7), zap="zip")
     graph.add_edge(42, 23)
     graph.add_edge(57, 23)
     graph.add_edge(2, 42)
 
     try:
-        graph_provider.write_nodes(graph.nodes(), attributes=["position", "swip"])
+        graph_provider.write_graph(
+            graph, write_nodes=True, write_edges=False, node_attrs=["swip"]
+        )
     except NotImplementedError:
         pytest.xfail()
     graph_provider.write_edges(
@@ -325,7 +327,6 @@ def test_graph_write_attributes(provider_factory):
             continue
         if "zap" in data:
             del data["zap"]
-        data["position"] = list(data["position"])
         nodes.append((node, data))
 
     compare_nodes = compare_graph.nodes(data=True)

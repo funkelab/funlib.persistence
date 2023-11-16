@@ -328,7 +328,7 @@ class SQLiteGraphDataBase(GraphDataBase):
                     for key, val in zip(
                         ["id"] + self.position_attributes + self.node_attrs, values
                     )
-                    if key in read_attrs
+                    if key in read_attrs and val is not None
                 }
                 for values in self.cur.execute(select_statement)
             ]
@@ -337,7 +337,7 @@ class SQLiteGraphDataBase(GraphDataBase):
 
         if isinstance(self.position_attribute, str):
             for data in nodes:
-                data[self.position_attribute] = self.__get_node_pos(data)
+                data[self.position_attribute] = self.__combine_pos(data)
 
         return nodes
 
@@ -605,21 +605,22 @@ class SQLiteGraphDataBase(GraphDataBase):
             raise NotImplementedError(
                 "Fail if exists not implemented for " "file backend"
             )
-        if attributes is not None:
-            raise NotImplementedError("Attributes not implemented for file backend")
         if self.mode == "r":
             raise NotImplementedError("Trying to write to read-only DB")
 
         logger.debug("Writing nodes in %s", roi)
 
+        attrs = attributes if attributes is not None else self.node_attrs
+
         insert_statement = (
             f"INSERT{' OR IGNORE' if not fail_if_exists else ''} INTO {self.nodes_collection_name} "
-            f"(id, {', '.join(self.position_attributes + self.node_attrs)}) VALUES "
-            f"({', '.join(['?'] * (len(self.position_attributes) + len(self.node_attrs) + 1))})"
+            f"(id, {', '.join(self.position_attributes + attrs)}) VALUES "
+            f"({', '.join(['?'] * (len(self.position_attributes) + len(attrs) + 1))})"
         )
 
         to_insert = []
         for node_id, data in nodes.items():
+            data = data.copy()
             pos = self.__get_node_pos(data)
             if roi is not None and not roi.contains(pos):
                 continue
@@ -627,10 +628,7 @@ class SQLiteGraphDataBase(GraphDataBase):
                 data[position_attribute] = pos[i]
             to_insert.append(
                 [node_id]
-                + [
-                    data.get(attr, None)
-                    for attr in self.position_attributes + self.node_attrs
-                ]
+                + [data.get(attr, None) for attr in self.position_attributes + attrs]
             )
 
         if len(to_insert) == 0:
@@ -689,6 +687,11 @@ class SQLiteGraphDataBase(GraphDataBase):
         """Removes given keys from dictionary."""
 
         return {k: v for k, v in dictionary.items() if k not in keys}
+
+    def __combine_pos(self, n: dict[str, Any]) -> Coordinate:
+        return Coordinate(
+            (n.pop(pos_attr, None) for pos_attr in self.position_attributes)
+        )
 
     def __get_node_pos(self, n: dict[str, Any]) -> Coordinate:
         if isinstance(self.position_attribute, str):
