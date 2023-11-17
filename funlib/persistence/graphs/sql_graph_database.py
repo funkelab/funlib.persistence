@@ -254,7 +254,8 @@ class SQLGraphDataBase(GraphDataBase):
             {
                 key: val
                 for key, val in zip(
-                    ["id"] + self.position_attributes + list(self.node_attrs.keys()), values
+                    ["id"] + self.position_attributes + list(self.node_attrs.keys()),
+                    values,
                 )
                 if key in read_attrs and val is not None
             }
@@ -316,7 +317,9 @@ class SQLGraphDataBase(GraphDataBase):
         edges = [
             {
                 key: val
-                for key, val in zip(self.endpoint_names + list(self.edge_attrs.keys()), values)
+                for key, val in zip(
+                    self.endpoint_names + list(self.edge_attrs.keys()), values
+                )
                 if key in edge_attrs
             }
             for values in self._select_query(select_statement)
@@ -520,14 +523,8 @@ class SQLGraphDataBase(GraphDataBase):
             "directed": self.directed,
             "total_roi_offset": self.total_roi.offset,
             "total_roi_shape": self.total_roi.shape,
-            "node_attrs": {
-                k: v.__name__
-                for k, v in self.node_attrs.items()
-            },
-            "edge_attrs": {
-                k: v.__name__
-                for k, v in self.edge_attrs.items()
-            },
+            "node_attrs": {k: v.__name__ for k, v in self.node_attrs.items()},
+            "edge_attrs": {k: v.__name__ for k, v in self.edge_attrs.items()},
         }
 
         return metadata
@@ -564,14 +561,8 @@ class SQLGraphDataBase(GraphDataBase):
             self.total_roi = Roi(
                 metadata["total_roi_offset"], metadata["total_roi_shape"]
             )
-        metadata["node_attrs"] = {
-            k: eval(v)
-            for k, v in metadata["node_attrs"].items()
-        }
-        metadata["edge_attrs"] = {
-            k: eval(v)
-            for k, v in metadata["edge_attrs"].items()
-        }
+        metadata["node_attrs"] = {k: eval(v) for k, v in metadata["node_attrs"].items()}
+        metadata["edge_attrs"] = {k: eval(v) for k, v in metadata["edge_attrs"].items()}
         if self._node_attrs is not None:
             assert self.node_attrs == metadata["node_attrs"], (
                 self.node_attrs,
