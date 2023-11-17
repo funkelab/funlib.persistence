@@ -23,7 +23,7 @@ class PgSQLGraphDatabase(SQLGraphDataBase):
         total_roi: Optional[Roi] = None,
         nodes_table: str = "nodes",
         edges_table: str = "edges",
-        endpoint_names: Optional[tuple[str, str]] = None,
+        endpoint_names: Optional[list[str]] = None,
         node_attrs: Optional[dict[str, type]] = None,
         edge_attrs: Optional[dict[str, type]] = None,
     ):
@@ -122,16 +122,19 @@ class PgSQLGraphDatabase(SQLGraphDataBase):
             "metadata", ["value"], [[json.dumps(metadata)]], fail_if_exists=True
         )
 
-    def _read_metadata(self) -> dict[str, Any]:
+    def _read_metadata(self) -> Optional[dict[str, Any]]:
         try:
             self.__exec("SELECT value FROM metadata")
         except psycopg2.errors.UndefinedTable:
             self.connection.rollback()
             return None
 
-        metadata = self.cur.fetchone()[0]
+        result = self.cur.fetchone()
+        if result is not None:
+            metadata = result[0]
+            return json.loads(metadata)
 
-        return json.loads(metadata)
+        return None
 
     def _select_query(self, query) -> Iterable[Any]:
         self.__exec(query)

@@ -21,7 +21,7 @@ class SQLiteGraphDataBase(SQLGraphDataBase):
         total_roi: Optional[Roi] = None,
         nodes_table: str = "nodes",
         edges_table: str = "edges",
-        endpoint_names: Optional[tuple[str, str]] = None,
+        endpoint_names: Optional[list[str]] = None,
         node_attrs: Optional[dict[str, type]] = None,
         edge_attrs: Optional[dict[str, type]] = None,
     ):
@@ -87,7 +87,7 @@ class SQLiteGraphDataBase(SQLGraphDataBase):
         with open(self.meta_collection, "w") as f:
             json.dump(metadata, f)
 
-    def _read_metadata(self) -> dict[str, Any]:
+    def _read_metadata(self) -> Optional[dict[str, Any]]:
         if not self.meta_collection.exists():
             return None
 

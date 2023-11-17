@@ -33,7 +33,7 @@ class GraphDataBase(ABC):
 
     @property
     @abstractmethod
-    def node_attrs(self) -> list[str]:
+    def node_attrs(self) -> dict[str, type]:
         """
         Return the node attributes supported by the database.
         """
@@ -41,7 +41,7 @@ class GraphDataBase(ABC):
 
     @property
     @abstractmethod
-    def edge_attrs(self) -> list[str]:
+    def edge_attrs(self) -> dict[str, type]:
         """
         Return the edge attributes supported by the database.
         """

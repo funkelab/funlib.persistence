@@ -9,7 +9,7 @@ import json
 import logging
 import os
 import shutil
-from typing import Optional
+from typing import Optional, Union
 
 logger = logging.getLogger(__name__)
 
@@ -180,7 +180,7 @@ def prepare_ds(
     write_roi: Roi = None,
     write_size: Coordinate = None,
     num_channels: Optional[int] = None,
-    compressor: str = "default",
+    compressor: Union[str, dict] = "default",
     delete: bool = False,
     force_exact_write_size: bool = False,
 ) -> Array:

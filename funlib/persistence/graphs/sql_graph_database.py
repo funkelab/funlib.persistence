@@ -66,7 +66,7 @@ class SQLGraphDataBase(GraphDataBase):
         total_roi: Optional[Roi] = None,
         nodes_table: str = "nodes",
         edges_table: str = "edges",
-        endpoint_names: Optional[tuple[str, str]] = None,
+        endpoint_names: Optional[list[str]] = None,
         node_attrs: Optional[dict[str, type]] = None,
         edge_attrs: Optional[dict[str, type]] = None,
     ):
@@ -101,7 +101,7 @@ class SQLGraphDataBase(GraphDataBase):
         pass
 
     @abstractmethod
-    def _read_metadata(self) -> dict[str, Any]:
+    def _read_metadata(self) -> Optional[dict[str, Any]]:
         pass
 
     @abstractmethod
@@ -217,7 +217,7 @@ class SQLGraphDataBase(GraphDataBase):
         return self._edge_attrs if self._edge_attrs is not None else {}
 
     @edge_attrs.setter
-    def edge_attrs(self, value: Optional[Iterable[str]]) -> None:
+    def edge_attrs(self, value: dict[str, type]) -> None:
         self._edge_attrs = value
 
     def read_nodes(
