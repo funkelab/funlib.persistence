@@ -23,7 +23,8 @@ dependencies = [
     "zarr",
     "pymongo",
     "numpy",
-    'h5py',
+    "h5py",
+    "psycopg2",
 ]
 
 [tool.setuptools.dynamic]
