@@ -211,8 +211,8 @@ def prepare_ds(
     total_roi: Roi,
     voxel_size: Coordinate,
     dtype,
-    write_roi: Roi = None,
-    write_size: Coordinate = None,
+    write_roi: Optional[Roi] = None,
+    write_size: Optional[Coordinate] = None,
     num_channels: Optional[int] = None,
     compressor: Union[str, dict] = "default",
     delete: bool = False,
@@ -314,7 +314,7 @@ def prepare_ds(
     else:
         chunk_shape = None
 
-    shape = total_roi.shape / voxel_size
+    shape = tuple(total_roi.shape / voxel_size)
 
     if num_channels is not None:
         shape = (num_channels,) + shape
