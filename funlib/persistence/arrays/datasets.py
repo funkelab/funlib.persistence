@@ -343,7 +343,12 @@ def prepare_ds(
 
         root = zarr.open(filename, mode="a")
         ds = root.create_dataset(
-            ds_name, shape=shape, chunks=chunk_shape, dtype=dtype, compressor=compressor, overwrite=delete
+            ds_name,
+            shape=shape,
+            chunks=chunk_shape,
+            dtype=dtype,
+            compressor=compressor,
+            overwrite=delete,
         )
 
         if file_format == "zarr":
