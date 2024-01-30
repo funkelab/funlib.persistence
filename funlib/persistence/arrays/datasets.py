@@ -1,3 +1,4 @@
+from typing import Literal, Tuple
 from .array import Array
 
 from funlib.geometry import Coordinate, Roi
@@ -13,6 +14,20 @@ from typing import Optional, Union
 
 logger = logging.getLogger(__name__)
 
+from dataclasses import dataclass
+
+@dataclass
+class ScaleTranslateTransform:
+    """
+    A representation of an N-dimensional regular grid with named, unitful axes. 
+    This metadata is specific to COSEM / Cellmap and may be found in n5 groups / arrays created by that project team.
+    See https://github.com/janelia-cellmap/cellmap-schemas/blob/93ddd973d2b3fcb510c577a5825bdec32eb4c21c/src/cellmap_schemas/multiscale/cosem.py#L18 
+    """
+    scale: Tuple[int, ...]
+    translate: Tuple[float, ...]
+    units: Tuple[str, ...]
+    axes: Tuple[str, ...]
+    order: Literal["C", "F"] = "C"
 
 def _read_voxel_size_offset(ds, order="C"):
     voxel_size = None
@@ -29,16 +44,6 @@ def _read_voxel_size_offset(ds, order="C"):
         voxel_size = Coordinate(ds.attrs["pixelResolution"]["dimensions"])
         dims = len(voxel_size)
 
-    elif "transform" in ds.attrs:
-        # Davis saves transforms in C order regardless of underlying
-        # memory format (i.e. n5 or zarr). May be explicitly provided
-        # as transform.ordering
-        transform_order = ds.attrs["transform"].get("ordering", "C")
-        voxel_size = Coordinate(ds.attrs["transform"]["scale"])
-        if transform_order != order:
-            voxel_size = Coordinate(voxel_size[::-1])
-        dims = len(voxel_size)
-
     if "offset" in ds.attrs:
         offset = Coordinate(ds.attrs["offset"])
         if dims is not None:
@@ -48,11 +53,21 @@ def _read_voxel_size_offset(ds, order="C"):
         else:
             dims = len(offset)
 
-    elif "transform" in ds.attrs:
-        transform_order = ds.attrs["transform"].get("ordering", "C")
-        offset = Coordinate(ds.attrs["transform"]["translate"])
+    if "transform" in ds.attrs:
+        # Davis saves transforms in C order regardless of underlying
+        # memory format (i.e. n5 or zarr). May be explicitly provided
+        # as transform.order
+        tx = ScaleTranslateTransform(**ds.attrs['transform'])
+
+        transform_order = tx.order
+        voxel_size = Coordinate(ds.scale)
+        offset = Coordinate(tx.translate)
+
         if transform_order != order:
+            voxel_size = Coordinate(voxel_size[::-1])
             offset = Coordinate(offset[::-1])
+        
+        dims = len(voxel_size)
 
     if dims is None:
         dims = len(ds.shape)
