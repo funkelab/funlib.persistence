@@ -9,15 +9,25 @@ import json
 import logging
 import os
 import shutil
+from pathlib import Path
 from typing import Optional, Union
 
 logger = logging.getLogger(__name__)
+
+
+def access_parent(node):
+    """
+    Get the parent (zarr.Group) of a zarr array or group.
+    """
+    return zarr.open(node.store.path, mode="r")[str(Path(node.path).parent)]
 
 
 def _read_voxel_size_offset(ds, order="C"):
     voxel_size = None
     offset = None
     dims = None
+    group = None
+    multiscales = None
 
     if "resolution" in ds.attrs:
         voxel_size = Coordinate(ds.attrs["resolution"])
@@ -28,7 +38,6 @@ def _read_voxel_size_offset(ds, order="C"):
     elif "pixelResolution" in ds.attrs:
         voxel_size = Coordinate(ds.attrs["pixelResolution"]["dimensions"])
         dims = len(voxel_size)
-
     elif "transform" in ds.attrs:
         # Davis saves transforms in C order regardless of underlying
         # memory format (i.e. n5 or zarr). May be explicitly provided
@@ -37,6 +46,27 @@ def _read_voxel_size_offset(ds, order="C"):
         voxel_size = Coordinate(ds.attrs["transform"]["scale"])
         if transform_order != order:
             voxel_size = Coordinate(voxel_size[::-1])
+        dims = len(voxel_size)
+    else:
+        group = access_parent(ds)
+        multiscales = group.attrs.get("multiscales", None)
+
+    if multiscales is not None:
+        logger.info("Found multiscales attributes")
+        if len(multiscales) == 0:
+            raise ValueError("Multiscales attribute was empty.")
+        scale = ds.path.split("/")[-1]
+        for level in multiscales[0][
+            "datasets"
+        ]:  # TODO: flimsy parsing may break with other formats
+            if level["path"] == scale:
+                logger.info("Found scale attribute")
+                for attr in level["coordinateTransformations"]:
+                    if attr["type"] == "scale":
+                        voxel_size = Coordinate(attr["scale"])
+                    elif attr["type"] == "translation":
+                        offset = Coordinate(attr["translation"])
+                break
         dims = len(voxel_size)
 
     if "offset" in ds.attrs:
@@ -117,7 +147,11 @@ def open_ds(filename: str, ds_name: str, mode: str = "r") -> Array:
             logger.error("failed to open %s/%s" % (filename, ds_name))
             raise e
 
-        voxel_size, offset = _read_voxel_size_offset(ds, ds.order)
+        try:
+            order = ds.attrs["order"]
+        except KeyError:
+            order = ds.order
+        voxel_size, offset = _read_voxel_size_offset(ds, order)
         shape = Coordinate(ds.shape[-len(voxel_size) :])
         roi = Roi(offset, voxel_size * shape)
 
@@ -177,8 +211,8 @@ def prepare_ds(
     total_roi: Roi,
     voxel_size: Coordinate,
     dtype,
-    write_roi: Roi = None,
-    write_size: Coordinate = None,
+    write_roi: Optional[Roi] = None,
+    write_size: Optional[Coordinate] = None,
     num_channels: Optional[int] = None,
     compressor: Union[str, dict] = "default",
     delete: bool = False,
@@ -280,7 +314,7 @@ def prepare_ds(
     else:
         chunk_shape = None
 
-    shape = total_roi.shape / voxel_size
+    shape = tuple(total_roi.shape / voxel_size)
 
     if num_channels is not None:
         shape = (num_channels,) + shape
@@ -309,7 +343,12 @@ def prepare_ds(
 
         root = zarr.open(filename, mode="a")
         ds = root.create_dataset(
-            ds_name, shape=shape, chunks=chunk_shape, dtype=dtype, compressor=compressor
+            ds_name,
+            shape=shape,
+            chunks=chunk_shape,
+            dtype=dtype,
+            compressor=compressor,
+            overwrite=delete,
         )
 
         if file_format == "zarr":
