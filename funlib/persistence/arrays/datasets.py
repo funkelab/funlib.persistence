@@ -17,72 +17,96 @@ logger = logging.getLogger(__name__)
 
 def access_parent(node):
     """
-    Get the parent (zarr.Group) of a zarr array or group.
+    Get the parent (zarr.Group) of an input zarr array(ds).
     """
-    return zarr.open(node.store.path, mode="r")[str(Path(node.path).parent)]
+    return zarr.open(str(Path(node.store.path).parent), mode="r")
 
+# check if voxel_size value is present in .zatts other than in multiscales
+def check_for_voxel_size(z_array, parent_group, order, revrsd):
+    
+    voxel_size = None
+    zarr_objs = [z_array, parent_group]
+    for item in zarr_objs:
+        
+        if "resolution" in item.attrs:
+            return item.attrs["resolution"][::revrsd]
+        elif "scale" in item.attrs:
+            return item.attrs["scale"][::revrsd]
+        elif "pixelResolution" in item.attrs:
+            return item.attrs["pixelResolution"]["dimensions"]       
+        elif "transform" in item.attrs:
+            # Davis saves transforms in C order regardless of underlying
+            # memory format (i.e. n5 or zarr). May be explicitly provided
+            # as transform.ordering
+            transform_order = item.attrs["transform"].get("ordering", "C")
+            voxel_size = item.attrs["transform"]["scale"]
+            if transform_order != order:
+                voxel_size = voxel_size[::-1]
+            return voxel_size
+
+# check if offset value is present in .zatts other than in multiscales
+def check_for_offset(z_array, parent_group, order, revrsd):
+    offset = None
+    zarr_objs = [z_array, parent_group]
+    
+    for item in zarr_objs:
+        
+        if "offset" in item.attrs:
+            offset = item.attrs["offset"][::revrsd]
+            return offset
+            # if dims is not None:
+            #     assert dims == len(
+            #         offset
+            #     ), "resolution and offset attributes differ in length"
+            # else:
+            #     dims = len(offset)
+                
+
+        elif "transform" in item.attrs:
+            transform_order = item.attrs["transform"].get("ordering", "C")
+            offset = item.attrs["transform"]["translate"]
+            if transform_order != order:
+                offset = offset[::-1]
+            return offset
+    
 
 def _read_voxel_size_offset(ds, order="C"):
     voxel_size = None
     offset = None
     dims = None
-    group = None
-    multiscales = None
-
-    if "resolution" in ds.attrs:
-        voxel_size = Coordinate(ds.attrs["resolution"])
-        dims = len(voxel_size)
-    elif "scale" in ds.attrs:
-        voxel_size = Coordinate(ds.attrs["scale"])
-        dims = len(voxel_size)
-    elif "pixelResolution" in ds.attrs:
-        voxel_size = Coordinate(ds.attrs["pixelResolution"]["dimensions"])
-        dims = len(voxel_size)
-    elif "transform" in ds.attrs:
-        # Davis saves transforms in C order regardless of underlying
-        # memory format (i.e. n5 or zarr). May be explicitly provided
-        # as transform.ordering
-        transform_order = ds.attrs["transform"].get("ordering", "C")
-        voxel_size = Coordinate(ds.attrs["transform"]["scale"])
-        if transform_order != order:
-            voxel_size = Coordinate(voxel_size[::-1])
-        dims = len(voxel_size)
-    else:
-        group = access_parent(ds)
-        multiscales = group.attrs.get("multiscales", None)
-
+    
+    group = access_parent(ds)
+    multiscales = group.attrs.get("multiscales", None)
+    
+    revrsd = -1
+    #in case input array store is N5, there is no need to reverse voxel_size, offset tuples
+    if isinstance(ds.store, zarr.n5.N5Store):
+        revrsd = 1
+    
+    
     if multiscales is not None:
         logger.info("Found multiscales attributes")
         if len(multiscales) == 0:
             raise ValueError("Multiscales attribute was empty.")
-        scale = ds.path.split("/")[-1]
-        for level in multiscales[0][
-            "datasets"
-        ]:  # TODO: flimsy parsing may break with other formats
+        scale = ds.store.path.split("/")[-1]
+        for level in multiscales[0]["datasets"]:  # TODO: flimsy parsing may break with other formats
+            #print(level['path'])
             if level["path"] == scale:
                 logger.info("Found scale attribute")
                 for attr in level["coordinateTransformations"]:
                     if attr["type"] == "scale":
-                        voxel_size = Coordinate(attr["scale"])
+                        voxel_size = attr["scale"]
                     elif attr["type"] == "translation":
-                        offset = Coordinate(attr["translation"])
-                break
+                        offset = attr["translation"]
+                return voxel_size, offset 
         dims = len(voxel_size)
+    
+    if voxel_size is None or offset is None:
+        voxel_size = check_for_voxel_size(ds, group, order, revrsd)
+        offset = check_for_offset(ds, group, order, revrsd)
+        if voxel_size:
+            dims = len(voxel_size)
 
-    if "offset" in ds.attrs:
-        offset = Coordinate(ds.attrs["offset"])
-        if dims is not None:
-            assert dims == len(
-                offset
-            ), "resolution and offset attributes differ in length"
-        else:
-            dims = len(offset)
-
-    elif "transform" in ds.attrs:
-        transform_order = ds.attrs["transform"].get("ordering", "C")
-        offset = Coordinate(ds.attrs["transform"]["translate"])
-        if transform_order != order:
-            offset = Coordinate(offset[::-1])
 
     if dims is None:
         dims = len(ds.shape)
@@ -96,22 +120,23 @@ def _read_voxel_size_offset(ds, order="C"):
     if order == "F":
         offset = Coordinate(offset[::-1])
         voxel_size = Coordinate(voxel_size[::-1])
+        
+        
+    # if voxel_size is not None and (offset / voxel_size) * voxel_size != offset:
+    #     # offset is not a multiple of voxel_size. This is often due to someone defining
+    #     # offset to the point source of each array element i.e. the center of the rendered
+    #     # voxel, vs the offset to the corner of the voxel.
+    #     # apparently this can be a heated discussion. See here for arguments against
+    #     # the convention we are using: http://alvyray.com/Memos/CG/Microsoft/6_pixel.pdf
+    #     logger.debug(
+    #         f"Offset: {offset} being rounded to nearest voxel size: {voxel_size}"
+    #     )
+    #     offset = (
+    #         (Coordinate(offset) + (Coordinate(voxel_size) / 2)) / Coordinate(voxel_size)
+    #     ) * Coordinate(voxel_size)
+    #     logger.debug(f"Rounded offset: {offset}")
 
-    if voxel_size is not None and (offset / voxel_size) * voxel_size != offset:
-        # offset is not a multiple of voxel_size. This is often due to someone defining
-        # offset to the point source of each array element i.e. the center of the rendered
-        # voxel, vs the offset to the corner of the voxel.
-        # apparently this can be a heated discussion. See here for arguments against
-        # the convention we are using: http://alvyray.com/Memos/CG/Microsoft/6_pixel.pdf
-        logger.debug(
-            f"Offset: {offset} being rounded to nearest voxel size: {voxel_size}"
-        )
-        offset = (
-            (Coordinate(offset) + (Coordinate(voxel_size) / 2)) / Coordinate(voxel_size)
-        ) * Coordinate(voxel_size)
-        logger.debug(f"Rounded offset: {offset}")
-
-    return Coordinate(voxel_size), Coordinate(offset)
+    return voxel_size, offset
 
 
 def open_ds(filename: str, ds_name: str, mode: str = "r") -> Array:
