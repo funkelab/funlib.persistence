@@ -164,7 +164,7 @@ def check_for_units(n5_array, order):
     for item in [n5_array, parent_group]:
         
         if "units" in item.attrs:
-            return item.attrs["resolution"]
+            return item.attrs["units"]
         elif "pixelResolution" in item.attrs:
             unit = item.attrs["pixelResolution"]["unit"]
             return [unit for _ in range(len(n5_array.shape))]     
@@ -265,12 +265,14 @@ def _read_voxel_size_offset(ds, order="C"):
     # check zarr store
     else:
         #check for attributes in zarr group multiscale
-        voxel_size, offset, units = check_for_attrs_multiscale(ds, multiscale_group, multiscales)
-        if voxel_size != None and offset != None:
-            return voxel_size, offset, units
+        if multiscales:
+            voxel_size, offset, units = check_for_attrs_multiscale(ds, multiscale_group, multiscales)
+            if voxel_size != None and offset != None:
+                return voxel_size, offset, units
+            else:
+                raise ValueError(f"Although multiscale exists within n5 container, no attributes were found.")     
         else:
-            raise ValueError(f"Although multiscale exists in {multiscale_group.path}, no attributes were found.")     
-    
+            raise ValueError(f"No multiscales attribute was found")     
     return voxel_size, offset, units
 
 
