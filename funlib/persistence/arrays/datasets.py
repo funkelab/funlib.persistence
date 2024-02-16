@@ -226,7 +226,7 @@ def check_for_attrs_multiscale(ds, multiscale_group, multiscales):
                 
     return voxel_size, offset, units
     
-def _read_voxel_size_offset(ds, order="C"):
+def _read_attrs(ds, order="C"):
     """check n5/zarr metadata and returns voxel_size, offset, physical units,
         for the input zarr array(ds)
 
@@ -275,6 +275,40 @@ def _read_voxel_size_offset(ds, order="C"):
             raise ValueError(f"No multiscales attribute was found")     
     return voxel_size, offset, units
 
+def regularize_offset(voxel_size_float, offset_float):
+    """ 
+        offset is not a multiple of voxel_size. This is often due to someone defining
+        offset to the point source of each array element i.e. the center of the rendered
+        voxel, vs the offset to the corner of the voxel.
+        apparently this can be a heated discussion. See here for arguments against
+        the convention we are using: http://alvyray.com/Memos/CG/Microsoft/6_pixel.pdf
+
+    Args:
+        voxel_size_float ([float]): float voxel size list
+        offset_float ([float]): float offset list
+    Returns:
+        (Coordinate, Coordinate)): returned offset size that is multiple of voxel size
+    """
+    voxel_size, offset = Coordinate(voxel_size_float), Coordinate(offset_float)
+    
+    if voxel_size is not None and (offset / voxel_size) * voxel_size != offset:
+  
+        logger.debug(
+            f"Offset: {offset} being rounded to nearest voxel size: {voxel_size}"
+        )
+        offset = (
+            (Coordinate(offset) + (Coordinate(voxel_size) / 2)) / Coordinate(voxel_size)
+        ) * Coordinate(voxel_size)
+        logger.debug(f"Rounded offset: {offset}")
+
+    return Coordinate(voxel_size), Coordinate(offset)
+
+def _read_voxel_size_offset(ds, order="C"):
+
+    voxel_size, offset, units =  _read_attrs(ds, order)
+    
+    return regularize_offset(voxel_size, offset)
+
 
 def open_ds(filename: str, ds_name: str, mode: str = "r") -> Array:
     """Open a Zarr, N5, or HDF5 dataset as an :class:`Array`. If the
@@ -313,7 +347,7 @@ def open_ds(filename: str, ds_name: str, mode: str = "r") -> Array:
             order = ds.attrs["order"]
         except KeyError:
             order = ds.order
-        voxel_size, offset = _read_voxel_size_offset(ds, order)
+        voxel_size, offset, units = _read_voxel_size_offset(ds, order)
         shape = Coordinate(ds.shape[-len(voxel_size) :])
         roi = Roi(offset, voxel_size * shape)
 
@@ -326,7 +360,7 @@ def open_ds(filename: str, ds_name: str, mode: str = "r") -> Array:
         logger.debug("opening N5 dataset %s in %s", ds_name, filename)
         ds = zarr.open(filename, mode=mode)[ds_name]
 
-        voxel_size, offset = _read_voxel_size_offset(ds, "F")
+        voxel_size, offset, units = _read_voxel_size_offset(ds, "F")
         shape = Coordinate(ds.shape[-len(voxel_size) :])
         roi = Roi(offset, voxel_size * shape)
 
@@ -339,7 +373,7 @@ def open_ds(filename: str, ds_name: str, mode: str = "r") -> Array:
         logger.debug("opening H5 dataset %s in %s", ds_name, filename)
         ds = h5py.File(filename, mode=mode)[ds_name]
 
-        voxel_size, offset = _read_voxel_size_offset(ds, "C")
+        voxel_size, offset, units = _read_voxel_size_offset(ds, "C")
         shape = Coordinate(ds.shape[-len(voxel_size) :])
         roi = Roi(offset, voxel_size * shape)
 

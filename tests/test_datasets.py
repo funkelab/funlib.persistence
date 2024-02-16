@@ -1,4 +1,4 @@
-from funlib.persistence.arrays.datasets import _read_voxel_size_offset, check_for_offset, check_for_voxel_size, access_parent, check_for_attrs_multiscale, check_for_multiscale
+from funlib.persistence.arrays.datasets import _read_attrs, _read_voxel_size_offset, regularize_offset, check_for_offset, check_for_voxel_size, access_parent, check_for_attrs_multiscale, check_for_multiscale
 
 import pytest
 from numcodecs import Zstd
@@ -114,28 +114,42 @@ def populate_zarrfile(filepath, test_metadata_n5, test_metadata_zarr):
     return zarr_data
         
 
+def test_read_attrs(test_arrays):
+    
+    n5_arr = test_arrays[0]
+    zarr_arr = test_arrays[1]
+    assert _read_attrs(n5_arr) == ([5.3, 4.3, 3.3],
+                                            [4.3, 3.3, 2.3],
+                                            ["nm", "nm", "nm"])
+    
+    assert _read_attrs(zarr_arr) == ([3.3,4.3,5.3],
+                                                [2.3, 3.3, 4.3],
+                                                ["nanometer","nanometer","nanometer"])
+    
+    
 def test_read_voxel_size_offset(test_arrays):
     
     n5_arr = test_arrays[0]
     zarr_arr = test_arrays[1]
-    assert _read_voxel_size_offset(n5_arr) == ([5.3, 4.3, 3.3],
-                                            [4.3, 3.3, 2.3],
-                                            ["nm", "nm", "nm"])
     
-    assert _read_voxel_size_offset(zarr_arr) == ([3.3,4.3,5.3],
-                                                [2.3, 3.3, 4.3],
-                                                ["nanometer","nanometer","nanometer"])
+    assert _read_voxel_size_offset(n5_arr) == regularize_offset([5.3, 4.3, 3.3],
+                                                                [4.3, 3.3, 2.3])
     
-
+    assert _read_voxel_size_offset(zarr_arr) == regularize_offset([3.3,4.3,5.3],
+                                                                  [2.3, 3.3, 4.3])
+    
+    
 @pytest.fixture(scope='session')
-def for_ms(test_arrays):
+def get_multiscale(test_arrays):
     
     z_arr = test_arrays[1]
     multiscales, multiscale_group = check_for_multiscale(group = access_parent(z_arr))
     return z_arr, multiscale_group, multiscales
 
-def test_check_for_attrs_multiscale(for_ms):
-    z_attrs = check_for_attrs_multiscale(for_ms[0], for_ms[1], for_ms[2])
+def test_check_for_attrs_multiscale(get_multiscale):
+    z_attrs = check_for_attrs_multiscale(get_multiscale[0],
+                                         get_multiscale[1],
+                                         get_multiscale[2])
     assert z_attrs ==  ([3.3,4.3,5.3],
                         [2.3, 3.3, 4.3],
                         ["nanometer","nanometer","nanometer"])
