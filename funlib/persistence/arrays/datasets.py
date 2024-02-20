@@ -347,7 +347,7 @@ def open_ds(filename: str, ds_name: str, mode: str = "r") -> Array:
             order = ds.attrs["order"]
         except KeyError:
             order = ds.order
-        voxel_size, offset, units = _read_voxel_size_offset(ds, order)
+        voxel_size, offset = _read_voxel_size_offset(ds, order)
         shape = Coordinate(ds.shape[-len(voxel_size) :])
         roi = Roi(offset, voxel_size * shape)
 
@@ -360,7 +360,7 @@ def open_ds(filename: str, ds_name: str, mode: str = "r") -> Array:
         logger.debug("opening N5 dataset %s in %s", ds_name, filename)
         ds = zarr.open(filename, mode=mode)[ds_name]
 
-        voxel_size, offset, units = _read_voxel_size_offset(ds, "F")
+        voxel_size, offset = _read_voxel_size_offset(ds, "F")
         shape = Coordinate(ds.shape[-len(voxel_size) :])
         roi = Roi(offset, voxel_size * shape)
 
@@ -373,7 +373,7 @@ def open_ds(filename: str, ds_name: str, mode: str = "r") -> Array:
         logger.debug("opening H5 dataset %s in %s", ds_name, filename)
         ds = h5py.File(filename, mode=mode)[ds_name]
 
-        voxel_size, offset, units = _read_voxel_size_offset(ds, "C")
+        voxel_size, offset = _read_voxel_size_offset(ds, "C")
         shape = Coordinate(ds.shape[-len(voxel_size) :])
         roi = Roi(offset, voxel_size * shape)
 
