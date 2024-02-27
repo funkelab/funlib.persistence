@@ -413,6 +413,8 @@ def prepare_ds(
     compressor: Union[str, dict] = "default",
     delete: bool = False,
     force_exact_write_size: bool = False,
+    units : str = 'nanometer',
+    axes : list = ['z', 'y', 'x']
 ) -> Array:
     """Prepare a Zarr or N5 dataset.
 
@@ -550,6 +552,10 @@ def prepare_ds(
         if file_format == "zarr":
             ds.attrs["resolution"] = voxel_size
             ds.attrs["offset"] = total_roi.begin
+            
+            #add ome-zarr multiscales in the parent group of a newly created zarr array:
+            add_multiscales(root, ds_name, total_roi, voxel_size, units, axes)
+            
         else:
             ds.attrs["resolution"] = voxel_size[::-1]
             ds.attrs["offset"] = total_roi.begin[::-1]
@@ -635,3 +641,48 @@ def get_chunk_size_dim(b, target_chunk_size):
                 best_k = k
 
     return b // best_k
+
+def add_multiscales(root : zarr.hierarchy.Group,
+                    ds_name : str,
+                    total_roi : Roi,
+                    voxel_size : Coordinate,
+                    units : str,
+                    axes : list):
+    z_attrs = {'multiscales' : [{}]}
+    z_attrs['multiscales'][0]['axes'] = [ 
+                {
+                    "name": axis,
+                    "type": "space",
+                    "unit": units
+                }    
+            for axis in axes]
+    z_attrs['multiscales'][0]['coordinateTransformations'] = [
+                {
+                    "scale": [
+                        1.0,
+                        1.0,
+                        1.0
+                    ],
+                    "type": "scale"
+                }
+            ]
+    z_attrs['multiscales'][0]['datasets'] = [
+                {
+                    "coordinateTransformations": [
+                        {
+                            "scale": voxel_size,
+                            "type": "scale"
+                        },
+                        {
+                            "translation": total_roi.begin,
+                            "type": "translation"
+                        }
+                    ],
+                    "path": ds_name
+                }
+    ]
+    
+    z_attrs['multiscales'][0]['name'] = ''
+    z_attrs['multiscales'][0]['version'] = '0.4'
+    
+    root.attrs.update(z_attrs)
