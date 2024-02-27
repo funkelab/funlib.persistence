@@ -555,7 +555,7 @@ def prepare_ds(
             ds.attrs["offset"] = total_roi.begin
             
             #add ome-zarr multiscales in the parent group of a newly created zarr array:
-            if multiscales_metadata:
+            if multiscales_metadata == True and 'multiscales' not in root.attrs:
                 add_multiscales_metadata(root, ds_name, total_roi, voxel_size, units, axes)
             
         else:
