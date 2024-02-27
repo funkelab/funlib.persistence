@@ -413,6 +413,7 @@ def prepare_ds(
     compressor: Union[str, dict] = "default",
     delete: bool = False,
     force_exact_write_size: bool = False,
+    multiscales_metadata = False,
     units : str = 'nanometer',
     axes : list = ['z', 'y', 'x']
 ) -> Array:
@@ -554,7 +555,8 @@ def prepare_ds(
             ds.attrs["offset"] = total_roi.begin
             
             #add ome-zarr multiscales in the parent group of a newly created zarr array:
-            add_multiscales(root, ds_name, total_roi, voxel_size, units, axes)
+            if multiscales_metadata:
+                add_multiscales_metadata(root, ds_name, total_roi, voxel_size, units, axes)
             
         else:
             ds.attrs["resolution"] = voxel_size[::-1]
@@ -642,7 +644,7 @@ def get_chunk_size_dim(b, target_chunk_size):
 
     return b // best_k
 
-def add_multiscales(root : zarr.hierarchy.Group,
+def add_multiscales_metadata(root : zarr.hierarchy.Group,
                     ds_name : str,
                     total_roi : Roi,
                     voxel_size : Coordinate,
