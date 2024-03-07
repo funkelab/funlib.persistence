@@ -1,4 +1,5 @@
-from .graph_database import GraphDataBase
+from .graph_database import GraphDataBase, AttributeType
+from .types import Array, type_to_str
 
 from funlib.geometry import Coordinate
 from funlib.geometry import Roi
@@ -55,8 +56,8 @@ class SQLGraphDataBase(GraphDataBase):
             The custom attributes to store on each edge.
     """
 
-    _node_attrs: Optional[dict[str, type]] = None
-    _edge_attrs: Optional[dict[str, type]] = None
+    _node_attrs: Optional[dict[str, AttributeType]] = None
+    _edge_attrs: Optional[dict[str, AttributeType]] = None
 
     def __init__(
         self,
@@ -67,8 +68,8 @@ class SQLGraphDataBase(GraphDataBase):
         nodes_table: str = "nodes",
         edges_table: str = "edges",
         endpoint_names: Optional[list[str]] = None,
-        node_attrs: Optional[dict[str, type]] = None,
-        edge_attrs: Optional[dict[str, type]] = None,
+        node_attrs: Optional[dict[str, AttributeType]] = None,
+        edge_attrs: Optional[dict[str, AttributeType]] = None,
     ):
         self.position_attributes = position_attributes
         self.ndim = len(self.position_attributes)
@@ -205,19 +206,19 @@ class SQLGraphDataBase(GraphDataBase):
             )
 
     @property
-    def node_attrs(self) -> dict[str, type]:
+    def node_attrs(self) -> dict[str, AttributeType]:
         return self._node_attrs if self._node_attrs is not None else {}
 
     @node_attrs.setter
-    def node_attrs(self, value: dict[str, type]) -> None:
+    def node_attrs(self, value: dict[str, AttributeType]) -> None:
         self._node_attrs = value
 
     @property
-    def edge_attrs(self) -> dict[str, type]:
+    def edge_attrs(self) -> dict[str, AttributeType]:
         return self._edge_attrs if self._edge_attrs is not None else {}
 
     @edge_attrs.setter
-    def edge_attrs(self, value: dict[str, type]) -> None:
+    def edge_attrs(self, value: dict[str, AttributeType]) -> None:
         self._edge_attrs = value
 
     def read_nodes(
@@ -523,8 +524,8 @@ class SQLGraphDataBase(GraphDataBase):
             "directed": self.directed,
             "total_roi_offset": self.total_roi.offset,
             "total_roi_shape": self.total_roi.shape,
-            "node_attrs": {k: v.__name__ for k, v in self.node_attrs.items()},
-            "edge_attrs": {k: v.__name__ for k, v in self.edge_attrs.items()},
+            "node_attrs": {k: type_to_str(v) for k, v in self.node_attrs.items()},
+            "edge_attrs": {k: type_to_str(v) for k, v in self.edge_attrs.items()},
         }
 
         return metadata

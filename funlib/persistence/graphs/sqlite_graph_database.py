@@ -1,4 +1,4 @@
-from .sql_graph_database import SQLGraphDataBase
+from .sql_graph_database import SQLGraphDataBase, AttributeType
 
 from funlib.geometry import Roi
 
@@ -22,8 +22,8 @@ class SQLiteGraphDataBase(SQLGraphDataBase):
         nodes_table: str = "nodes",
         edges_table: str = "edges",
         endpoint_names: Optional[list[str]] = None,
-        node_attrs: Optional[dict[str, type]] = None,
-        edge_attrs: Optional[dict[str, type]] = None,
+        node_attrs: Optional[dict[str, AttributeType]] = None,
+        edge_attrs: Optional[dict[str, AttributeType]] = None,
     ):
         self.db_file = db_file
         self.meta_collection = self.db_file.parent / f"{self.db_file.stem}-meta.json"

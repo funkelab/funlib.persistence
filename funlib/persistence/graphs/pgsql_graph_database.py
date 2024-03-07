@@ -1,10 +1,12 @@
 from .sql_graph_database import SQLGraphDataBase
+from .types import Array
 from funlib.geometry import Roi
 
 import logging
 import psycopg2
 import json
 from typing import Optional, Any, Iterable
+from collections.abc import Iterable
 
 logger = logging.getLogger(__name__)
 
@@ -177,12 +179,16 @@ class PgSQLGraphDatabase(SQLGraphDataBase):
     def __sql_value(self, value):
         if isinstance(value, str):
             return f"'{value}'"
+        if isinstance(value, Iterable):
+            return f"array[{','.join([self.__sql_value(v) for v in value])}]"
         elif value is None:
             return "NULL"
         else:
             return str(value)
 
     def __sql_type(self, type):
+        if isinstance(type, Array):
+            return self.__sql_type(type.dtype) + f"[{type.size}]"
         try:
             return {bool: "BOOLEAN", int: "INTEGER", str: "VARCHAR", float: "REAL"}[
                 type
