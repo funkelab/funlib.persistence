@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 class PgSQLGraphDatabase(SQLGraphDataBase):
     def __init__(
         self,
-        position_attributes: list[str],
+        position_attribute: str,
         db_name: str,
         db_host: str = "localhost",
         db_user: Optional[str] = None,
@@ -62,8 +62,8 @@ class PgSQLGraphDatabase(SQLGraphDataBase):
         self.cur = self.connection.cursor()
 
         super().__init__(
-            position_attributes,
             mode=mode,
+            position_attribute=position_attribute,
             directed=directed,
             total_roi=total_roi,
             nodes_table=nodes_table,
@@ -86,10 +86,8 @@ class PgSQLGraphDatabase(SQLGraphDataBase):
         self._commit()
 
     def _create_tables(self) -> None:
-        columns = self.position_attributes + list(self.node_attrs.keys())
-        types = [self.__sql_type(float) + " NOT NULL"] * len(
-            self.position_attributes
-        ) + list([self.__sql_type(t) for t in self.node_attrs.values()])
+        columns = self.node_attrs.keys()
+        types = [self.__sql_type(t) for t in self.node_attrs.values()]
         column_types = [f"{c} {t}" for c, t in zip(columns, types)]
         self.__exec(
             f"CREATE TABLE IF NOT EXISTS "
@@ -100,7 +98,7 @@ class PgSQLGraphDatabase(SQLGraphDataBase):
         )
         self.__exec(
             f"CREATE INDEX IF NOT EXISTS pos_index ON "
-            f"{self.nodes_table_name}({','.join(self.position_attributes)})"
+            f"{self.nodes_table_name}({self.position_attribute})"
         )
 
         columns = list(self.edge_attrs.keys())
@@ -139,6 +137,7 @@ class PgSQLGraphDatabase(SQLGraphDataBase):
         return None
 
     def _select_query(self, query) -> Iterable[Any]:
+        print(query)
         self.__exec(query)
         return self.cur
 

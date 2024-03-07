@@ -20,7 +20,7 @@ def provider_factory(request, tmpdir):
     ):
         return SQLiteGraphDataBase(
             tmpdir / "test_sqlite_graph.db",
-            position_attributes=["z", "y", "x"],
+            position_attribute="position",
             mode=mode,
             directed=directed,
             total_roi=total_roi,
@@ -32,7 +32,7 @@ def provider_factory(request, tmpdir):
         mode, directed=None, total_roi=None, node_attrs=None, edge_attrs=None
     ):
         return PgSQLGraphDatabase(
-            position_attributes=["z", "y", "x"],
+            position_attribute="position",
             db_name="pytest",
             mode=mode,
             directed=directed,
