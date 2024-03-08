@@ -1,5 +1,5 @@
 from .sql_graph_database import SQLGraphDataBase, AttributeType
-from .types import Array
+from ..types import Array
 
 from funlib.geometry import Roi
 

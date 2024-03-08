@@ -1,6 +1,6 @@
 from networkx import Graph
 from funlib.geometry import Roi
-from .types import Array
+from ..types import Array
 
 import logging
 from abc import ABC, abstractmethod

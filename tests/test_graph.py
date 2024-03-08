@@ -1,5 +1,5 @@
 from funlib.geometry import Roi, Coordinate
-from funlib.persistence.graphs import Array
+from funlib.persistence.types import Array
 
 import networkx as nx
 import pytest

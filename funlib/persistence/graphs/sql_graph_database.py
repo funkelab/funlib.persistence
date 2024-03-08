@@ -1,5 +1,5 @@
 from .graph_database import GraphDataBase, AttributeType
-from .types import Array, type_to_str
+from ..types import Array, type_to_str
 
 from funlib.geometry import Coordinate
 from funlib.geometry import Roi
