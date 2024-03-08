@@ -154,7 +154,12 @@ class SQLiteGraphDataBase(SQLGraphDataBase):
             f"INSERT{' OR IGNORE' if not fail_if_exists else ''} INTO {table} "
             f"({', '.join(columns)}) VALUES ({', '.join(['?'] * len(columns))})"
         )
-        self.cur.executemany(insert_statement, values)
+        try:
+            self.cur.executemany(insert_statement, values)
+        except sqlite3.IntegrityError as e:
+            raise ValueError(
+                f"Failed to insert values {values} with types {[[type(x) for x in row] for row in values]} into table {table} with columns {columns}"
+            ) from e
 
         if commit:
             self.con.commit()
