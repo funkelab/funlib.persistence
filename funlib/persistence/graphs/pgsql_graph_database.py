@@ -92,7 +92,7 @@ class PgSQLGraphDatabase(SQLGraphDataBase):
         self.__exec(
             f"CREATE TABLE IF NOT EXISTS "
             f"{self.nodes_table_name}("
-            "id INTEGER not null PRIMARY KEY, "
+            "id BIGINT not null PRIMARY KEY, "
             f"{', '.join(column_types)}"
             ")"
         )
@@ -106,8 +106,8 @@ class PgSQLGraphDatabase(SQLGraphDataBase):
         column_types = [f"{c} {t}" for c, t in zip(columns, types)]
         self.__exec(
             f"CREATE TABLE IF NOT EXISTS {self.edges_table_name}("
-            f"{self.endpoint_names[0]} INTEGER not null, "
-            f"{self.endpoint_names[1]} INTEGER not null, "
+            f"{self.endpoint_names[0]} BIGINT not null, "
+            f"{self.endpoint_names[1]} BIGINT not null, "
             f"{' '.join([c + ',' for c in column_types])}"
             f"PRIMARY KEY ({self.endpoint_names[0]}, {self.endpoint_names[1]})"
             ")"
