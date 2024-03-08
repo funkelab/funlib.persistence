@@ -98,7 +98,7 @@ class SQLGraphDataBase(GraphDataBase):
 
             metadata = self._read_metadata()
             if metadata is None:
-                RuntimeError("metadata does not exist, can't open in read mode")
+                raise RuntimeError("metadata does not exist, can't open in read mode")
             self.__load_metadata(metadata)
 
         if mode in self.create_modes:
