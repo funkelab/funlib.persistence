@@ -32,6 +32,9 @@ class SQLiteGraphDataBase(SQLGraphDataBase):
         self.con = sqlite3.connect(db_file)
         self.cur = self.con.cursor()
 
+        self._node_array_columns = None
+        self._edge_array_columns = None
+
         super().__init__(
             mode=mode,
             position_attribute=position_attribute,
@@ -44,21 +47,29 @@ class SQLiteGraphDataBase(SQLGraphDataBase):
             edge_attrs=edge_attrs,
         )
 
-        # in SQLite, array types are stored in individual columns
-        self.node_array_columns = {
-            attr: [
-                f"{attr}_{d}" for d in range(attr_type.size)
-            ]
-            for attr, attr_type in self.node_attrs.items()
-            if isinstance(attr_type, Vec)
-        }
-        self.edge_array_columns = {
-            attr: [
-                f"{attr}_{d}" for d in range(attr_type.size)
-            ]
-            for attr, attr_type in self.edge_attrs.items()
-            if isinstance(attr_type, Vec)
-        }
+    @property
+    def node_array_columns(self):
+        if not self._node_array_columns:
+            self._node_array_columns = {
+                attr: [
+                    f"{attr}_{d}" for d in range(attr_type.size)
+                ]
+                for attr, attr_type in self.node_attrs.items()
+                if isinstance(attr_type, Vec)
+            }
+        return self._node_array_columns
+
+    @property
+    def edge_array_columns(self):
+        if not self._edge_array_columns:
+            self._edge_array_columns = {
+                attr: [
+                    f"{attr}_{d}" for d in range(attr_type.size)
+                ]
+                for attr, attr_type in self.edge_attrs.items()
+                if isinstance(attr_type, Vec)
+            }
+        return self._edge_array_columns
 
     def _drop_tables(self) -> None:
         logger.info(
@@ -75,27 +86,36 @@ class SQLiteGraphDataBase(SQLGraphDataBase):
             self.meta_collection.unlink()
 
     def _create_tables(self) -> None:
-        columns = list(self.node_attrs.keys())
-        columns.remove(self.position_attribute)
-        position_columns = [
-            self.position_attribute + f"_{d}"
-            for d in range(self.ndims)
-        ]
-        columns += [ p + " REAL NOT NULL" for p in position_columns ]
+
+        node_columns = ["id INTEGER not null PRIMARY KEY"]
+        for attr in self.node_attrs.keys():
+            if attr in self.node_array_columns:
+                node_columns += self.node_array_columns[attr]
+            else:
+                node_columns.append(attr)
+
         self.cur.execute(
             f"CREATE TABLE IF NOT EXISTS "
             f"{self.nodes_table_name}("
-            "id INTEGER not null PRIMARY KEY, "
-            f"{', '.join(columns)}"
+            f"{', '.join(node_columns)}"
             ")"
         )
+        if self.ndims > 1:
+            position_columns = self.node_array_columns[self.position_attribute]
+        else:
+            position_columns = self.position_attribute
         self.cur.execute(
             f"CREATE INDEX IF NOT EXISTS pos_index ON {self.nodes_table_name}({','.join(position_columns)})"
         )
         edge_columns = [
             f"{self.endpoint_names[0]} INTEGER not null",
             f"{self.endpoint_names[1]} INTEGER not null",
-        ] + [f"{edge_attr}" for edge_attr in self.edge_attrs.keys()]
+        ]
+        for attr in self.edge_attrs.keys():
+            if attr in self.edge_array_columns:
+                edge_columns += self.edge_array_columns[attr]
+            else:
+                edge_columns.append(attr)
         self.cur.execute(
             f"CREATE TABLE IF NOT EXISTS {self.edges_table_name}("
             + f"{', '.join(edge_columns)}"
