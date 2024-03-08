@@ -1,5 +1,5 @@
 from .graph_database import GraphDataBase, AttributeType
-from ..types import Array, type_to_str
+from ..types import Vec, type_to_str
 
 from funlib.geometry import Coordinate
 from funlib.geometry import Roi
@@ -120,12 +120,12 @@ class SQLGraphDataBase(GraphDataBase):
             )
 
             position_type = node_attrs[self.position_attribute]
-            if isinstance(position_type, Array):
+            if isinstance(position_type, Vec):
                 self.ndims = position_type.size
                 assert self.ndims > 1, (
-                    "Don't use Arrays of size 1 for the position, use the "
+                    "Don't use Vecs of size 1 for the position, use the "
                     "scalar type directly instead (i.e., 'float' instead of "
-                    "'Array(float, 1)'."
+                    "'Vec(float, 1)'."
                 )
                 # if ndims == 1, we know that we have a single scalar now
             else:

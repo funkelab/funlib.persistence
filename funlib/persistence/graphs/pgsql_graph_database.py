@@ -1,5 +1,5 @@
 from .sql_graph_database import SQLGraphDataBase
-from ..types import Array
+from ..types import Vec
 from funlib.geometry import Roi
 
 import logging
@@ -186,7 +186,7 @@ class PgSQLGraphDatabase(SQLGraphDataBase):
             return str(value)
 
     def __sql_type(self, type):
-        if isinstance(type, Array):
+        if isinstance(type, Vec):
             return self.__sql_type(type.dtype) + f"[{type.size}]"
         try:
             return {bool: "BOOLEAN", int: "INTEGER", str: "VARCHAR", float: "REAL"}[

@@ -1,5 +1,5 @@
 from funlib.geometry import Roi, Coordinate
-from funlib.persistence.types import Array
+from funlib.persistence.types import Vec
 
 import networkx as nx
 import pytest
@@ -7,7 +7,7 @@ import pytest
 
 def test_graph_filtering(provider_factory):
     graph_writer = provider_factory(
-        "w", node_attrs={"position": Array(float, 3), "selected": bool}, edge_attrs={"selected": bool}
+        "w", node_attrs={"position": Vec(float, 3), "selected": bool}, edge_attrs={"selected": bool}
     )
     roi = Roi((0, 0, 0), (10, 10, 10))
     graph = graph_writer[roi]
@@ -54,7 +54,7 @@ def test_graph_filtering(provider_factory):
 def test_graph_filtering_complex(provider_factory):
     graph_provider = provider_factory(
         "w",
-        node_attrs={"position": Array(float, 3), "selected": bool, "test": str},
+        node_attrs={"position": Vec(float, 3), "selected": bool, "test": str},
         edge_attrs={"selected": bool, "a": int, "b": int},
     )
     roi = Roi((0, 0, 0), (10, 10, 10))
@@ -104,7 +104,7 @@ def test_graph_filtering_complex(provider_factory):
 def test_graph_read_and_update_specific_attrs(provider_factory):
     graph_provider = provider_factory(
         "w",
-        node_attrs={"position": Array(float, 3), "selected": bool, "test": str},
+        node_attrs={"position": Vec(float, 3), "selected": bool, "test": str},
         edge_attrs={"selected": bool, "a": int, "b": int, "c": int},
     )
     roi = Roi((0, 0, 0), (10, 10, 10))
@@ -155,7 +155,7 @@ def test_graph_read_and_update_specific_attrs(provider_factory):
 def test_graph_read_unbounded_roi(provider_factory):
     graph_provider = provider_factory(
         "w",
-        node_attrs={"position": Array(float, 3), "selected": bool, "test": str},
+        node_attrs={"position": Vec(float, 3), "selected": bool, "test": str},
         edge_attrs={"selected": bool, "a": int, "b": int},
     )
     roi = Roi((0, 0, 0), (10, 10, 10))
@@ -197,14 +197,14 @@ def test_graph_read_unbounded_roi(provider_factory):
 
 def test_graph_read_meta_values(provider_factory):
     roi = Roi((0, 0, 0), (10, 10, 10))
-    provider_factory("w", True, roi, node_attrs={"position": Array(float, 3)})
+    provider_factory("w", True, roi, node_attrs={"position": Vec(float, 3)})
     graph_provider = provider_factory("r", None, None)
     assert True == graph_provider.directed
     assert roi == graph_provider.total_roi
 
 
 def test_graph_default_meta_values(provider_factory):
-    provider = provider_factory("w", False, None, node_attrs={"position": Array(float, 3)})
+    provider = provider_factory("w", False, None, node_attrs={"position": Vec(float, 3)})
     assert False == provider.directed
     assert provider.total_roi is None or provider.total_roi == Roi(
         (None, None, None), (None, None, None)
@@ -220,7 +220,7 @@ def test_graph_io(provider_factory):
     graph_provider = provider_factory(
         "w",
         node_attrs={
-            "position": Array(float, 3),
+            "position": Vec(float, 3),
             "swip": str,
             "zap": str,
         }
@@ -263,7 +263,7 @@ def test_graph_fail_if_exists(provider_factory):
     graph_provider = provider_factory(
         "w",
         node_attrs={
-            "position": Array(float, 3),
+            "position": Vec(float, 3),
             "swip": str,
             "zap": str,
         }
@@ -289,7 +289,7 @@ def test_graph_fail_if_not_exists(provider_factory):
     graph_provider = provider_factory(
         "w",
         node_attrs={
-            "position": Array(float, 3),
+            "position": Vec(float, 3),
             "swip": str,
             "zap": str,
         }
@@ -316,7 +316,7 @@ def test_graph_write_attributes(provider_factory):
     graph_provider = provider_factory(
         "w",
         node_attrs={
-            "position": Array(int, 3),
+            "position": Vec(int, 3),
             "swip": str,
             "zap": str,
         }
@@ -372,7 +372,7 @@ def test_graph_write_roi(provider_factory):
     graph_provider = provider_factory(
         "w",
         node_attrs={
-            "position": Array(float, 3),
+            "position": Vec(float, 3),
             "swip": str,
             "zap": str,
         }
@@ -411,7 +411,7 @@ def test_graph_connected_components(provider_factory):
     graph_provider = provider_factory(
         "w",
         node_attrs={
-            "position": Array(float, 3),
+            "position": Vec(float, 3),
             "swip": str,
             "zap": str,
         }
@@ -449,7 +449,7 @@ def test_graph_has_edge(provider_factory):
     graph_provider = provider_factory(
         "w",
         node_attrs={
-            "position": Array(float, 3),
+            "position": Vec(float, 3),
             "swip": str,
             "zap": str,
         }

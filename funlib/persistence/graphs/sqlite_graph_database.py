@@ -1,5 +1,5 @@
 from .sql_graph_database import SQLGraphDataBase, AttributeType
-from ..types import Array
+from ..types import Vec
 
 from funlib.geometry import Roi
 
@@ -50,14 +50,14 @@ class SQLiteGraphDataBase(SQLGraphDataBase):
                 f"{attr}_{d}" for d in range(attr_type.size)
             ]
             for attr, attr_type in self.node_attrs.items()
-            if isinstance(attr_type, Array)
+            if isinstance(attr_type, Vec)
         }
         self.edge_array_columns = {
             attr: [
                 f"{attr}_{d}" for d in range(attr_type.size)
             ]
             for attr, attr_type in self.edge_attrs.items()
-            if isinstance(attr_type, Array)
+            if isinstance(attr_type, Vec)
         }
 
     def _drop_tables(self) -> None:
@@ -175,7 +175,7 @@ class SQLiteGraphDataBase(SQLGraphDataBase):
         columns = []
         for attr in attrs:
             attr_type = self.node_attrs[attr]
-            if isinstance(attr_type, Array):
+            if isinstance(attr_type, Vec):
                 columns += [
                     f"{attr}_{d}" for d in range(attr_type.size)
                 ]
@@ -200,7 +200,7 @@ class SQLiteGraphDataBase(SQLGraphDataBase):
         columns = []
         for attr in attrs:
             attr_type = self.edge_attrs[attr]
-            if isinstance(attr_type, Array):
+            if isinstance(attr_type, Vec):
                 columns += [
                     f"{attr}_{d}" for d in range(attr_type.size)
                 ]
