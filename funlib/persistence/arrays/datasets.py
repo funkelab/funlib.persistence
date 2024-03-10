@@ -251,28 +251,29 @@ def _read_attrs(ds, order="C"):
     # check recursively for multiscales attribute in the zarr store tree
     multiscales, multiscale_group = check_for_multiscale(group = access_parent(ds))
     
-    # check N5 store
-    if isinstance(ds.store, (zarr.n5.N5Store, zarr.n5.N5FSStore)):
-        if multiscales:
-            voxel_size, offset, units = check_for_attrs_multiscale(ds, multiscale_group, multiscales)
-        # if multiscale attribute is missing
-        if voxel_size == None or offset == None:
-            voxel_size = check_for_voxel_size(ds, order)
-            offset = check_for_offset(ds, order)
-            units = check_for_units(ds, order)
-        else:
-            return voxel_size, offset, units
-    # check zarr store
-    else:
-        #check for attributes in zarr group multiscale
-        if multiscales:
-            voxel_size, offset, units = check_for_attrs_multiscale(ds, multiscale_group, multiscales)
-            if voxel_size != None and offset != None:
-                return voxel_size, offset, units
-            else:
-                raise ValueError(f"Although multiscale exists within n5 container, no attributes were found.")     
-        else:
-            raise ValueError(f"No multiscales attribute was found")     
+    
+    #check for attributes in zarr group multiscale
+    if multiscales:
+        voxel_size, offset, units = check_for_attrs_multiscale(ds, multiscale_group, multiscales)
+    
+    # if multiscale attribute is missing
+    if voxel_size == None:
+        voxel_size = check_for_voxel_size(ds, order)
+    if offset == None:
+        offset = check_for_offset(ds, order)
+    if units == None:
+        units = check_for_units(ds, order) 
+    
+    if voxel_size != None and offset != None and units != None:
+        return voxel_size, offset, units
+    elif voxel_size == None:
+        raise ValueError(f"No voxel_size attribute was found")
+    elif offset == None:
+        raise ValueError(f"No offset attribute was found")
+    elif units == None:
+        raise ValueError(f"No units attribute was found")
+
+         
     return voxel_size, offset, units
 
 def regularize_offset(voxel_size_float, offset_float):
