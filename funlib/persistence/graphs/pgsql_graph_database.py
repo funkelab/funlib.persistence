@@ -137,7 +137,6 @@ class PgSQLGraphDatabase(SQLGraphDataBase):
         return None
 
     def _select_query(self, query) -> Iterable[Any]:
-        print(query)
         self.__exec(query)
         return self.cur
 

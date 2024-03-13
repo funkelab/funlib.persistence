@@ -345,11 +345,6 @@ class SQLGraphDataBase(GraphDataBase):
             for values in self._select_query(select_statement)
         ]
 
-        for values in self._select_query(select_statement):
-            print(values)
-        print(self.node_attrs.keys())
-        print(nodes)
-
         return nodes
 
     def num_nodes(self, roi: Roi) -> int:
@@ -445,7 +440,7 @@ class SQLGraphDataBase(GraphDataBase):
                 u, v = min(u, v), max(u, v)
             pos_u = self.__get_node_pos(nodes[u])
 
-            if not roi.contains(pos_u):
+            if pos_u is None or not roi.contains(pos_u):
                 logger.debug(
                     (
                         f"Skipping edge with {self.endpoint_names[0]} {{}}, {self.endpoint_names[1]} {{}},"
@@ -660,8 +655,11 @@ class SQLGraphDataBase(GraphDataBase):
 
         return {k: v for k, v in dictionary.items() if k not in keys}
 
-    def __get_node_pos(self, n: dict[str, Any]) -> Coordinate:
-        return Coordinate(n[self.position_attribute])
+    def __get_node_pos(self, n: dict[str, Any]) -> Optional[Coordinate]:
+        try:
+            return Coordinate(n[self.position_attribute])
+        except KeyError:
+            return None
 
     def __convert_to_sql(self, x: Any) -> str:
         if isinstance(x, str):
