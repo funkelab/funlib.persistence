@@ -1,5 +1,6 @@
 from networkx import Graph
 from funlib.geometry import Roi
+from ..types import Vec
 
 import logging
 from abc import ABC, abstractmethod
@@ -7,6 +8,9 @@ from typing import Optional
 
 
 logger = logging.getLogger(__name__)
+
+
+AttributeType = type | str | Vec
 
 
 class GraphDataBase(ABC):
@@ -33,7 +37,7 @@ class GraphDataBase(ABC):
 
     @property
     @abstractmethod
-    def node_attrs(self) -> dict[str, type]:
+    def node_attrs(self) -> dict[str, AttributeType]:
         """
         Return the node attributes supported by the database.
         """
@@ -41,7 +45,7 @@ class GraphDataBase(ABC):
 
     @property
     @abstractmethod
-    def edge_attrs(self) -> dict[str, type]:
+    def edge_attrs(self) -> dict[str, AttributeType]:
         """
         Return the edge attributes supported by the database.
         """

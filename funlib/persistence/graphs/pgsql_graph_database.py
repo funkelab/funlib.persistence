@@ -1,10 +1,12 @@
 from .sql_graph_database import SQLGraphDataBase
+from ..types import Vec
 from funlib.geometry import Roi
 
 import logging
 import psycopg2
 import json
 from typing import Optional, Any, Iterable
+from collections.abc import Iterable
 
 logger = logging.getLogger(__name__)
 
@@ -12,7 +14,7 @@ logger = logging.getLogger(__name__)
 class PgSQLGraphDatabase(SQLGraphDataBase):
     def __init__(
         self,
-        position_attributes: list[str],
+        position_attribute: str,
         db_name: str,
         db_host: str = "localhost",
         db_user: Optional[str] = None,
@@ -60,8 +62,8 @@ class PgSQLGraphDatabase(SQLGraphDataBase):
         self.cur = self.connection.cursor()
 
         super().__init__(
-            position_attributes,
             mode=mode,
+            position_attribute=position_attribute,
             directed=directed,
             total_roi=total_roi,
             nodes_table=nodes_table,
@@ -84,21 +86,19 @@ class PgSQLGraphDatabase(SQLGraphDataBase):
         self._commit()
 
     def _create_tables(self) -> None:
-        columns = self.position_attributes + list(self.node_attrs.keys())
-        types = [self.__sql_type(float) + " NOT NULL"] * len(
-            self.position_attributes
-        ) + list([self.__sql_type(t) for t in self.node_attrs.values()])
+        columns = self.node_attrs.keys()
+        types = [self.__sql_type(t) for t in self.node_attrs.values()]
         column_types = [f"{c} {t}" for c, t in zip(columns, types)]
         self.__exec(
             f"CREATE TABLE IF NOT EXISTS "
             f"{self.nodes_table_name}("
-            "id INTEGER not null PRIMARY KEY, "
+            "id BIGINT not null PRIMARY KEY, "
             f"{', '.join(column_types)}"
             ")"
         )
         self.__exec(
             f"CREATE INDEX IF NOT EXISTS pos_index ON "
-            f"{self.nodes_table_name}({','.join(self.position_attributes)})"
+            f"{self.nodes_table_name}({self.position_attribute})"
         )
 
         columns = list(self.edge_attrs.keys())
@@ -106,8 +106,8 @@ class PgSQLGraphDatabase(SQLGraphDataBase):
         column_types = [f"{c} {t}" for c, t in zip(columns, types)]
         self.__exec(
             f"CREATE TABLE IF NOT EXISTS {self.edges_table_name}("
-            f"{self.endpoint_names[0]} INTEGER not null, "
-            f"{self.endpoint_names[1]} INTEGER not null, "
+            f"{self.endpoint_names[0]} BIGINT not null, "
+            f"{self.endpoint_names[1]} BIGINT not null, "
             f"{' '.join([c + ',' for c in column_types])}"
             f"PRIMARY KEY ({self.endpoint_names[0]}, {self.endpoint_names[1]})"
             ")"
@@ -177,12 +177,16 @@ class PgSQLGraphDatabase(SQLGraphDataBase):
     def __sql_value(self, value):
         if isinstance(value, str):
             return f"'{value}'"
+        if isinstance(value, Iterable):
+            return f"array[{','.join([self.__sql_value(v) for v in value])}]"
         elif value is None:
             return "NULL"
         else:
             return str(value)
 
     def __sql_type(self, type):
+        if isinstance(type, Vec):
+            return self.__sql_type(type.dtype) + f"[{type.size}]"
         try:
             return {bool: "BOOLEAN", int: "INTEGER", str: "VARCHAR", float: "REAL"}[
                 type
