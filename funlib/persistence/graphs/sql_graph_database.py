@@ -81,7 +81,9 @@ class SQLGraphDataBase(GraphDataBase):
         node_attrs: Optional[dict[str, AttributeType]] = None,
         edge_attrs: Optional[dict[str, AttributeType]] = None,
     ):
-        assert mode in self.valid_modes, f"Mode '{mode}' not in allowed modes {self.valid_modes}"
+        assert (
+            mode in self.valid_modes
+        ), f"Mode '{mode}' not in allowed modes {self.valid_modes}"
         self.mode = mode
 
         if mode in self.read_modes:
@@ -135,8 +137,8 @@ class SQLGraphDataBase(GraphDataBase):
 
             self.directed = get(directed, False)
             self.total_roi = get(
-                total_roi,
-                Roi((None,) * self.ndims, (None,) * self.ndims))
+                total_roi, Roi((None,) * self.ndims, (None,) * self.ndims)
+            )
             self.nodes_table_name = get(nodes_table, "nodes")
             self.edges_table_name = get(edges_table, "edges")
             self.endpoint_names = get(endpoint_names, ["u", "v"])
@@ -336,11 +338,7 @@ class SQLGraphDataBase(GraphDataBase):
 
         nodes = [
             self._columns_to_node_attrs(
-                {
-                    key: val
-                    for key, val in zip(read_columns, values)
-                },
-                read_attrs
+                {key: val for key, val in zip(read_columns, values)}, read_attrs
             )
             for values in self._select_query(select_statement)
         ]
@@ -528,10 +526,7 @@ class SQLGraphDataBase(GraphDataBase):
             pos = self.__get_node_pos(data)
             if roi is not None and not roi.contains(pos):
                 continue
-            values.append(
-                [node_id]
-                + [data.get(attr, None) for attr in attrs]
-            )
+            values.append([node_id] + [data.get(attr, None) for attr in attrs])
 
         if len(values) == 0:
             logger.debug("No nodes to insert in %s", roi)
@@ -602,12 +597,13 @@ class SQLGraphDataBase(GraphDataBase):
 
         # simple attributes
         for attr_name in [
-                "position_attribute",
-                "directed",
-                "nodes_table_name",
-                "edges_table_name",
-                "endpoint_names",
-                "ndims"]:
+            "position_attribute",
+            "directed",
+            "nodes_table_name",
+            "edges_table_name",
+            "endpoint_names",
+            "ndims",
+        ]:
 
             if getattr(self, attr_name) is None:
                 setattr(self, attr_name, metadata[attr_name])
@@ -685,7 +681,9 @@ class SQLGraphDataBase(GraphDataBase):
             if dim > 0:
                 query += " AND "
             if roi.begin[dim] is not None and roi.end[dim] is not None:
-                query += f"{pos_attr}[{dim + 1}] BETWEEN {roi.begin[dim]} and {roi.end[dim]}"
+                query += (
+                    f"{pos_attr}[{dim + 1}] BETWEEN {roi.begin[dim]} and {roi.end[dim]}"
+                )
             elif roi.begin[dim] is not None:
                 query += f"{pos_attr}[{dim + 1}]>={roi.begin[dim]}"
             elif roi.begin[dim] is not None:

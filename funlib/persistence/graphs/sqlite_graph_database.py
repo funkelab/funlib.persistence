@@ -51,9 +51,7 @@ class SQLiteGraphDataBase(SQLGraphDataBase):
     def node_array_columns(self):
         if not self._node_array_columns:
             self._node_array_columns = {
-                attr: [
-                    f"{attr}_{d}" for d in range(attr_type.size)
-                ]
+                attr: [f"{attr}_{d}" for d in range(attr_type.size)]
                 for attr, attr_type in self.node_attrs.items()
                 if isinstance(attr_type, Vec)
             }
@@ -63,9 +61,7 @@ class SQLiteGraphDataBase(SQLGraphDataBase):
     def edge_array_columns(self):
         if not self._edge_array_columns:
             self._edge_array_columns = {
-                attr: [
-                    f"{attr}_{d}" for d in range(attr_type.size)
-                ]
+                attr: [f"{attr}_{d}" for d in range(attr_type.size)]
                 for attr, attr_type in self.edge_attrs.items()
                 if isinstance(attr_type, Vec)
             }
@@ -142,7 +138,7 @@ class SQLiteGraphDataBase(SQLGraphDataBase):
         #
         # If SQL dialects allow array element access, they start counting at 1.
         # We don't want that, we start counting at 0 like normal people.
-        query = re.sub(r'\[(\d+)\]', lambda m: "_" + str(int(m.group(1)) - 1), query)
+        query = re.sub(r"\[(\d+)\]", lambda m: "_" + str(int(m.group(1)) - 1), query)
 
         try:
             return self.cur.execute(query)
@@ -201,9 +197,7 @@ class SQLiteGraphDataBase(SQLGraphDataBase):
         for attr in attrs:
             attr_type = self.node_attrs[attr]
             if isinstance(attr_type, Vec):
-                columns += [
-                    f"{attr}_{d}" for d in range(attr_type.size)
-                ]
+                columns += [f"{attr}_{d}" for d in range(attr_type.size)]
             else:
                 columns.append(attr)
         return columns
@@ -213,8 +207,7 @@ class SQLiteGraphDataBase(SQLGraphDataBase):
         for attr in query_attrs:
             if attr in self.node_array_columns:
                 value = tuple(
-                    columns[f"{attr}_{d}"]
-                    for d in range(self.node_attrs[attr].size)
+                    columns[f"{attr}_{d}"] for d in range(self.node_attrs[attr].size)
                 )
             else:
                 value = columns[attr]
@@ -226,9 +219,7 @@ class SQLiteGraphDataBase(SQLGraphDataBase):
         for attr in attrs:
             attr_type = self.edge_attrs[attr]
             if isinstance(attr_type, Vec):
-                columns += [
-                    f"{attr}_{d}" for d in range(attr_type.size)
-                ]
+                columns += [f"{attr}_{d}" for d in range(attr_type.size)]
             else:
                 columns.append(attr)
         return columns
@@ -238,8 +229,7 @@ class SQLiteGraphDataBase(SQLGraphDataBase):
         for attr in query_attrs:
             if attr in self.edge_array_columns:
                 value = tuple(
-                    columns[f"{attr}_{d}"]
-                    for d in range(self.edge_attrs[attr].size)
+                    columns[f"{attr}_{d}"] for d in range(self.edge_attrs[attr].size)
                 )
             else:
                 value = columns[attr]
