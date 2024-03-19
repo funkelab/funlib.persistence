@@ -12,11 +12,12 @@ from typing import Optional, Union
 
 logger = logging.getLogger(__name__)
 
+
 def separate_store_path(store, path):
     """
-    sometimes you can pass a total os path to node, leading to 
+    sometimes you can pass a total os path to node, leading to
     an empty('') node.path attribute.
-    the correct way is to separate path to container(.n5, .zarr) 
+    the correct way is to separate path to container(.n5, .zarr)
     from path to array within a container.
 
     Args:
@@ -28,8 +29,9 @@ def separate_store_path(store, path):
     """
     new_store, path_prefix = os.path.split(store)
     if ".zarr" in path_prefix or ".n5" in path_prefix:
-        return store, path 
+        return store, path
     return separate_store_path(new_store, os.path.join(path_prefix, path))
+
 
 def access_parent(node):
     """
@@ -46,18 +48,21 @@ def access_parent(node):
     Returns:
         zarr.hierarchy.Group : parent group that contains input group/array
     """
-    
+
     store_path, node_path = separate_store_path(node.store.path, node.path)
-    if node_path == '':
-        raise RuntimeError(f'{node.name} is in the root group of the {node.store.path} store.')
+    if node_path == "":
+        raise RuntimeError(
+            f"{node.name} is in the root group of the {node.store.path} store."
+        )
     else:
-        return zarr.open(store = store_path, path =os.path.split(node_path)[0], mode="r")
-    
+        return zarr.open(store=store_path, path=os.path.split(node_path)[0], mode="r")
+
+
 def check_for_multiscale(group):
-    """check if multiscale attribute exists in the input group and for any parent level group 
+    """check if multiscale attribute exists in the input group and for any parent level group
 
     Args:
-        group (zarr.hierarchy.Group): group to check 
+        group (zarr.hierarchy.Group): group to check
 
     Returns:
         tuple({}, zarr.hierarchy.Group): (multiscales attribute body, zarr group where multiscales was found)
@@ -66,38 +71,39 @@ def check_for_multiscale(group):
 
     if multiscales:
         return (multiscales, group)
-    
-    if group.path == '':
+
+    if group.path == "":
         return (multiscales, group)
-    
+
     return check_for_multiscale(access_parent(group))
 
+
 # check if voxel_size value is present in .zatts other than in multiscale attribute
-def check_for_voxel_size(n5_array, order):
+def check_for_voxel_size(array, order):
     """checks specific attributes(resolution, scale,
-        pixelResolution["dimensions"], transform["scale"]) for voxel size 
+        pixelResolution["dimensions"], transform["scale"]) for voxel size
         value in the parent directory of the input array
 
     Args:
-        n5_array (zarr.core.Array): array to check
+        array (zarr.core.Array): array to check
         order (string): colexicographical/lexicographical order
     Raises:
-        ValueError: raises value error if no voxel_size value is found 
+        ValueError: raises value error if no voxel_size value is found
 
     Returns:
        [float] : returns physical size of the voxel (unitless)
     """
-    
+
     voxel_size = None
-    parent_group = access_parent(n5_array)
-    for item in [n5_array, parent_group]:
-        
+    parent_group = access_parent(array)
+    for item in [array, parent_group]:
+
         if "resolution" in item.attrs:
             return item.attrs["resolution"]
         elif "scale" in item.attrs:
             return item.attrs["scale"]
         elif "pixelResolution" in item.attrs:
-            return item.attrs["pixelResolution"]["dimensions"]       
+            return item.attrs["pixelResolution"]["dimensions"]
         elif "transform" in item.attrs:
             # Davis saves transforms in C order regardless of underlying
             # memory format (i.e. n5 or zarr). May be explicitly provided
@@ -109,65 +115,70 @@ def check_for_voxel_size(n5_array, order):
             return voxel_size
 
     if voxel_size is None:
-        raise ValueError(f"No voxel size was found for {type(n5_array.store)} store.") 
-    
+        dims = len(array.shape) if len(array.shape) <= 3 else 3
+        Warning(f"No voxel size was found for {type(array.store)} store.")
+        return [1 for _ in range(dims)]
+
+
 # check if offset value is present in .zatts other than in multiscales
-def check_for_offset(n5_array, order):
-    """checks specific attributes(offset, transform["translate"]) for offset 
+def check_for_offset(array, order):
+    """checks specific attributes(offset, transform["translate"]) for offset
         value in the parent directory of the input array
 
     Args:
-        n5_array (zarr.core.Array): array to check
+        array (zarr.core.Array): array to check
         order (string): colexicographical/lexicographical order
     Raises:
-        ValueError: raises value error if no offset value is found 
+        ValueError: raises value error if no offset value is found
 
     Returns:
        [float] : returns offset of the voxel (unitless) in respect to
                 the center of the coordinate system
     """
     offset = None
-    parent_group = access_parent(n5_array)
-    for item in [n5_array, parent_group]:
-        
+    parent_group = access_parent(array)
+    for item in [array, parent_group]:
+
         if "offset" in item.attrs:
             offset = item.attrs["offset"]
             return offset
-                
+
         elif "transform" in item.attrs:
             transform_order = item.attrs["transform"].get("ordering", "C")
             offset = item.attrs["transform"]["translate"]
             if transform_order != order:
                 offset = offset[::-1]
             return offset
-        
-    if offset is None:
-        raise ValueError(f"No offset was found for {type(n5_array.store)} store.") 
 
-def check_for_units(n5_array, order):
-    
-    """checks specific attributes(units, pixelResolution["unit"] transform["units"]) 
+    if offset is None:
+        dims = len(array.shape) if len(array.shape) <= 3 else 3
+        Warning(f"No offset was found for {type(array.store)} store.")
+        return [0 for _ in range(dims)]
+
+
+def check_for_units(array, order):
+    """checks specific attributes(units, pixelResolution["unit"] transform["units"])
         for units(nm, cm, etc.) value in the parent directory of the input array
 
     Args:
-        n5_array (zarr.core.Array): array to check
+        array (zarr.core.Array): array to check
         order (string): colexicographical/lexicographical order
     Raises:
-        ValueError: raises value error if no units value is found 
+        ValueError: raises value error if no units value is found
 
     Returns:
-       [string] : returns units for the voxel_size 
+       [string] : returns units for the voxel_size
     """
-    
+
     units = None
-    parent_group = access_parent(n5_array)
-    for item in [n5_array, parent_group]:
-        
+    parent_group = access_parent(array)
+    for item in [array, parent_group]:
+
         if "units" in item.attrs:
             return item.attrs["units"]
         elif "pixelResolution" in item.attrs:
             unit = item.attrs["pixelResolution"]["unit"]
-            return [unit for _ in range(len(n5_array.shape))]     
+            return [unit for _ in range(len(array.shape))]
         elif "transform" in item.attrs:
             # Davis saves transforms in C order regardless of underlying
             # memory format (i.e. n5 or zarr). May be explicitly provided
@@ -179,53 +190,59 @@ def check_for_units(n5_array, order):
             return units
 
     if units is None:
-        raise ValueError(f"No units attribute was found for {type(n5_array.store)} store.") 
-                        
-            
+        Warning(
+            f"No units attribute was found for {type(array.store)} store. Using pixels."
+        )
+        return "pixels"
+
+
 def check_for_attrs_multiscale(ds, multiscale_group, multiscales):
-    """checks multiscale attribute of the .zarr or .n5 group 
+    """checks multiscale attribute of the .zarr or .n5 group
         for voxel_size(scale), offset(translation) and units values
 
     Args:
         ds (zarr.core.Array): input zarr Array
-        multiscale_group (zarr.hierarchy.Group): the group attrs 
+        multiscale_group (zarr.hierarchy.Group): the group attrs
                                                 that contains multiscale
-        multiscales ({}): dictionary that contains all the info necessary 
+        multiscales ({}): dictionary that contains all the info necessary
                             to create multiscale resolution pyramid
 
     Returns:
         ([float],[float],[string]): returns (voxel_size, offset, physical units)
     """
-    
+
     voxel_size = None
     offset = None
     units = None
-    
+
     if multiscales is not None:
         logger.info("Found multiscales attributes")
-        scale = os.path.relpath(separate_store_path(ds.store.path, ds.path)[1], multiscale_group.path)
+        scale = os.path.relpath(
+            separate_store_path(ds.store.path, ds.path)[1], multiscale_group.path
+        )
         if isinstance(ds.store, (zarr.n5.N5Store, zarr.n5.N5FSStore)):
-            for level in multiscales[0]["datasets"]:  
+            for level in multiscales[0]["datasets"]:
                 if level["path"] == scale:
-                    
-                    voxel_size = level['transform']['scale']
-                    offset = level['transform']['translate']
-                    units = level['transform']['units']
+
+                    voxel_size = level["transform"]["scale"]
+                    offset = level["transform"]["translate"]
+                    units = level["transform"]["units"]
                     return voxel_size, offset, units
-        #for zarr store
+        # for zarr store
         else:
-            units = [item['unit'] for item in multiscales[0]["axes"]]
-            for level in multiscales[0]["datasets"]:  
-                if level["path"].lstrip('/') == scale:
+            units = [item["unit"] for item in multiscales[0]["axes"]]
+            for level in multiscales[0]["datasets"]:
+                if level["path"].lstrip("/") == scale:
                     for attr in level["coordinateTransformations"]:
                         if attr["type"] == "scale":
                             voxel_size = attr["scale"]
                         elif attr["type"] == "translation":
-                            offset = attr["translation"] 
+                            offset = attr["translation"]
                     return voxel_size, offset, units
-                
+
     return voxel_size, offset, units
-    
+
+
 def _read_attrs(ds, order="C"):
     """check n5/zarr metadata and returns voxel_size, offset, physical units,
         for the input zarr array(ds)
@@ -244,40 +261,48 @@ def _read_attrs(ds, order="C"):
     offset = None
     units = None
     multiscales = None
-    
-    if not isinstance(ds, zarr.core.Array):
-        raise TypeError(f"{os.path.join(ds.store.path, ds.path)} is not zarr.core.Array")
-    
-    # check recursively for multiscales attribute in the zarr store tree
-    multiscales, multiscale_group = check_for_multiscale(group = access_parent(ds))
-    
-    
-    #check for attributes in zarr group multiscale
-    if multiscales:
-        voxel_size, offset, units = check_for_attrs_multiscale(ds, multiscale_group, multiscales)
-    
-    # if multiscale attribute is missing
-    if voxel_size == None:
-        voxel_size = check_for_voxel_size(ds, order)
-    if offset == None:
-        offset = check_for_offset(ds, order)
-    if units == None:
-        units = check_for_units(ds, order) 
-    
-    if voxel_size != None and offset != None and units != None:
-        return voxel_size, offset, units
-    elif voxel_size == None:
-        raise ValueError(f"No voxel_size attribute was found")
-    elif offset == None:
-        raise ValueError(f"No offset attribute was found")
-    elif units == None:
-        raise ValueError(f"No units attribute was found")
 
-         
+    if not isinstance(ds, zarr.core.Array):
+        raise TypeError(
+            f"{os.path.join(ds.store.path, ds.path)} is not zarr.core.Array"
+        )
+
+    # check recursively for multiscales attribute in the zarr store tree
+    multiscales, multiscale_group = check_for_multiscale(group=access_parent(ds))
+
+    # check for attributes in zarr group multiscale
+    if multiscales:
+        voxel_size, offset, units = check_for_attrs_multiscale(
+            ds, multiscale_group, multiscales
+        )
+
+    # if multiscale attribute is missing
+    if voxel_size is None:
+        voxel_size = check_for_voxel_size(ds, order)
+    if offset is None:
+        offset = check_for_offset(ds, order)
+    if units is None:
+        units = check_for_units(ds, order)
+
+    dims = len(ds.shape)
+    dims = dims if dims <= 3 else 3
+    if voxel_size is not None and offset is not None and units is not None:
+        return voxel_size, offset, units
+    elif voxel_size is None:
+        voxel_size = (1,) * dims
+        Warning(f"No voxel_size attribute was found. Using {voxel_size} as default.")
+    elif offset is None:
+        offset = (0,) * dims
+        Warning(f"No offset attribute was found. Using {offset} as default.")
+    elif units is None:
+        units = "pixels"
+        Warning(f"No units attribute was found. Using {units} as default.")
+
     return voxel_size, offset, units
 
+
 def regularize_offset(voxel_size_float, offset_float):
-    """ 
+    """
         offset is not a multiple of voxel_size. This is often due to someone defining
         offset to the point source of each array element i.e. the center of the rendered
         voxel, vs the offset to the corner of the voxel.
@@ -291,9 +316,9 @@ def regularize_offset(voxel_size_float, offset_float):
         (Coordinate, Coordinate)): returned offset size that is multiple of voxel size
     """
     voxel_size, offset = Coordinate(voxel_size_float), Coordinate(offset_float)
-    
+
     if voxel_size is not None and (offset / voxel_size) * voxel_size != offset:
-  
+
         logger.debug(
             f"Offset: {offset} being rounded to nearest voxel size: {voxel_size}"
         )
@@ -304,10 +329,11 @@ def regularize_offset(voxel_size_float, offset_float):
 
     return Coordinate(voxel_size), Coordinate(offset)
 
+
 def _read_voxel_size_offset(ds, order="C"):
 
-    voxel_size, offset, units =  _read_attrs(ds, order)
-    
+    voxel_size, offset, units = _read_attrs(ds, order)
+
     return regularize_offset(voxel_size, offset)
 
 
@@ -414,9 +440,9 @@ def prepare_ds(
     compressor: Union[str, dict] = "default",
     delete: bool = False,
     force_exact_write_size: bool = False,
-    multiscales_metadata = False,
-    units : str = 'nanometer',
-    axes : list = ['z', 'y', 'x']
+    multiscales_metadata=False,
+    units: str = "nanometer",
+    axes: list = ["z", "y", "x"],
 ) -> Array:
     """Prepare a Zarr or N5 dataset.
 
@@ -549,16 +575,19 @@ def prepare_ds(
             dtype=dtype,
             compressor=compressor,
             overwrite=delete,
+            dimension_separator="/",
         )
 
         if file_format == "zarr":
             ds.attrs["resolution"] = voxel_size
             ds.attrs["offset"] = total_roi.begin
-            
-            #add ome-zarr multiscales in the parent group of a newly created zarr array:
-            if multiscales_metadata == True and 'multiscales' not in root.attrs:
-                add_multiscales_metadata(root, ds_name, total_roi, voxel_size, units, axes)
-            
+
+            # add ome-zarr multiscales in the parent group of a newly created zarr array:
+            if multiscales_metadata == True and "multiscales" not in root.attrs:
+                add_multiscales_metadata(
+                    root, ds_name, total_roi, voxel_size, units, axes
+                )
+
         else:
             ds.attrs["resolution"] = voxel_size[::-1]
             ds.attrs["offset"] = total_roi.begin[::-1]
@@ -645,47 +674,33 @@ def get_chunk_size_dim(b, target_chunk_size):
 
     return b // best_k
 
-def add_multiscales_metadata(root : zarr.hierarchy.Group,
-                    ds_name : str,
-                    total_roi : Roi,
-                    voxel_size : Coordinate,
-                    units : str,
-                    axes : list):
-    z_attrs = {'multiscales' : [{}]}
-    z_attrs['multiscales'][0]['axes'] = [ 
-                {
-                    "name": axis,
-                    "type": "space",
-                    "unit": units
-                }    
-            for axis in axes]
-    z_attrs['multiscales'][0]['coordinateTransformations'] = [
-                {
-                    "scale": [
-                        1.0,
-                        1.0,
-                        1.0
-                    ],
-                    "type": "scale"
-                }
-            ]
-    z_attrs['multiscales'][0]['datasets'] = [
-                {
-                    "coordinateTransformations": [
-                        {
-                            "scale": voxel_size,
-                            "type": "scale"
-                        },
-                        {
-                            "translation": total_roi.begin,
-                            "type": "translation"
-                        }
-                    ],
-                    "path": ds_name
-                }
+
+def add_multiscales_metadata(
+    root: zarr.hierarchy.Group,
+    ds_name: str,
+    total_roi: Roi,
+    voxel_size: Coordinate,
+    units: str,
+    axes: list,
+):
+    z_attrs = {"multiscales": [{}]}
+    z_attrs["multiscales"][0]["axes"] = [
+        {"name": axis, "type": "space", "unit": units} for axis in axes
     ]
-    
-    z_attrs['multiscales'][0]['name'] = ''
-    z_attrs['multiscales'][0]['version'] = '0.4'
-    
+    z_attrs["multiscales"][0]["coordinateTransformations"] = [
+        {"scale": [1.0, 1.0, 1.0], "type": "scale"}
+    ]
+    z_attrs["multiscales"][0]["datasets"] = [
+        {
+            "coordinateTransformations": [
+                {"scale": voxel_size, "type": "scale"},
+                {"translation": total_roi.begin, "type": "translation"},
+            ],
+            "path": ds_name,
+        }
+    ]
+
+    z_attrs["multiscales"][0]["name"] = ""
+    z_attrs["multiscales"][0]["version"] = "0.4"
+
     root.attrs.update(z_attrs)
