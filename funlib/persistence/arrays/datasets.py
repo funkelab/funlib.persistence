@@ -97,6 +97,11 @@ def check_for_voxel_size(array, order):
     voxel_size = None
     parent_group = access_parent(array)
     for item in [array, parent_group]:
+        
+        # if order == "F" or isinstance(array.store, (zarr.n5.N5Store,zarr.n5.N5FSStore)):
+        #     flip_coeff = -1
+        # else:
+        #     flip_coeff = 1 
 
         if "resolution" in item.attrs:
             return item.attrs["resolution"]
@@ -287,7 +292,10 @@ def _read_attrs(ds, order="C"):
     dims = len(ds.shape)
     dims = dims if dims <= 3 else 3
     if voxel_size is not None and offset is not None and units is not None:
-        return voxel_size, offset, units
+        if order == "F" or isinstance(ds.store, (zarr.n5.N5Store,zarr.n5.N5FSStore)):
+            return voxel_size[::-1], offset[::-1], units[::-1]
+        else:    
+            return voxel_size, offset, units
     elif voxel_size is None:
         voxel_size = (1,) * dims
         Warning(f"No voxel_size attribute was found. Using {voxel_size} as default.")

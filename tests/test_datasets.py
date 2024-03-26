@@ -28,7 +28,7 @@ def test_metadata_n5():
             "ordering": "C",
             "scale": [5.3, 4.3, 3.3],
             "translate": [4.3, 3.3, 2.3],
-            "units": ["nm", "nm", "nm"],
+            "units": ["nm", "nm", "nm"]
         },
     }
     return metadata_n5
@@ -120,7 +120,7 @@ def test_read_attrs(test_arrays):
 
     n5_arr = test_arrays[0]
     zarr_arr = test_arrays[1]
-    assert _read_attrs(n5_arr) == ([5.3, 4.3, 3.3], [4.3, 3.3, 2.3], ["nm", "nm", "nm"])
+    assert _read_attrs(n5_arr) == ([3.3, 4.3, 5.3], [2.3, 3.3, 4.3], ["nm", "nm", "nm"])
 
     assert _read_attrs(zarr_arr) == (
         [3.3, 4.3, 5.3],
@@ -135,7 +135,7 @@ def test_read_voxel_size_offset(test_arrays):
     zarr_arr = test_arrays[1]
 
     assert _read_voxel_size_offset(n5_arr) == regularize_offset(
-        [5.3, 4.3, 3.3], [4.3, 3.3, 2.3]
+        [3.3, 4.3, 5.3], [2.3, 3.3, 4.3]
     )
 
     assert _read_voxel_size_offset(zarr_arr) == regularize_offset(
