@@ -97,11 +97,6 @@ def check_for_voxel_size(array, order):
     voxel_size = None
     parent_group = access_parent(array)
     for item in [array, parent_group]:
-        
-        # if order == "F" or isinstance(array.store, (zarr.n5.N5Store,zarr.n5.N5FSStore)):
-        #     flip_coeff = -1
-        # else:
-        #     flip_coeff = 1 
 
         if "resolution" in item.attrs:
             return item.attrs["resolution"]
