@@ -287,9 +287,9 @@ def _read_attrs(ds, order="C"):
     dims = len(ds.shape)
     dims = dims if dims <= 3 else 3
     if voxel_size is not None and offset is not None and units is not None:
-        if order == "F" or isinstance(ds.store, (zarr.n5.N5Store,zarr.n5.N5FSStore)):
+        if order == "F" or isinstance(ds.store, (zarr.n5.N5Store, zarr.n5.N5FSStore)):
             return voxel_size[::-1], offset[::-1], units[::-1]
-        else:    
+        else:
             return voxel_size, offset, units
     elif voxel_size is None:
         voxel_size = (1,) * dims

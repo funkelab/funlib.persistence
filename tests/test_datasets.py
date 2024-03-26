@@ -28,7 +28,7 @@ def test_metadata_n5():
             "ordering": "C",
             "scale": [5.3, 4.3, 3.3],
             "translate": [4.3, 3.3, 2.3],
-            "units": ["nm", "nm", "nm"]
+            "units": ["nm", "nm", "nm"],
         },
     }
     return metadata_n5
