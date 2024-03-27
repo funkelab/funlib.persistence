@@ -231,7 +231,7 @@ class SQLGraphDataBase(GraphDataBase):
             edges = self.read_edges(
                 roi, nodes=nodes, read_attrs=edge_attrs, attr_filter=edges_filter
             )
-            u, v = self.endpoint_names
+            u, v = self.endpoint_names  # type: ignore
             try:
                 edge_list = [(e[u], e[v], self.__remove_keys(e, [u, v])) for e in edges]
             except KeyError as e:
@@ -373,11 +373,11 @@ class SQLGraphDataBase(GraphDataBase):
             return []
 
         node_ids = ", ".join([str(node["id"]) for node in nodes])
-        node_condition = f"{self.endpoint_names[0]} IN ({node_ids})"
+        node_condition = f"{self.endpoint_names[0]} IN ({node_ids})"  # type: ignore
 
         logger.debug("Reading nodes in roi %s" % roi)
         # TODO: AND vs OR here
-        desired_columns = ", ".join(self.endpoint_names + list(self.edge_attrs.keys()))
+        desired_columns = ", ".join(self.endpoint_names + list(self.edge_attrs.keys()))  # type: ignore
         select_statement = (
             f"SELECT {desired_columns} FROM {self.edges_table_name} WHERE "
             + node_condition
@@ -388,7 +388,7 @@ class SQLGraphDataBase(GraphDataBase):
             )
         )
 
-        edge_attrs = self.endpoint_names + (
+        edge_attrs = self.endpoint_names + (  # type: ignore
             list(self.edge_attrs.keys()) if read_attrs is None else read_attrs
         )
         attr_filter = attr_filter if attr_filter is not None else {}
@@ -399,7 +399,7 @@ class SQLGraphDataBase(GraphDataBase):
             {
                 key: val
                 for key, val in zip(
-                    self.endpoint_names + list(self.edge_attrs.keys()), values
+                    self.endpoint_names + list(self.edge_attrs.keys()), values  # type: ignore
                 )
                 if key in edge_attrs
             }
@@ -484,8 +484,8 @@ class SQLGraphDataBase(GraphDataBase):
                 if not roi.contains(pos_u):
                     logger.debug(
                         (
-                            f"Skipping edge with {self.endpoint_names[0]} {{}}, {self.endpoint_names[1]} {{}},"
-                            + f"and data {{}} because {self.endpoint_names[0]} not in roi {{}}"
+                            f"Skipping edge with {self.endpoint_names[0]} {{}}, {self.endpoint_names[1]} {{}},"  # type: ignore
+                            + f"and data {{}} because {self.endpoint_names[0]} not in roi {{}}"  # type: ignore
                         ).format(u, v, data, roi)
                     )
                     continue
@@ -495,7 +495,7 @@ class SQLGraphDataBase(GraphDataBase):
             update_statement = (
                 f"UPDATE {self.edges_table_name} SET "
                 f"{', '.join(setters)} WHERE "
-                f"{self.endpoint_names[0]}={u} AND {self.endpoint_names[1]}={v}"
+                f"{self.endpoint_names[0]}={u} AND {self.endpoint_names[1]}={v}"  # type: ignore
             )
 
             self._update_query(update_statement, commit=False)
@@ -653,7 +653,7 @@ class SQLGraphDataBase(GraphDataBase):
 
     def __get_node_pos(self, n: dict[str, Any]) -> Optional[Coordinate]:
         try:
-            return Coordinate(n[self.position_attribute])
+            return Coordinate(n[self.position_attribute])  # type: ignore
         except KeyError:
             return None
 
@@ -677,7 +677,7 @@ class SQLGraphDataBase(GraphDataBase):
     def __roi_query(self, roi: Roi) -> str:
         query = "WHERE "
         pos_attr = self.position_attribute
-        for dim in range(self.ndims):
+        for dim in range(self.ndims):  # type: ignore
             if dim > 0:
                 query += " AND "
             if roi.begin[dim] is not None and roi.end[dim] is not None:

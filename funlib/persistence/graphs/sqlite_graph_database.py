@@ -96,7 +96,7 @@ class SQLiteGraphDataBase(SQLGraphDataBase):
             f"{', '.join(node_columns)}"
             ")"
         )
-        if self.ndims > 1:
+        if self.ndims > 1:  # type: ignore
             position_columns = self.node_array_columns[self.position_attribute]
         else:
             position_columns = self.position_attribute
@@ -104,8 +104,8 @@ class SQLiteGraphDataBase(SQLGraphDataBase):
             f"CREATE INDEX IF NOT EXISTS pos_index ON {self.nodes_table_name}({','.join(position_columns)})"
         )
         edge_columns = [
-            f"{self.endpoint_names[0]} INTEGER not null",
-            f"{self.endpoint_names[1]} INTEGER not null",
+            f"{self.endpoint_names[0]} INTEGER not null",  # type: ignore
+            f"{self.endpoint_names[1]} INTEGER not null",  # type: ignore
         ]
         for attr in self.edge_attrs.keys():
             if attr in self.edge_array_columns:
@@ -115,7 +115,7 @@ class SQLiteGraphDataBase(SQLGraphDataBase):
         self.cur.execute(
             f"CREATE TABLE IF NOT EXISTS {self.edges_table_name}("
             + f"{', '.join(edge_columns)}"
-            + f", PRIMARY KEY ({self.endpoint_names[0]}, {self.endpoint_names[1]})"
+            + f", PRIMARY KEY ({self.endpoint_names[0]}, {self.endpoint_names[1]})"  # type: ignore
             + ")"
         )
 
