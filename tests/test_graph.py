@@ -7,7 +7,9 @@ import pytest
 
 def test_graph_filtering(provider_factory):
     graph_writer = provider_factory(
-        "w", node_attrs={"position": Vec(float, 3), "selected": bool}, edge_attrs={"selected": bool}
+        "w",
+        node_attrs={"position": Vec(float, 3), "selected": bool},
+        edge_attrs={"selected": bool},
     )
     roi = Roi((0, 0, 0), (10, 10, 10))
     graph = graph_writer[roi]
@@ -204,7 +206,9 @@ def test_graph_read_meta_values(provider_factory):
 
 
 def test_graph_default_meta_values(provider_factory):
-    provider = provider_factory("w", False, None, node_attrs={"position": Vec(float, 3)})
+    provider = provider_factory(
+        "w", False, None, node_attrs={"position": Vec(float, 3)}
+    )
     assert False == provider.directed
     assert provider.total_roi is None or provider.total_roi == Roi(
         (None, None, None), (None, None, None)
@@ -223,7 +227,7 @@ def test_graph_io(provider_factory):
             "position": Vec(float, 3),
             "swip": str,
             "zap": str,
-        }
+        },
     )
 
     graph = graph_provider[Roi((0, 0, 0), (10, 10, 10))]
@@ -266,7 +270,7 @@ def test_graph_fail_if_exists(provider_factory):
             "position": Vec(float, 3),
             "swip": str,
             "zap": str,
-        }
+        },
     )
     graph = graph_provider[Roi((0, 0, 0), (10, 10, 10))]
 
@@ -292,7 +296,7 @@ def test_graph_fail_if_not_exists(provider_factory):
             "position": Vec(float, 3),
             "swip": str,
             "zap": str,
-        }
+        },
     )
     graph = graph_provider[Roi((0, 0, 0), (10, 10, 10))]
 
@@ -319,7 +323,7 @@ def test_graph_write_attributes(provider_factory):
             "position": Vec(int, 3),
             "swip": str,
             "zap": str,
-        }
+        },
     )
     graph = graph_provider[Roi((0, 0, 0), (10, 10, 10))]
 
@@ -375,7 +379,7 @@ def test_graph_write_roi(provider_factory):
             "position": Vec(float, 3),
             "swip": str,
             "zap": str,
-        }
+        },
     )
     graph = graph_provider[Roi((0, 0, 0), (10, 10, 10))]
 
@@ -414,7 +418,7 @@ def test_graph_connected_components(provider_factory):
             "position": Vec(float, 3),
             "swip": str,
             "zap": str,
-        }
+        },
     )
     graph = graph_provider[Roi((0, 0, 0), (10, 10, 10))]
 
@@ -452,7 +456,7 @@ def test_graph_has_edge(provider_factory):
             "position": Vec(float, 3),
             "swip": str,
             "zap": str,
-        }
+        },
     )
 
     roi = Roi((0, 0, 0), (10, 10, 10))

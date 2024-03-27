@@ -69,8 +69,8 @@ class PgSQLGraphDatabase(SQLGraphDataBase):
             nodes_table=nodes_table,
             edges_table=edges_table,
             endpoint_names=endpoint_names,
-            node_attrs=node_attrs,
-            edge_attrs=edge_attrs,
+            node_attrs=node_attrs,  # type: ignore
+            edge_attrs=edge_attrs,  # type: ignore
         )
 
     def _drop_tables(self) -> None:
@@ -101,12 +101,12 @@ class PgSQLGraphDatabase(SQLGraphDataBase):
             f"{self.nodes_table_name}({self.position_attribute})"
         )
 
-        columns = list(self.edge_attrs.keys())
+        columns = list(self.edge_attrs.keys())  # type: ignore
         types = list([self.__sql_type(t) for t in self.edge_attrs.values()])
         column_types = [f"{c} {t}" for c, t in zip(columns, types)]
         self.__exec(
             f"CREATE TABLE IF NOT EXISTS {self.edges_table_name}("
-            f"{self.endpoint_names[0]} BIGINT not null, "
+            f"{self.endpoint_names[0]} BIGINT not null, "  # type: ignore
             f"{self.endpoint_names[1]} BIGINT not null, "
             f"{' '.join([c + ',' for c in column_types])}"
             f"PRIMARY KEY ({self.endpoint_names[0]}, {self.endpoint_names[1]})"

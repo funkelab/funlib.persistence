@@ -24,7 +24,7 @@ dependencies = [
     "pymongo",
     "numpy",
     "h5py",
-    "psycopg2",
+    "psycopg2-binary",
 ]
 
 [tool.setuptools.dynamic]
