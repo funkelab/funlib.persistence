@@ -114,10 +114,7 @@ def check_for_voxel_size(array, order):
                 voxel_size = voxel_size[::-1]
             return voxel_size
 
-    if voxel_size is None:
-        dims = len(array.shape) if len(array.shape) <= 3 else 3
-        Warning(f"No voxel size was found for {type(array.store)} store.")
-        return [1 for _ in range(dims)]
+    return voxel_size
 
 
 # check if offset value is present in .zatts other than in multiscales
@@ -150,10 +147,7 @@ def check_for_offset(array, order):
                 offset = offset[::-1]
             return offset
 
-    if offset is None:
-        dims = len(array.shape) if len(array.shape) <= 3 else 3
-        Warning(f"No offset was found for {type(array.store)} store.")
-        return [0 for _ in range(dims)]
+    return offset
 
 
 def check_for_units(array, order):
@@ -270,11 +264,12 @@ def _read_attrs(ds, order="C"):
     # check recursively for multiscales attribute in the zarr store tree
     multiscales, multiscale_group = check_for_multiscale(group=access_parent(ds))
 
-    # check for attributes in zarr group multiscale
-    if multiscales:
-        voxel_size, offset, units = check_for_attrs_multiscale(
-            ds, multiscale_group, multiscales
-        )
+    # check for attributes in .zarr group multiscale
+    if not isinstance(ds.store, (zarr.n5.N5Store, zarr.n5.N5FSStore)):
+        if multiscales:
+            voxel_size, offset, units = check_for_attrs_multiscale(
+                ds, multiscale_group, multiscales
+            )
 
     # if multiscale attribute is missing
     if voxel_size is None:
@@ -286,22 +281,38 @@ def _read_attrs(ds, order="C"):
 
     dims = len(ds.shape)
     dims = dims if dims <= 3 else 3
+
     if voxel_size is not None and offset is not None and units is not None:
         if order == "F" or isinstance(ds.store, (zarr.n5.N5Store, zarr.n5.N5FSStore)):
             return voxel_size[::-1], offset[::-1], units[::-1]
         else:
             return voxel_size, offset, units
-    elif voxel_size is None:
+
+    # if no voxel offset are found in transform, offset or scale, check in n5 multiscale attribute:
+    if (
+        isinstance(ds.store, (zarr.n5.N5Store, zarr.n5.N5FSStore))
+        and multiscales != False
+    ):
+
+        voxel_size, offset, units = check_for_attrs_multiscale(
+            ds, multiscale_group, multiscales
+        )
+
+    # return default value if an attribute was not found
+    if voxel_size is None:
         voxel_size = (1,) * dims
         Warning(f"No voxel_size attribute was found. Using {voxel_size} as default.")
-    elif offset is None:
+    if offset is None:
         offset = (0,) * dims
         Warning(f"No offset attribute was found. Using {offset} as default.")
-    elif units is None:
+    if units is None:
         units = "pixels"
         Warning(f"No units attribute was found. Using {units} as default.")
 
-    return voxel_size, offset, units
+    if order == "F":
+        return voxel_size[::-1], offset[::-1], units[::-1]
+    else:
+        return voxel_size, offset, units
 
 
 def regularize_offset(voxel_size_float, offset_float):
