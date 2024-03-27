@@ -697,7 +697,7 @@ def add_multiscales_metadata(
     units: str,
     axes: list,
 ):
-    z_attrs = {"multiscales": [{}]}
+    z_attrs: dict = {"multiscales": [{}]}
     z_attrs["multiscales"][0]["axes"] = [
         {"name": axis, "type": "space", "unit": units} for axis in axes
     ]
