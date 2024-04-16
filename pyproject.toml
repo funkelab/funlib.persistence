@@ -25,6 +25,7 @@ dependencies = [
     "numpy",
     "h5py",
     "psycopg2-binary",
+    "fsspec",
 ]
 
 [tool.setuptools.dynamic]
