@@ -14,50 +14,6 @@ from typing import Optional, Union, Sequence
 logger = logging.getLogger(__name__)
 
 
-def get_url(node: Union[zarr.Group, zarr.Array]) -> str:
-    store = node.store
-    if hasattr(store, "path"):
-        if hasattr(store, "fs"):
-            if isinstance(store.fs.protocol, Sequence):
-                protocol = store.fs.protocol[0]
-            else:
-                protocol = store.fs.protocol
-        else:
-            protocol = "file"
-
-        # fsstore keeps the protocol in the path, but not s3store
-        if "://" in store.path:
-            store_path = store.path.split("://")[-1]
-        else:
-            store_path = store.path
-        return f"{protocol}://{store_path}"
-    else:
-        raise ValueError(
-            f"The store associated with this object has type {type(store)}, which "
-            "cannot be resolved to a url"
-        )
-
-
-def separate_store_path(store, path):
-    """
-    sometimes you can pass a total os path to node, leading to
-    an empty('') node.path attribute.
-    the correct way is to separate path to container(.n5, .zarr)
-    from path to array within a container.
-
-    Args:
-        store (string): path to store
-        path (string): path array/group (.n5 or .zarr)
-
-    Returns:
-        (string, string): returns regularized store and group/array path
-    """
-    new_store, path_prefix = os.path.split(store)
-    if ".zarr" in path_prefix or ".n5" in path_prefix:
-        return store, path
-    return separate_store_path(new_store, os.path.join(path_prefix, path))
-
-
 def access_parent(node):
     """
     Get the parent (zarr.Group) of an input zarr array(ds).
@@ -73,16 +29,9 @@ def access_parent(node):
     Returns:
         zarr.hierarchy.Group : parent group that contains input group/array
     """
-
-    path = get_url(node)
-
-    store_path, node_path = separate_store_path(path, node.path)
-    if node_path == "":
-        raise RuntimeError(f"{node.name} is in the root group of the {path} store.")
-    else:
-        if store_path.endswith(".n5"):
-            store_path = N5FSStore(store_path)
-        return zarr.open(store=store_path, path=os.path.split(node_path)[0], mode="r")
+    group_path = node.path
+    parent_path = os.path.split(node.path)[0]
+    return zarr.hierarchy.group(store=node.store, path=parent_path)
 
 
 def check_for_multiscale(group):
@@ -238,9 +187,7 @@ def check_for_attrs_multiscale(ds, multiscale_group, multiscales):
 
     if multiscales is not None:
         logger.info("Found multiscales attributes")
-        scale = os.path.relpath(
-            separate_store_path(get_url(ds), ds.path)[1], multiscale_group.path
-        )
+        scale = os.path.split(ds.path)[1]
         if isinstance(ds.store, (zarr.n5.N5Store, zarr.n5.N5FSStore)):
             for level in multiscales[0]["datasets"]:
                 if level["path"] == scale:
