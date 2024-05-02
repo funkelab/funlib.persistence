@@ -384,7 +384,7 @@ def open_ds(filename: str, ds_name: str, mode: str = "r") -> Array:
         logger.debug("opened N5 dataset %s in %s", ds_name, filename)
         return Array(ds, roi, voxel_size, chunk_shape=chunk_shape)
 
-    elif filename.endswith(".h5") or filename.endswith(".hdf"):
+    elif filename.endswith(".h5") or filename.endswith(".hdf") or filename.endswith(".hdf5"):
         logger.debug("opening H5 dataset %s in %s", ds_name, filename)
         ds = h5py.File(filename, mode=mode)[ds_name]
 
