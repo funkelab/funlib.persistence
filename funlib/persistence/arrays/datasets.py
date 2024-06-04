@@ -265,7 +265,7 @@ def _read_attrs(ds, order="C"):
     # if no voxel offset are found in transform, offset or scale, check in n5 multiscale attribute:
     if (
         isinstance(ds.store, (zarr.n5.N5Store, zarr.n5.N5FSStore))
-        and multiscales != False
+        and multiscales != None
     ):
 
         voxel_size, offset, units = check_for_attrs_multiscale(
