@@ -128,7 +128,11 @@ class Array(Freezable):
     def is_writeable(self):
         return len(self.adapter) == 0 or all(
             [
-                isinstance(adapter, slice) or isinstance(adapter, list[slice])
+                isinstance(adapter, slice)
+                or (
+                    isinstance(adapter, Iterable)
+                    and all([isinstance(a, slice) for a in adapter])
+                )
                 for adapter in self.adapter
             ]
         )
@@ -161,7 +165,7 @@ class Array(Freezable):
                     % (roi, self.roi)
                 )
 
-            return self.data[self.__slices(roi)]
+            return self.data[self.__slices(roi)].compute()
 
         elif isinstance(key, Coordinate):
             coordinate = key
@@ -173,7 +177,7 @@ class Array(Freezable):
             return self.data[index].compute()
 
         else:
-            return self.data[key]
+            return self.data[key].compute()
 
     def __setitem__(self, key, value: np.ndarray):
         """Set the data of this array within the given ROI.
@@ -203,6 +207,11 @@ class Array(Freezable):
             self.data[roi_slices] = value
 
             da.store(self.data[roi_slices], self._source_data, regions=roi_slices)
+        else:
+            raise RuntimeError(
+                "This array is not writeable since you have applied a custom callable "
+                "adapter that may or may not be invertable."
+            )
 
     def to_ndarray(self, roi, fill_value=0):
         """An alternative implementation of `__getitem__` that supports
@@ -268,8 +277,6 @@ class Array(Freezable):
                 slice(slice_range.start, slice_range.stop, slice_range.step)
             )
 
-        print(roi_slices, combined_slices)
-
         return tuple(combined_slices)
 
     def __slices(self, roi, check_chunk_align=False):
@@ -299,7 +306,7 @@ class Array(Freezable):
         ]
 
         combined_slice = self._combine_slices(roi_slices, *adapter_slices)
-        
+
         return combined_slice
 
     def __index(self, coordinate):
