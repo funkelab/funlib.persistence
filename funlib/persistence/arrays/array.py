@@ -1,123 +1,139 @@
 from funlib.geometry import Coordinate, Roi
 from .freezable import Freezable
+from .adapters import Adapter
 import numpy as np
+import dask.array as da
+
+from typing import Optional, Iterable, Any, Union
 
 
 class Array(Freezable):
-    """A ROI and voxel size annotated ndarray-like. Acts as a view into actual
-    data.
+    """A thin wrapper around a dask array containing additional metadata such
+    as the voxel size, offset, and axis names.
 
     Args:
 
-        data (``ndarray``-like):
+        data (``np.ndarray``):
 
-            The data to hold. Can be a numpy, HDF5, zarr, etc. array like.
-            Needs to have ``shape`` and slicing support for reading/writing. It
-            is assumed that slicing returns an ``ndarray``.
+            The numpy array like object to wrap.
 
-        roi (`class:Roi`):
+        offset (``Optional[Iterable[int]]``):
 
-            The region of interest (ROI) represented by this array.
+            The offset of the array in world units. Defaults to 0 for
+            every dimension if not provided
 
-        voxel_size (`tuple`):
+        voxel_size (``Optional[Iterable[int]]``):
 
-            The size of a voxel.
+            The size of a voxel. If not provided the voxel size is
+            assumed to be 1 in all dimensions.
 
-        data_offset (`tuple`, optional):
+        axis_names (``Optional[Iterable[str]]``):
 
-            The start of ``data``, in world units. Defaults to
-            ``roi.begin``, if not given.
+            The name of each axis. If not provided, the axis names
+            are given names ["c1", "c2", "c3", ...]
 
         chunk_shape (`tuple`, optional):
 
             The size of a chunk of the underlying data container in voxels.
 
-        check_write_chunk_align (``bool``, optional):
+        adapters (``Optional[Union[Adapter, list[Adapter]]]``):
 
-            If true, assert that each write to this array is aligned with the
-            chunks of the underlying array-like.
+            The adapter or list of adapters to use for this array.
+
     """
+
+    data: Any
+    voxel_size: Coordinate
+    offset: Coordinate
+    axis_names: list[str]
+    units: list[str]
+    chunk_shape: Coordinate
+    adapter: list[Adapter]
 
     def __init__(
         self,
         data,
-        roi,
-        voxel_size,
-        data_offset=None,
-        chunk_shape=None,
-        check_write_chunk_align=False,
+        offset: Optional[Iterable[int]] = None,
+        voxel_size: Optional[Iterable[int]] = None,
+        axis_names: Optional[Iterable[str]] = None,
+        units: Optional[Iterable[str]] = None,
+        chunk_shape: Optional[Iterable[int]] = None,
+        adapter: Optional[Union[Adapter, Iterable[Adapter]]] = None,
     ):
-        self.data = data
-        self.roi = roi
-        self.voxel_size = Coordinate(voxel_size)
-        self.chunk_shape = Coordinate(chunk_shape) if chunk_shape else None
-        self.n_channel_dims = len(data.shape) - roi.dims
-        self.check_write_chunk_align = check_write_chunk_align
-
-        assert (
-            self.voxel_size.dims == self.roi.dims
-        ), "dimension of voxel_size (%d) does not match dimension of roi (%d)" % (
-            self.voxel_size.dims,
-            self.roi.dims,
+        self.data = da.from_array(data)
+        self.voxel_size = (
+            Coordinate(voxel_size) if voxel_size is not None else (1,) * len(data.shape)
         )
-
-        if data_offset is None:
-            data_offset = roi.begin
-        else:
-            data_offset = Coordinate(data_offset)
-
-        spatial_shape = self.data.shape[self.n_channel_dims :]
-        self.data_roi = Roi(
-            data_offset,
-            self.voxel_size * Coordinate(spatial_shape),
+        self.offset = (
+            Coordinate(offset) if offset is not None else (0,) * len(data.shape)
         )
-
-        assert self.roi.begin.is_multiple_of(
-            voxel_size
-        ), "roi offset %s is not a multiple of voxel size %s" % (
-            self.roi.begin,
-            voxel_size,
+        self.axis_names = (
+            tuple(axis_names)
+            if axis_names is not None
+            else tuple("d{i}" for i in range(len(data.shape)))
         )
-
-        assert self.roi.shape.is_multiple_of(
-            voxel_size
-        ), "roi shape %s is not a multiple of voxel size %s" % (
-            self.roi.shape,
-            voxel_size,
+        self.units = (
+            tuple(units) if units is not None else ("voxels",) * self.voxel_size.dims
         )
+        self.chunk_shape = Coordinate(chunk_shape) if chunk_shape is not None else None
+        self._source_data = data
 
-        assert data_offset.is_multiple_of(
-            voxel_size
-        ), "data offset %s is not a multiple of voxel size %s" % (
-            data_offset,
-            voxel_size,
-        )
+        adapter = [] if adapter is None else adapter
+        adapter = [adapter] if not isinstance(adapter, list) else adapter
+        self.adapter = adapter
 
-        assert self.data_roi.contains(
-            roi
-        ), "data ROI %s does not contain given ROI %s" % (self.data_roi, roi)
+        for adapter in self.adapter:
+            if not isinstance(adapter, slice):
+                self.data = adapter(self.data)
 
         self.freeze()
 
+        self.validate()
+
     @property
-    def shape(self):
-        """Get the shape in voxels of this array, possibly including channel
-        dimensions. This is equivalent to::
-
-            array.to_ndarray().shape()
-
-        but does not actually create the ``ndarray``.
+    def roi(self):
+        """
+        Get the Roi associated with this data.
         """
 
-        view_shape = (self.roi / self.voxel_size).shape
-        return self.data.shape[: self.n_channel_dims] + view_shape
+        return Roi(
+            self.offset,
+            self.voxel_size * Coordinate(self.shape[-self.voxel_size.dims :]),
+        )
+
+    @property
+    def dims(self):
+        return len(self.shape)
+
+    @property
+    def channel_dims(self):
+        return self.dims - self.voxel_size.dims
+
+    @property
+    def shape(self):
+        """Get the shape in voxels of this array,
+        This is equivalent to::
+
+            array.data.shape
+        """
+
+        return self.data.shape
 
     @property
     def dtype(self):
         """Get the dtype of this array."""
         return self.data.dtype
 
-    def __getitem__(self, key):
+    @property
+    def is_writeable(self):
+        return len(self.adapter) == 0 or all(
+            [
+                isinstance(adapter, slice) or isinstance(adapter, list[slice])
+                for adapter in self.adapter
+            ]
+        )
+
+    def __getitem__(self, key) -> np.ndarray:
         """Get a sub-array or a single value.
 
         Args:
@@ -139,87 +155,59 @@ class Array(Freezable):
         if isinstance(key, Roi):
             roi = key
 
-            assert self.roi.contains(
-                roi
-            ), "Requested roi %s is not contained in this array %s." % (roi, self.roi)
+            if not self.roi.contains(roi):
+                raise IndexError(
+                    "Requested roi %s is not contained in this array %s."
+                    % (roi, self.roi)
+                )
 
-            return Array(self.data, roi, self.voxel_size, self.data_roi.begin)
+            return self.data[self.__slices(roi)]
 
         elif isinstance(key, Coordinate):
             coordinate = key
 
-            assert self.roi.contains(
-                coordinate
-            ), "Requested coordinate is not contained in this array."
+            if not self.roi.contains(coordinate):
+                raise IndexError("Requested coordinate is not contained in this array.")
 
-            return self.data[self.__index(coordinate)]
+            index = self.__index(coordinate)
+            return self.data[index].compute()
 
-    def __setitem__(self, roi, value):
+        else:
+            return self.data[key]
+
+    def __setitem__(self, key, value: np.ndarray):
         """Set the data of this array within the given ROI.
 
         Args:
 
-            roi (`class:Roi`):
+            key (`class:Roi`):
 
                 The ROI to write to.
 
-            value (`class:Array`, or broadcastable to ``ndarray``):
+            value (``ndarray``):
 
-                The value to write. If an `class:Array`, the ROIs do not have
-                to match, however, the shape of ``value`` has to be
-                broadcastable to the voxel shape of ``roi``.
+                The value to write.
         """
 
-        assert isinstance(roi, Roi), "Roi expected, but got %s" % (type(roi))
+        if self.is_writeable:
+            roi = key
 
-        assert roi.begin.is_multiple_of(
-            self.voxel_size
-        ), "roi offset %s is not a multiple of voxel size %s" % (
-            roi.begin,
-            self.voxel_size,
-        )
+            if not self.roi.contains(roi):
+                raise IndexError(
+                    "Requested roi %s is not contained in this array %s."
+                    % (roi, self.roi)
+                )
 
-        assert roi.shape.is_multiple_of(
-            self.voxel_size
-        ), "roi shape %s is not a multiple of voxel size %s" % (
-            roi.shape,
-            self.voxel_size,
-        )
+            roi_slices = self.__slices(roi)
 
-        target = self.data
-        target_slices = self.__slices(
-            roi, check_chunk_align=self.check_write_chunk_align
-        )
+            self.data[roi_slices] = value
 
-        if not hasattr(value, "__getitem__"):
-            target[target_slices] = value
-            return
+            da.store(self.data[roi_slices], self._source_data, regions=roi_slices)
 
-        if isinstance(value, Array):
-            array = value
-            source = array.data
-            source_slices = array.__slices(array.roi)
-
-        else:
-            source = value
-            source_slices = slice(None)
-
-        target[target_slices] = source[source_slices]
-
-    def materialize(self):
-        """Copy the data represented by this array to memory. This is
-        equivalent to::
-
-            array = Array(array.to_ndarray(), array.roi, array.voxel_size)
-
-        but modifies this array directly.
-        """
-
-        self.data = self.to_ndarray()
-        self.data_roi = self.roi.copy()
-
-    def to_ndarray(self, roi=None, fill_value=None):
-        """Copy the data represented by this array into an ``ndarray``.
+    def to_ndarray(self, roi, fill_value=0):
+        """An alternative implementation of `__getitem__` that supports
+        using fill values to request data that may extend outside the
+        roi covered by self.
 
         Args:
 
@@ -232,24 +220,18 @@ class Array(Freezable):
 
             fill_value (scalar, optional):
 
-                If given, allow ``roi`` to be outside of this array's ROI.
-                Outside values will be filled with ``fill_value``.
+                The value to use to fill in values that are outside the ROI
+                provided by this data. Defaults to 0.
         """
 
-        if roi is None:
-            return self.data[self.__slices(self.roi)]
-
-        if fill_value is None:
-            return self[roi].to_ndarray()
-
-        shape = (roi / self.voxel_size).shape
+        shape = roi.shape / self.voxel_size
         data = np.zeros(
-            self.data.shape[: self.n_channel_dims] + shape, dtype=self.data.dtype
+            self[self.roi].shape[: self.channel_dims] + shape, dtype=self.data.dtype
         )
         if fill_value != 0:
             data[:] = fill_value
 
-        array = Array(data, roi, self.voxel_size)
+        array = Array(data, roi.offset, self.voxel_size)
 
         shared_roi = self.roi.intersect(roi)
 
@@ -258,26 +240,42 @@ class Array(Freezable):
 
         return data
 
-    def intersect(self, roi):
-        """Get a sub-array obtained by intersecting this array with the given
-        ROI. This is equivalent to::
+    def _combine_slices(
+        self, *roi_slices: list[Union[list[slice], slice]]
+    ) -> list[slice]:
+        """Combine slices into a single slice."""
+        roi_slices = [
+            roi_slice if isinstance(roi_slice, tuple) else (roi_slice,)
+            for roi_slice in roi_slices
+        ]
+        num_dims = max([len(roi_slice) for roi_slice in roi_slices])
 
-            array[array.roi.intersect(roi)]
+        combined_slices = []
+        for d in range(num_dims):
+            dim_slices = [
+                roi_slice[d] if len(roi_slice) > d else slice(None)
+                for roi_slice in roi_slices
+            ]
 
-        Args:
+            slice_range = range(0, self.shape[d], 1)
+            for s in dim_slices:
+                slice_range = slice_range[s]
+            if len(slice_range) == 0:
+                return slice(0)
+            elif slice_range.stop < 0:
+                return slice(slice_range.start, None, slice_range.step)
+            combined_slices.append(
+                slice(slice_range.start, slice_range.stop, slice_range.step)
+            )
 
-            roi (`class:Roi`):
+        print(roi_slices, combined_slices)
 
-                The ROI to intersect with.
-        """
-
-        intersection = self.roi.intersect(roi)
-        return self[intersection]
+        return tuple(combined_slices)
 
     def __slices(self, roi, check_chunk_align=False):
         """Get the voxel slices for the given roi."""
 
-        voxel_roi = (roi - self.data_roi.begin) / self.voxel_size
+        voxel_roi = (roi - self.offset) / self.voxel_size
 
         if check_chunk_align:
             for d in range(roi.dims):
@@ -294,12 +292,35 @@ class Array(Freezable):
                     % (roi, voxel_roi, self.chunk_shape, d)
                 )
 
-        return (slice(None),) * self.n_channel_dims + voxel_roi.to_slices()
+        roi_slices = (slice(None),) * self.channel_dims + voxel_roi.to_slices()
+
+        adapter_slices = [
+            adapter for adapter in self.adapter if isinstance(adapter, slice)
+        ]
+
+        combined_slice = self._combine_slices(roi_slices, *adapter_slices)
+        
+        return combined_slice
 
     def __index(self, coordinate):
         """Get the voxel slices for the given coordinate."""
 
-        index = (coordinate - self.data_roi.begin) / self.voxel_size
-        if self.n_channel_dims > 0:
+        index = tuple((coordinate - self.offset) / self.voxel_size)
+        if self.channel_dims > 0:
             index = (Ellipsis,) + index
         return index
+
+    def validate(self):
+        assert self.voxel_size.dims == self.offset.dims == len(self.units), (
+            f"The number of dimensions given by the voxel size ({self.voxel_size}), "
+            f"offset ({self.offset}), and units ({self.units}) must match"
+        )
+        assert len(self.axis_names) == len(self.shape), (
+            f"Axis names must be provided for every dimension. Got ({self.axis_names})"
+            f"but expected {len(self.shape)} to match the data shape: {self.shape}"
+        )
+        if self.chunk_shape is not None:
+            assert self.chunk_shape.dims == len(self.shape), (
+                f"Chunk shape ({self.chunk_shape}) must have the same "
+                f"number of dimensions as the data ({self.shape})"
+            )
