@@ -32,6 +32,10 @@ class Array(Freezable):
             The name of each axis. If not provided, the axis names
             are given names ["c1", "c2", "c3", ...]
 
+        units (``Optional[Iterable[str]]``):
+
+            The units of each spatial dimension.
+
         chunk_shape (`tuple`, optional):
 
             The size of a chunk of the underlying data container in voxels.
@@ -67,13 +71,15 @@ class Array(Freezable):
         self.offset = (
             Coordinate(offset) if offset is not None else (0,) * len(data.shape)
         )
-        self.axis_names = (
-            tuple(axis_names)
-            if axis_names is not None
-            else tuple("d{i}" for i in range(len(data.shape)))
-        )
+        # assign default axis names, if not given
+        if axis_names is None:
+            channel_names = [f"c{i}^" for i in range(self.channel_dims)]
+            spatial_names = [f"d{i}" for i in range(self.spatial_dims)]
+            axis_names = channel_names + spatial_names
+        self.axis_names = tuple(axis_names)
+        # assign unknown unit to each spatial dim, if not given
         self.units = (
-            tuple(units) if units is not None else ("voxels",) * self.voxel_size.dims
+            tuple(units) if units is not None else ("",) * self.spatial_dims
         )
         self.chunk_shape = Coordinate(chunk_shape) if chunk_shape is not None else None
         self._source_data = data
@@ -108,6 +114,10 @@ class Array(Freezable):
     @property
     def channel_dims(self):
         return self.dims - self.voxel_size.dims
+
+    @property
+    def spatial_dims(self):
+        return self.voxel_size.dims
 
     @property
     def shape(self):
