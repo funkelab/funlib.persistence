@@ -325,6 +325,14 @@ def _read_voxel_size_offset(ds, order="C"):
     return regularize_offset(voxel_size, offset)
 
 
+def _read_axis_names(ds, order="C"):
+
+    if "axis_names" in ds.attrs:
+        return ds.attrs["axis_names"]
+
+    return None
+
+
 def open_ds(filename: str, ds_name: str, mode: str = "r") -> Array:
     """Open a Zarr, N5, or HDF5 dataset as an :class:`Array`. If the
     dataset has attributes ``resolution`` and ``offset``, those will be
@@ -363,26 +371,26 @@ def open_ds(filename: str, ds_name: str, mode: str = "r") -> Array:
         except KeyError:
             order = ds.order
         voxel_size, offset = _read_voxel_size_offset(ds, order)
+        axis_names = _read_axis_names(ds, order)
         shape = Coordinate(ds.shape[-len(voxel_size) :])
-        roi = Roi(offset, voxel_size * shape)
 
         chunk_shape = ds.chunks
 
         logger.debug("opened zarr dataset %s in %s", ds_name, filename)
-        return Array(ds, roi, voxel_size, chunk_shape=chunk_shape)
+        return Array(ds, offset, voxel_size, axis_names=axis_names, chunk_shape=chunk_shape)
 
     elif filename.endswith(".n5"):
         logger.debug("opening N5 dataset %s in %s", ds_name, filename)
         ds = zarr.open(N5FSStore(filename), mode=mode)[ds_name]
 
         voxel_size, offset = _read_voxel_size_offset(ds, "F")
+        axis_names = _read_axis_names(ds, order)
         shape = Coordinate(ds.shape[-len(voxel_size) :])
-        roi = Roi(offset, voxel_size * shape)
 
         chunk_shape = ds.chunks
 
         logger.debug("opened N5 dataset %s in %s", ds_name, filename)
-        return Array(ds, roi, voxel_size, chunk_shape=chunk_shape)
+        return Array(ds, offset, voxel_size, axis_names=axis_names, chunk_shape=chunk_shape)
 
     elif (
         filename.endswith(".h5")
@@ -393,27 +401,13 @@ def open_ds(filename: str, ds_name: str, mode: str = "r") -> Array:
         ds = h5py.File(filename, mode=mode)[ds_name]
 
         voxel_size, offset = _read_voxel_size_offset(ds, "C")
+        axis_names = _read_axis_names(ds, "C")
         shape = Coordinate(ds.shape[-len(voxel_size) :])
-        roi = Roi(offset, voxel_size * shape)
 
         chunk_shape = ds.chunks
 
         logger.debug("opened H5 dataset %s in %s", ds_name, filename)
-        return Array(ds, roi, voxel_size, chunk_shape=chunk_shape)
-
-    elif filename.endswith(".json"):
-        logger.debug("found JSON container spec")
-        with open(filename, "r") as f:
-            spec = json.load(f)
-
-        array = open_ds(spec["container"], ds_name, mode)
-        return Array(
-            array.data,
-            Roi(spec["offset"], spec["size"]),
-            array.voxel_size,
-            array.roi.begin,
-            chunk_shape=array.chunk_shape,
-        )
+        return Array(ds, offset, voxel_size, axis_names=axis_names, chunk_shape=chunk_shape)
 
     else:
         logger.error("don't know data format of %s in %s", ds_name, filename)
