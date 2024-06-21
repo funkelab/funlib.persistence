@@ -20,33 +20,10 @@ def test_constructor():
     with pytest.raises(AssertionError):
         Array(data, offset, (1, 1))
 
-    # ROI not multiple of voxel size
-    # This is fine!
-    # with pytest.raises(AssertionError):
     Array(data, offset, (1, 1, 3))
-    # with pytest.raises(AssertionError):
     Array(data, offset, (1, 1, 4))
 
-    # ROI begin doesn't align with voxel size
-    # This is fine!
-    # with pytest.raises(AssertionError):
     Array(data, (1, 1, 1), (1, 1, 2))
-
-    # ROI shape doesn't align with voxel size
-    # No longer possible, we only specify the offset
-    # roi = Roi((0, 0, 0), (11, 11, 11))
-    # with pytest.raises(AssertionError):
-    #     Array(data, roi, (1, 1, 2))
-
-    # ROI outside of provided data
-    # No longer possible, we only provide the offset
-    # roi = Roi((0, 0, 0), (20, 20, 20))
-    # with pytest.raises(AssertionError):
-    #     Array(data, roi, (1, 1, 1))
-    # with pytest.raises(AssertionError):
-    #     Array(data, roi, (2, 2, 1))
-    # with pytest.raises(AssertionError):
-    #     Array(data, roi, (2, 2, 2), data_offset=(0, 0, 2))
 
 def test_dtype():
     for dtype in [np.float32, np.uint8, np.uint64]:
@@ -222,3 +199,20 @@ def test_adapters():
 
     a = Array(np.arange(0, 10*10).reshape(10, 2, 5), (0, 0), (1, 1), adapter=lambda x: x + 0.5)
     assert a.dtype == float
+
+def test_slicing():
+    a = Array(np.arange(0, 4*4).reshape(4, 2, 2), (0, 0), (1, 1))
+    
+    a.adapt(np.s_[0:3, 1, :])
+    assert a.shape == (3, 2)
+    assert a.axis_names == ["c0^", "d1"]
+    assert a.units == [""]
+
+    a.adapt(np.s_[2, :])
+    assert a.shape == (2,)
+    assert a.axis_names == ["d1"]
+    assert a.units == [""]
+
+    a[:] = 42
+
+    assert all([x == 42 for x in a._source_data[2, 1, :]]), a._source_data
