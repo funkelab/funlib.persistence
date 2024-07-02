@@ -1,5 +1,9 @@
 import numpy as np
+from functools import reduce
 
+def combine_slices(*slices):
+    return reduce(chain_slices, slices)
+    
 
 def chain_slices(slices_a, slices_b):
 

@@ -49,10 +49,10 @@ class Array(Freezable):
     """
 
     data: Any
-    voxel_size: Coordinate
-    offset: Coordinate
-    axis_names: list[str]
-    units: list[str]
+    _voxel_size: Coordinate
+    _offset: Coordinate
+    _axis_names: list[str]
+    _units: list[str]
     chunk_shape: Coordinate
     adapter: Adapter
 
@@ -281,20 +281,35 @@ class Array(Freezable):
         """
 
         if self.is_writeable:
-            roi = key
+            if isinstance(key, Roi):
+                roi = key
 
-            if not self.roi.contains(roi):
-                raise IndexError(
-                    "Requested roi %s is not contained in this array %s."
-                    % (roi, self.roi)
+                if not self.roi.contains(roi):
+                    raise IndexError(
+                        "Requested roi %s is not contained in this array %s."
+                        % (roi, self.roi)
+                    )
+
+                roi_slices = self.__slices(roi, use_adapters=False)
+                self.data[roi_slices] = value
+
+                region_slices = self.__slices(roi)
+
+
+                da.store(
+                    self.data[roi_slices], self._source_data, regions=region_slices
                 )
+            else:
+                self.data[key] = value
 
-            roi_slices = self.__slices(roi, use_adapters=False)
-            region_slices = self.__slices(roi)
+                adapter_slices = [
+                    adapter for adapter in self.adapters if self._is_slice(adapter)
+                ]
 
-            self.data[roi_slices] = value
+                region_slices = self._combine_slices(*adapter_slices, key)
 
-            da.store(self.data[roi_slices], self._source_data, regions=region_slices)
+                da.store(self.data[key], self._source_data, regions=region_slices)
+
         else:
             raise RuntimeError(
                 "This array is not writeable since you have applied a custom callable "
@@ -363,10 +378,7 @@ class Array(Freezable):
         combined_slices = []
 
         for roi_slice in roi_slices:
-            dim_slices = [
-                roi_slice[d] if len(roi_slice) > d else slice(None)
-                for d in range(num_dims)
-            ]
+            dim_slices = [roi_slice[d] for d in range(num_dims) if len(roi_slice) > d]
 
             del_dims = []
             for d, s in enumerate(dim_slices):
@@ -425,12 +437,16 @@ class Array(Freezable):
             else []
         )
 
-        combined_slice = self._combine_slices(roi_slices, *adapter_slices)
+        combined_slice = self._combine_slices(*adapter_slices, roi_slices)
 
         return combined_slice
 
     def _is_slice(self, adapter: Adapter):
-        if isinstance(adapter, slice) or isinstance(adapter, int):
+        if (
+            isinstance(adapter, slice)
+            or isinstance(adapter, int)
+            or isinstance(adapter, list)
+        ):
             return True
         elif isinstance(adapter, tuple) and all(
             [isinstance(a, slice) or isinstance(a, int) for a in adapter]
@@ -447,16 +463,16 @@ class Array(Freezable):
         return index
 
     def validate(self):
-        assert self.voxel_size.dims == self.offset.dims == len(self.units), (
-            f"The number of dimensions given by the voxel size ({self.voxel_size}), "
-            f"offset ({self.offset}), and units ({self.units}) must match"
+        assert self._voxel_size.dims == self._offset.dims == len(self._units), (
+            f"The number of dimensions given by the voxel size ({self._voxel_size}), "
+            f"offset ({self._offset}), and units ({self.units}) must match"
         )
-        assert len(self.axis_names) == len(self.shape), (
-            f"Axis names must be provided for every dimension. Got ({self.axis_names})"
+        assert len(self._axis_names) == len(self._source_data.shape), (
+            f"Axis names must be provided for every dimension. Got ({self._axis_names})"
             f"but expected {len(self.shape)} to match the data shape: {self.shape}"
         )
         if self.chunk_shape is not None:
-            assert self.chunk_shape.dims == len(self.shape), (
+            assert self.chunk_shape.dims == len(self._source_data.shape), (
                 f"Chunk shape ({self.chunk_shape}) must have the same "
                 f"number of dimensions as the data ({self.shape})"
             )
