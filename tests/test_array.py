@@ -215,4 +215,46 @@ def test_slicing():
 
     a[:] = 42
 
-    assert all([x == 42 for x in a._source_data[2, 1, :]]), a._source_data
+    assert all([x == 42 for x in a._source_data[2, 1, :]]), a._source_data[2, 1, :]
+
+
+    # test with list indexing
+    a = Array(np.arange(0, 4*4).reshape(4, 2, 2), (0, 0), (1, 1))
+
+    a.adapt(np.s_[[0,1,2], 1, :])
+    assert a.shape == (3, 2)
+    assert a.axis_names == ["c0^", "d1"]
+    assert a.units == [""]
+
+    a.adapt(np.s_[2, :])
+    assert a.shape == (2,)
+    assert a.axis_names == ["d1"]
+    assert a.units == [""]
+
+    a[:] = 42
+
+    assert all([x == 42 for x in a._source_data[2, 1, :]]), a._source_data[:]
+
+    
+    # test weird case
+    a = Array(np.arange(0, 4*4).reshape(4, 2, 2), (0, 0), (1, 1))
+
+    a.adapt(np.s_[[2,2,2], 1, :])
+    assert a.shape == (3, 2)
+    assert a.axis_names == ["c0^", "d1"]
+    assert a.units == [""]
+
+    a[:, :] = np.array([42, 43, 44]).reshape(3, 1)
+    assert all([x == 44 for x in a._source_data[2, 1, :]]), a._source_data[2, 1, :]
+
+
+    # test_bool_indexing
+    a = Array(np.arange(0, 4*4).reshape(4, 2, 2), (0, 0), (1, 1))
+
+    a.adapt(np.s_[np.array([True, True, True, False]), 1, :])
+    assert a.shape == (3, 2)
+    assert a.axis_names == ["c0^", "d1"]
+    assert a.units == [""]
+
+    a[:, :] = np.array([42, 43, 44]).reshape(3, 1)
+    assert all([x == 42 for x in a._source_data[2, 1, :]]), a._source_data[2, 1, :]
