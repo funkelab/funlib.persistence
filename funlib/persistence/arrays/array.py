@@ -3,6 +3,8 @@ from .freezable import Freezable
 from .adapters import Adapter
 import numpy as np
 import dask.array as da
+from functools import reduce
+from dask.array.optimization import fuse_slice
 
 from typing import Optional, Iterable, Any, Union
 
@@ -295,7 +297,6 @@ class Array(Freezable):
 
                 region_slices = self.__slices(roi)
 
-
                 da.store(
                     self.data[roi_slices], self._source_data, regions=region_slices
                 )
@@ -306,7 +307,7 @@ class Array(Freezable):
                     adapter for adapter in self.adapters if self._is_slice(adapter)
                 ]
 
-                region_slices = self._combine_slices(*adapter_slices, key)
+                region_slices = reduce(fuse_slice, [*adapter_slices, key])
 
                 da.store(self.data[key], self._source_data, regions=region_slices)
 
@@ -352,63 +353,6 @@ class Array(Freezable):
 
         return data
 
-    def _combine_slices(
-        self, *roi_slices: list[Union[tuple[slice], slice]]
-    ) -> list[slice]:
-        """Combine slices into a single slice."""
-        # if there are multiple slices, then we are using adapters
-        # this is important because if we are considering the adapter slices
-        # we need to use the shape of the source data, not the adapted data
-        use_adapters = len(roi_slices) > 1
-        roi_slices = [
-            roi_slice if isinstance(roi_slice, tuple) else (roi_slice,)
-            for roi_slice in roi_slices
-        ]
-        num_dims = max([len(roi_slice) for roi_slice in roi_slices])
-
-        remaining_dims = list(range(num_dims))
-        combined_ranges = [
-            (
-                range(0, self.shape[d], 1)
-                if not use_adapters
-                else range(0, self._source_data.shape[d], 1)
-            )
-            for d in range(num_dims)
-        ]
-        combined_slices = []
-
-        for roi_slice in roi_slices:
-            dim_slices = [roi_slice[d] for d in range(num_dims) if len(roi_slice) > d]
-
-            del_dims = []
-            for d, s in enumerate(dim_slices):
-                current_dimension = remaining_dims[d]
-                combined_ranges[current_dimension] = combined_ranges[current_dimension][
-                    s
-                ]
-                if isinstance(s, int):
-                    del_dims.append(d)
-            for d in del_dims:
-                del remaining_dims[d]
-
-        for combined_range in combined_ranges:
-            if isinstance(combined_range, int):
-                combined_slices.append(combined_range)
-            elif len(combined_range) == 0:
-                combined_slices.append(slice(0))
-            elif combined_range.stop < 0:
-                combined_slices.append(
-                    slice(combined_range.start, None, combined_range.step)
-                )
-            else:
-                combined_slices.append(
-                    slice(
-                        combined_range.start, combined_range.stop, combined_range.step
-                    )
-                )
-
-        return tuple(combined_slices)
-
     def __slices(self, roi, use_adapters: bool = True, check_chunk_align: bool = False):
         """Get the voxel slices for the given roi."""
 
@@ -437,7 +381,7 @@ class Array(Freezable):
             else []
         )
 
-        combined_slice = self._combine_slices(*adapter_slices, roi_slices)
+        combined_slice = reduce(fuse_slice, [*adapter_slices, roi_slices])
 
         return combined_slice
 
@@ -448,9 +392,9 @@ class Array(Freezable):
             or isinstance(adapter, list)
         ):
             return True
-        elif isinstance(adapter, tuple) and all(
-            [isinstance(a, slice) or isinstance(a, int) for a in adapter]
-        ):
+        elif isinstance(adapter, tuple) and all([self._is_slice(a) for a in adapter]):
+            return True
+        elif isinstance(adapter, np.ndarray) and adapter.dtype == bool:
             return True
         return False
 
