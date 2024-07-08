@@ -256,5 +256,5 @@ def test_slicing():
     assert a.axis_names == ["c0^", "d1"]
     assert a.units == [""]
     
-    with pytest.raises(NotImplementedError):
+    with pytest.raises(RuntimeError):
         a[:, :] = np.array([42, 43, 44]).reshape(3, 1)

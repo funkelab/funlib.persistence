@@ -7,6 +7,9 @@ from functools import reduce
 from dask.array.optimization import fuse_slice
 
 from typing import Optional, Iterable, Any, Union
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 class Array(Freezable):
@@ -195,7 +198,7 @@ class Array(Freezable):
     @property
     def is_writeable(self):
         return len(self.adapters) == 0 or all(
-            [self._is_slice(adapter) for adapter in self.adapters]
+            [self._is_slice(adapter, writeable=True) for adapter in self.adapters]
         )
 
     def apply_adapter(self, adapter: Adapter):
@@ -314,7 +317,9 @@ class Array(Freezable):
         else:
             raise RuntimeError(
                 "This array is not writeable since you have applied a custom callable "
-                "adapter that may or may not be invertable."
+                "adapter that may or may not be invertable, or you have used a"
+                "boolean array. Please use a list of ints to specify the axes you "
+                "want if you want to write to this array."
             )
 
     def to_ndarray(self, roi, fill_value=0):
@@ -385,17 +390,23 @@ class Array(Freezable):
 
         return combined_slice
 
-    def _is_slice(self, adapter: Adapter):
-        if (
-            isinstance(adapter, slice)
-            or isinstance(adapter, int)
-            or isinstance(adapter, list)
+    def _is_slice(self, adapter: Adapter, writeable: bool = False) -> bool:
+        if isinstance(adapter, slice) or isinstance(adapter, int):
+            return True
+        elif isinstance(adapter, list) and all([isinstance(a, int) for a in adapter]):
+            return True
+        elif isinstance(adapter, tuple) and all(
+            [self._is_slice(a, writeable) for a in adapter]
         ):
             return True
-        elif isinstance(adapter, tuple) and all([self._is_slice(a) for a in adapter]):
-            return True
-        elif isinstance(adapter, np.ndarray) and adapter.dtype == bool:
-            return True
+        elif (
+            isinstance(adapter, np.ndarray)
+            and adapter.dtype == bool
+            and adapter.ndim == 1
+        ):
+            # Boolean indexing is not supported when storing regions of dask arrays
+            # because dask `fuse_slice` can't combine the boolean indexing with slicing operations
+            return not writeable
         return False
 
     def __index(self, coordinate):
