@@ -7,7 +7,6 @@ from funlib.geometry import Roi
 from networkx import Graph, DiGraph
 
 import logging
-import json
 from typing import Optional, Any, Iterable
 from abc import abstractmethod
 
@@ -382,7 +381,7 @@ class SQLGraphDataBase(GraphDataBase):
             f"SELECT {desired_columns} FROM {self.edges_table_name} WHERE "
             + node_condition
             + (
-                f" AND " + self.__attr_query(attr_filter)
+                " AND " + self.__attr_query(attr_filter)
                 if attr_filter is not None and len(attr_filter) > 0
                 else ""
             )

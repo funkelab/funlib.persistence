@@ -2,7 +2,7 @@ from funlib.geometry import Coordinate
 from pydantic import BaseModel
 
 from collections.abc import Iterable
-from typing import Any, Optional
+from typing import Any
 
 
 class PydanticCoordinate(Coordinate):

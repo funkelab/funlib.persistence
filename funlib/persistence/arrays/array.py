@@ -7,7 +7,7 @@ import dask.array as da
 from functools import reduce
 from dask.array.optimization import fuse_slice
 
-from typing import Optional, Iterable, Any, Union
+from typing import Optional, Iterable, Union
 import logging
 
 logger = logging.getLogger(__name__)
