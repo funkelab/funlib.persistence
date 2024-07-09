@@ -1,6 +1,7 @@
 from funlib.geometry import Coordinate, Roi
 from .freezable import Freezable
 from .adapters import Adapter
+from .metadata import MetaData
 import numpy as np
 import dask.array as da
 from functools import reduce
@@ -41,9 +42,10 @@ class Array(Freezable):
 
             The units of each spatial dimension.
 
-        chunk_shape (`tuple`, optional):
+        chunks (`tuple[int]` or `str` or `int`, optional):
 
-            The size of a chunk of the underlying data container in voxels.
+            See https://docs.dask.org/en/stable/generated/dask.array.from_array.html for
+            details.
 
         adapter (``Optional[Adapter]``):
 
@@ -53,12 +55,11 @@ class Array(Freezable):
 
     """
 
-    data: Any
+    data: da.Array
     _voxel_size: Coordinate
     _offset: Coordinate
     _axis_names: list[str]
     _units: list[str]
-    chunk_shape: Coordinate
     adapter: Adapter
 
     def __init__(
@@ -68,10 +69,10 @@ class Array(Freezable):
         voxel_size: Optional[Iterable[int]] = None,
         axis_names: Optional[Iterable[str]] = None,
         units: Optional[Iterable[str]] = None,
-        chunk_shape: Optional[Iterable[int]] = None,
+        chunks: Optional[Union[int, Iterable[int], str]] = "auto",
         adapter: Optional[Union[Adapter, Iterable[Adapter]]] = None,
     ):
-        self.data = da.from_array(data)
+        self.data = da.from_array(data, chunks=chunks)
         self._uncollapsed_dims = [True for _ in self.data.shape]
         self.voxel_size = (
             voxel_size if voxel_size is not None else (1,) * len(data.shape)
@@ -84,7 +85,6 @@ class Array(Freezable):
             + tuple(f"d{i}" for i in range(self.voxel_size.dims))
         )
         self.units = units if units is not None else ("",) * self.voxel_size.dims
-        self.chunk_shape = Coordinate(chunk_shape) if chunk_shape is not None else None
         self._source_data = data
 
         if adapter is not None:
@@ -96,6 +96,19 @@ class Array(Freezable):
         self.freeze()
 
         self.validate()
+
+    @property
+    def metadata(self) -> MetaData:
+        return MetaData(
+            offset=self._offset,
+            voxel_size=self._voxel_size,
+            axis_names=self._axis_names,
+            units=self._units,
+        )
+
+    @property
+    def chunk_shape(self) -> Coordinate:
+        return Coordinate(self.data.chunksize)
 
     def uncollapsed_dims(self, physical: bool = False) -> list[bool]:
         if physical:
@@ -311,6 +324,11 @@ class Array(Freezable):
                 ]
 
                 region_slices = reduce(fuse_slice, [*adapter_slices, key])
+                if isinstance(region_slices, slice):
+                    # handle special case of a single slice i.e. array[:] = 1.
+                    # in this case region_slices is not iterable, but the `da.store`
+                    # funciton expects regions to be iterable
+                    region_slices = (region_slices,)
 
                 da.store(self.data[key], self._source_data, regions=region_slices)
 
@@ -418,10 +436,7 @@ class Array(Freezable):
         return index
 
     def validate(self):
-        assert self._voxel_size.dims == self._offset.dims == len(self._units), (
-            f"The number of dimensions given by the voxel size ({self._voxel_size}), "
-            f"offset ({self._offset}), and units ({self.units}) must match"
-        )
+        self.metadata.validate()
         assert len(self._axis_names) == len(self._source_data.shape), (
             f"Axis names must be provided for every dimension. Got ({self._axis_names})"
             f"but expected {len(self.shape)} to match the data shape: {self.shape}"
