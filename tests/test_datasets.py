@@ -36,11 +36,11 @@ def test_helpers(tmpdir, store, dtype):
     with pytest.raises(ArrayNotFoundError):
         prepare_ds(
             store,
+            shape,
             metadata.offset,
             metadata.voxel_size,
             metadata.axis_names,
             metadata.units,
-            shape,
             chunk_shape,
             dtype=dtype,
             mode="r",
@@ -49,11 +49,11 @@ def test_helpers(tmpdir, store, dtype):
     # test prepare_ds creates array if it does not exist and mode is write
     array = prepare_ds(
         store,
+        shape,
         metadata.offset,
         metadata.voxel_size,
         metadata.axis_names,
         metadata.units,
-        shape,
         chunk_shape,
         dtype=dtype,
         mode="w",
@@ -69,11 +69,11 @@ def test_helpers(tmpdir, store, dtype):
     # test prepare_ds opens array if it exists and mode is read
     array = prepare_ds(
         store,
+        shape,
         metadata.offset,
         metadata.voxel_size,
         metadata.axis_names,
         metadata.units,
-        shape,
         chunk_shape,
         dtype=dtype,
         mode="r",
@@ -91,11 +91,11 @@ def test_helpers(tmpdir, store, dtype):
     with pytest.raises(PermissionError):
         array = prepare_ds(
             store,
+            chunk_shape,
             metadata.offset,
             metadata.voxel_size,
             metadata.axis_names,
             metadata.units,
-            chunk_shape,
             chunk_shape,
             dtype=dtype,
             mode="r",
@@ -104,11 +104,11 @@ def test_helpers(tmpdir, store, dtype):
     # test prepare_ds overwrite existing array in write mode
     array = prepare_ds(
         store,
+        chunk_shape,
         metadata.offset,
         metadata.voxel_size,
         metadata.axis_names,
         metadata.units,
-        chunk_shape,
         chunk_shape,
         dtype=dtype,
         mode="w",
@@ -124,11 +124,11 @@ def test_helpers(tmpdir, store, dtype):
     # test prepare_ds updates metadata existing array in "r+" or "a" mode if it exists
     array = prepare_ds(
         store,
+        chunk_shape,
         metadata.offset,
         metadata.voxel_size * 2,
         metadata.axis_names,
         metadata.units,
-        chunk_shape,
         chunk_shape,
         dtype=dtype,
         mode="r+",
@@ -144,11 +144,11 @@ def test_helpers(tmpdir, store, dtype):
     # test prepare_ds updates existing array in "r+" or "a" mode if it exists
     array = prepare_ds(
         store,
+        chunk_shape,
         metadata.offset,
         metadata.voxel_size,
         metadata.axis_names,
         metadata.units,
-        chunk_shape,
         chunk_shape,
         dtype=dtype,
         mode="a",
@@ -166,11 +166,11 @@ def test_helpers(tmpdir, store, dtype):
     assert np.all(np.isclose(array[:], 2))
     array = prepare_ds(
         store,
+        chunk_shape,
         metadata.offset,
         metadata.voxel_size,
         metadata.axis_names,
         metadata.units,
-        chunk_shape,
         chunk_shape,
         dtype=dtype,
         mode="w",

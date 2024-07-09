@@ -6,6 +6,8 @@ import zarr
 from zarr.errors import PathNotFoundError
 import logging
 from typing import Optional, Union, Iterable
+from numpy.typing import DTypeLike
+import numpy as np
 
 from .metadata import MetaDataFormat
 
@@ -104,13 +106,13 @@ def open_ds(
 
 def prepare_ds(
     store,
-    offset: Coordinate,
-    voxel_size: Coordinate,
-    axis_names: Iterable[str],
-    units: Iterable[str],
     shape: Iterable[int],
-    chunk_shape: Iterable[int],
-    dtype,
+    offset: Optional[Coordinate] = None,
+    voxel_size: Optional[Coordinate] = None,
+    axis_names: Optional[Iterable[str]] = None,
+    units: Optional[Iterable[str]] = None,
+    chunk_shape: Optional[Iterable[int]] = None,
+    dtype: DTypeLike = np.float32,
     mode: str = "r+",
     **kwargs,
 ) -> Array:
@@ -122,27 +124,32 @@ def prepare_ds(
 
             See https://zarr.readthedocs.io/en/stable/api/creation.html#zarr.creation.open_array
 
+        shape:
+
+            The shape of the dataset to create. For all dimensions,
+            including non-physical.
+
         offset:
 
             The offset of the dataset to prepare in world units. Only provide for physical dimensions.
+            Set to all 0's by default.
 
         voxel_size:
 
             The size of one voxel in the dataset in world units. Only provide for physical dimensions.
+            Set to all 1's by default.
 
         axis_names:
 
             The axis names of the dataset to create. The names of non-physical
             dimensions should end with "^". e.g. ["samples^", "channels^", "z", "y", "x"]
+            Set to ["c{i}^", "d{j}"] by default. Where i, j are the index of the non-physical
+            and physical dimensions respectively.
 
         units:
 
             The units of the dataset to create. Only provide for physical dimensions.
-
-        shape:
-
-            The shape of the dataset to create. For all dimensions,
-            including non-physical.
+            Set to all "" by default.
 
         chunk_shape:
 
@@ -172,7 +179,35 @@ def prepare_ds(
         A :class:`Array` pointing to the newly created dataset.
     """
 
-    physical_shape = Coordinate([s for s, n in zip(shape, axis_names) if "^" not in n])
+    n_dim = len(shape)
+    spatial_dims = set(
+        [
+            offset.dims if offset is not None else None,
+            voxel_size.dims if voxel_size is not None else None,
+            len(units) if units is not None else None,
+            len([n for n in axis_names if "^" not in n])
+            if axis_names is not None
+            else None,
+        ]
+    )
+    spatial_dims.discard(None)
+    assert (
+        len(spatial_dims) <= 1
+    ), "Metadata must be consistent in the number of physical dimensions defined"
+    spatial_dims = spatial_dims.pop() if len(spatial_dims) > 0 else n_dim
+    channel_dims = n_dim - spatial_dims
+
+    offset = Coordinate([0] * spatial_dims) if offset is None else offset
+    voxel_size = Coordinate([1] * spatial_dims) if voxel_size is None else voxel_size
+    axis_names = (
+        tuple(f"c{i}^" for i in range(channel_dims))
+        + tuple(f"d{i}" for i in range(spatial_dims))
+        if axis_names is None
+        else axis_names
+    )
+    units = ("",) * voxel_size.dims if units is None else units
+
+    physical_shape = Coordinate(shape[-spatial_dims:])
     roi = Roi(offset, physical_shape * voxel_size)
 
     try:
