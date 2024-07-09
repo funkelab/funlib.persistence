@@ -1,12 +1,14 @@
-from .sql_graph_database import SQLGraphDataBase
-from ..types import Vec
+import json
+import logging
+from collections.abc import Iterable
+from typing import Any, Optional
+
+import psycopg2
+
 from funlib.geometry import Roi
 
-import logging
-import psycopg2
-import json
-from typing import Optional, Any, Iterable
-from collections.abc import Iterable
+from ..types import Vec
+from .sql_graph_database import SQLGraphDataBase
 
 logger = logging.getLogger(__name__)
 

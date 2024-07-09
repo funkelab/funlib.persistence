@@ -1,14 +1,16 @@
-from funlib.geometry import Coordinate, Roi
-from .freezable import Freezable
-from .adapters import Adapter
-from .metadata import MetaData
-import numpy as np
-import dask.array as da
+import logging
 from functools import reduce
+from typing import Iterable, Optional, Union
+
+import dask.array as da
+import numpy as np
 from dask.array.optimization import fuse_slice
 
-from typing import Optional, Iterable, Union
-import logging
+from funlib.geometry import Coordinate, Roi
+
+from .adapters import Adapter
+from .freezable import Freezable
+from .metadata import MetaData
 
 logger = logging.getLogger(__name__)
 

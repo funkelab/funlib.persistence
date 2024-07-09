@@ -1,8 +1,9 @@
-from funlib.geometry import Coordinate
-from pydantic import BaseModel
-
 from collections.abc import Iterable
 from typing import Any
+
+from pydantic import BaseModel
+
+from funlib.geometry import Coordinate
 
 
 class PydanticCoordinate(Coordinate):

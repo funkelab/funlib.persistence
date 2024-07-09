@@ -1,14 +1,14 @@
-from .array import Array
+import logging
+from typing import Iterable, Optional, Union
+
+import numpy as np
+import zarr
+from numpy.typing import DTypeLike
+from zarr.errors import PathNotFoundError
 
 from funlib.geometry import Coordinate, Roi
 
-import zarr
-from zarr.errors import PathNotFoundError
-import logging
-from typing import Optional, Union, Iterable
-from numpy.typing import DTypeLike
-import numpy as np
-
+from .array import Array
 from .metadata import MetaDataFormat
 
 logger = logging.getLogger(__name__)

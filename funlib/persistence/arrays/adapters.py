@@ -1,4 +1,3 @@
-from typing import Union, Callable
-
+from typing import Callable, Union
 
 Adapter = Union[slice, Callable]

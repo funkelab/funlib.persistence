@@ -1,14 +1,14 @@
-from .sql_graph_database import SQLGraphDataBase, AttributeType
-from ..types import Vec
+import json
+import logging
+import re
+import sqlite3
+from pathlib import Path
+from typing import Any, Optional
 
 from funlib.geometry import Roi
 
-import logging
-import sqlite3
-import json
-import re
-from pathlib import Path
-from typing import Optional, Any
+from ..types import Vec
+from .sql_graph_database import AttributeType, SQLGraphDataBase
 
 logger = logging.getLogger(__name__)
 

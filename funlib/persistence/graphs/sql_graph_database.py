@@ -1,14 +1,13 @@
-from .graph_database import GraphDataBase, AttributeType
-from ..types import Vec, type_to_str
-
-from funlib.geometry import Coordinate
-from funlib.geometry import Roi
-
-from networkx import Graph, DiGraph
-
 import logging
-from typing import Optional, Any, Iterable
 from abc import abstractmethod
+from typing import Any, Iterable, Optional
+
+from networkx import DiGraph, Graph
+
+from funlib.geometry import Coordinate, Roi
+
+from ..types import Vec, type_to_str
+from .graph_database import AttributeType, GraphDataBase
 
 logger = logging.getLogger(__name__)
 

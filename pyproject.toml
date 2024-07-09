@@ -36,3 +36,7 @@ dev = ['coverage>=5.0.3', 'pytest', 'black', 'mypy', 'types-psycopg2']
 
 [tool.black]
 target_version = ['py39', 'py310', 'py311']
+
+[tool.ruff]
+# pyflakes, pycodestyle, isort
+select = ["F", "W", "I001"]

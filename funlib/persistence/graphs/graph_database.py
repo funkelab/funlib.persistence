@@ -1,11 +1,12 @@
-from networkx import Graph
-from funlib.geometry import Roi
-from ..types import Vec
-
 import logging
 from abc import ABC, abstractmethod
 from typing import Optional
 
+from networkx import Graph
+
+from funlib.geometry import Roi
+
+from ..types import Vec
 
 logger = logging.getLogger(__name__)
 
