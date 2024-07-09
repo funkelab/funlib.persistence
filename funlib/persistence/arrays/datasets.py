@@ -20,7 +20,7 @@ def open_ds(
     voxel_size: Optional[Iterable[int]] = None,
     axis_names: Optional[Iterable[str]] = None,
     units: Optional[Iterable[str]] = None,
-    chunks: Optional[Union[int, Iterable[int], str]] = "auto",
+    chunks: Optional[Union[int, Iterable[int], str]] = "strict",
     **kwargs,
 ) -> Array:
     """
@@ -62,10 +62,11 @@ def open_ds(
         chunks (`Coordinate`, (optional)):
 
             An override for the size of the chunks in the dataset.
-            See https://docs.dask.org/en/latest/array-chunks.html
-            for more information. You can use a different chunksize
-            than the chunksize of your data, but this can be quite
-            detrimental.
+            The default value ("strict") will use the chunksize of the dataset.
+
+            Otherwise, you can provide chunks in any format supported by dask.
+            See https://docs.dask.org/en/stable/generated/dask.array.from_array.html
+            for more information.
 
         kwargs:
 
@@ -97,7 +98,7 @@ def open_ds(
         metadata.voxel_size,
         metadata.axis_names,
         metadata.units,
-        chunks,
+        data.chunks if chunks == "strict" else chunks,
     )
 
 
