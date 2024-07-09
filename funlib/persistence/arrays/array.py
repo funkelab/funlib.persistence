@@ -72,7 +72,7 @@ class Array(Freezable):
         axis_names: Optional[Iterable[str]] = None,
         units: Optional[Iterable[str]] = None,
         chunks: Optional[Union[int, Iterable[int], str]] = "auto",
-        adapter: Optional[Union[Adapter, Iterable[Adapter]]] = None,
+        adapter: Optional[Adapter] = None,
     ):
         self.data = da.from_array(data, chunks=chunks)
         self._uncollapsed_dims = [True for _ in self.data.shape]
