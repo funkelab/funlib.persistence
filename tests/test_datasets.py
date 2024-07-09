@@ -1,162 +1,184 @@
-from funlib.persistence.arrays.datasets import (
-    _read_attrs,
-    _read_voxel_size_offset,
-    regularize_offset,
-    check_for_offset,
-    check_for_voxel_size,
-    access_parent,
-    check_for_attrs_multiscale,
-    check_for_multiscale,
-)
+from funlib.persistence.arrays.metadata import MetaDataFormat
+from funlib.persistence.arrays.datasets import open_ds, prepare_ds
+from funlib.geometry import Coordinate, Roi
 
-import pytest
-from numcodecs import Zstd
-import zarr
+from zarr.errors import ArrayNotFoundError
 import numpy as np
 
+import pytest
 
-@pytest.fixture(scope="session")
-def test_metadata_n5():
-    metadata_n5 = {
-        "pixelResolution": {"dimensions": [5.3, 4.3, 3.3], "unit": "nm"},
-        "ordering": "C",
-        "scales": [[1, 1, 1], [2, 2, 2]],
-        "axes": ["x", "y", "z"],
-        "units": ["nm", "nm", "nm"],
-        "transform": {
-            "axes": ["z", "y", "x"],
-            "ordering": "C",
-            "scale": [5.3, 4.3, 3.3],
-            "translate": [4.3, 3.3, 2.3],
+stores = {
+    "zarr": "test_array.zarr",
+    "n5": "test_array.n5",
+    "zarr_ds": "test_array.zarr/test_group/test_data",
+    "n5_ds": "test_array.n5/test_group/test_data",
+    "zipped_zarr": "test_array.zarr.zip",
+    "zipped_zarr_ds": "test_array.zarr.zip/test_group/test_data",
+}
+
+
+@pytest.mark.parametrize("store", stores.keys())
+def test_helpers(tmpdir, store):
+    store = tmpdir / store
+    metadata = MetaDataFormat().parse(
+        {
+            "offset": [100, 200, 400],
+            "voxel_size": [1, 2, 3],
+            "axis_names": ["sample^", "channel^", "z", "y", "x"],
             "units": ["nm", "nm", "nm"],
-        },
-    }
-    return metadata_n5
-
-
-@pytest.fixture(scope="session")
-def test_metadata_zarr():
-    zarr_metadata = {
-        "multiscales": [
-            {
-                "axes": [
-                    {"name": "z", "type": "space", "unit": "nanometer"},
-                    {"name": "y", "type": "space", "unit": "nanometer"},
-                    {"name": "x", "type": "space", "unit": "nanometer"},
-                ],
-                "coordinateTransformations": [],
-                "datasets": [
-                    {
-                        "coordinateTransformations": [
-                            {"scale": [3.3, 4.3, 5.3], "type": "scale"},
-                            {"translation": [2.3, 3.3, 4.3], "type": "translation"},
-                        ],
-                        "path": "test_data",
-                    }
-                ],
-                "name": "",
-                "version": "0.4",
-            }
-        ]
-    }
-    return zarr_metadata
-
-
-@pytest.fixture(scope="session")
-def test_arrays(tmp_path_factory, test_metadata_n5, test_metadata_zarr):
-    path = tmp_path_factory.mktemp("test_data", numbered=False)
-    test_n5_path = path / "input/test_file.n5"
-    test_zarr_path = path / "output/test_file.zarr"
-
-    n5_arr = populate_n5file(test_n5_path, test_metadata_n5)
-    zarr_arr = populate_zarrfile(test_zarr_path, test_metadata_n5, test_metadata_zarr)
-
-    return n5_arr, zarr_arr
-
-
-# populate array and attrs for  n5 test file
-def populate_n5file(filepath, test_metadata_n5):
-
-    store = zarr.N5Store(filepath)
-    root = zarr.group(store=store, path="test_group", overwrite=True)
-
-    n5_data = zarr.create(
-        store=store,
-        path="test_group/test_data",
-        shape=(100, 100, 100),
-        chunks=10,
-        dtype="uint8",
-        compressor=Zstd(level=6),
+        }
     )
-    n5_data[:] = np.random.rand(100, 100, 100)
+    shape = Coordinate(1, 1, 10, 20, 30)
+    chunk_shape = Coordinate(2, 3, 10, 10, 10)
 
-    n5_data.attrs.put(test_metadata_n5)
-    root.attrs.put(test_metadata_n5)
-    return n5_data
+    # test prepare_ds fails if array does not exist and mode is read
+    with pytest.raises(ArrayNotFoundError):
+        prepare_ds(
+            store,
+            metadata.offset,
+            metadata.voxel_size,
+            metadata.axis_names,
+            metadata.units,
+            shape,
+            chunk_shape,
+            dtype=np.float32,
+            mode="r",
+        )
 
-
-# populate array and attrs for  zarr test file
-def populate_zarrfile(filepath, test_metadata_n5, test_metadata_zarr):
-    store = zarr.DirectoryStore(filepath)
-    root = zarr.group(store=store, path="test_group", overwrite=True)
-
-    zarr_data = zarr.create(
-        store=store,
-        path="test_group/test_data",
-        shape=(100, 100, 100),
-        chunks=10,
-        dtype="uint8",
-        compressor=Zstd(level=6),
+    # test prepare_ds creates array if it does not exist and mode is write
+    array = prepare_ds(
+        store,
+        metadata.offset,
+        metadata.voxel_size,
+        metadata.axis_names,
+        metadata.units,
+        shape,
+        chunk_shape,
+        dtype=np.float32,
+        mode="w",
     )
-    zarr_data[:] = np.random.rand(100, 100, 100)
-
-    zarr_data.attrs.update(test_metadata_n5)
-    root.attrs.update(test_metadata_zarr)
-
-    return zarr_data
-
-
-def test_read_attrs(test_arrays):
-
-    n5_arr = test_arrays[0]
-    zarr_arr = test_arrays[1]
-    assert _read_attrs(n5_arr) == ([3.3, 4.3, 5.3], [2.3, 3.3, 4.3], ["nm", "nm", "nm"])
-
-    assert _read_attrs(zarr_arr) == (
-        [3.3, 4.3, 5.3],
-        [2.3, 3.3, 4.3],
-        ["nanometer", "nanometer", "nanometer"],
+    assert array.roi == Roi(
+        metadata.offset, metadata.voxel_size * Coordinate(*shape[-3:])
     )
+    assert array.voxel_size == metadata.voxel_size
+    assert array.offset == metadata.offset
+    assert array.axis_names == metadata.axis_names
+    assert array.units == metadata.units
 
-
-def test_read_voxel_size_offset(test_arrays):
-
-    n5_arr = test_arrays[0]
-    zarr_arr = test_arrays[1]
-
-    assert _read_voxel_size_offset(n5_arr) == regularize_offset(
-        [3.3, 4.3, 5.3], [2.3, 3.3, 4.3]
+    # test prepare_ds opens array if it exists and mode is read
+    array = prepare_ds(
+        store,
+        metadata.offset,
+        metadata.voxel_size,
+        metadata.axis_names,
+        metadata.units,
+        shape,
+        chunk_shape,
+        dtype=np.float32,
+        mode="r",
     )
-
-    assert _read_voxel_size_offset(zarr_arr) == regularize_offset(
-        [3.3, 4.3, 5.3], [2.3, 3.3, 4.3]
+    assert array.roi == Roi(
+        metadata.offset, metadata.voxel_size * Coordinate(*shape[-3:])
     )
+    assert array.voxel_size == metadata.voxel_size
+    assert array.offset == metadata.offset
+    assert array.axis_names == metadata.axis_names
+    assert array.units == metadata.units
 
+    # test prepare_ds fails if array exists and is opened in read mode
+    # with incompatible arguments
+    with pytest.raises(PermissionError):
+        array = prepare_ds(
+            store,
+            metadata.offset,
+            metadata.voxel_size,
+            metadata.axis_names,
+            metadata.units,
+            chunk_shape,
+            chunk_shape,
+            dtype=np.float32,
+            mode="r",
+        )
 
-@pytest.fixture(scope="session")
-def get_multiscale(test_arrays):
-
-    z_arr = test_arrays[1]
-    multiscales, multiscale_group = check_for_multiscale(group=access_parent(z_arr))
-    return z_arr, multiscale_group, multiscales
-
-
-def test_check_for_attrs_multiscale(get_multiscale):
-    z_attrs = check_for_attrs_multiscale(
-        get_multiscale[0], get_multiscale[1], get_multiscale[2]
+    # test prepare_ds overwrite existing array in write mode
+    array = prepare_ds(
+        store,
+        metadata.offset,
+        metadata.voxel_size,
+        metadata.axis_names,
+        metadata.units,
+        chunk_shape,
+        chunk_shape,
+        dtype=np.float32,
+        mode="w",
     )
-    assert z_attrs == (
-        [3.3, 4.3, 5.3],
-        [2.3, 3.3, 4.3],
-        ["nanometer", "nanometer", "nanometer"],
+    assert array.roi == Roi(
+        metadata.offset, metadata.voxel_size * Coordinate(*chunk_shape[-3:])
     )
+    assert array.voxel_size == metadata.voxel_size
+    assert array.offset == metadata.offset
+    assert array.axis_names == metadata.axis_names
+    assert array.units == metadata.units
+
+    # test prepare_ds updates metadata existing array in "r+" or "a" mode if it exists
+    array = prepare_ds(
+        store,
+        metadata.offset,
+        metadata.voxel_size * 2,
+        metadata.axis_names,
+        metadata.units,
+        chunk_shape,
+        chunk_shape,
+        dtype=np.float32,
+        mode="r+",
+    )
+    assert array.roi == Roi(
+        metadata.offset, metadata.voxel_size * Coordinate(*chunk_shape[-3:]) * 2
+    )
+    assert array.voxel_size == metadata.voxel_size * 2
+    assert array.offset == metadata.offset
+    assert array.axis_names == metadata.axis_names
+    assert array.units == metadata.units
+
+    # test prepare_ds updates existing array in "r+" or "a" mode if it exists
+    array = prepare_ds(
+        store,
+        metadata.offset,
+        metadata.voxel_size,
+        metadata.axis_names,
+        metadata.units,
+        chunk_shape,
+        chunk_shape,
+        dtype=np.float32,
+        mode="a",
+    )
+    assert array.roi == Roi(
+        metadata.offset, metadata.voxel_size * Coordinate(*chunk_shape[-3:])
+    )
+    assert array.voxel_size == metadata.voxel_size
+    assert array.offset == metadata.offset
+    assert array.axis_names == metadata.axis_names
+    assert array.units == metadata.units
+
+    # test prepare_ds with mode "w" overwrites existing array even if compatible
+    array[:] = 2
+    assert np.all(np.isclose(array[:], np.ones(chunk_shape) * 2))
+    array = prepare_ds(
+        store,
+        metadata.offset,
+        metadata.voxel_size,
+        metadata.axis_names,
+        metadata.units,
+        chunk_shape,
+        chunk_shape,
+        dtype=np.float32,
+        mode="w",
+    )
+    assert np.all(np.isclose(array[:], np.ones(chunk_shape) * 0))
+    assert array.roi == Roi(
+        metadata.offset, metadata.voxel_size * Coordinate(*chunk_shape[-3:])
+    )
+    assert array.voxel_size == metadata.voxel_size
+    assert array.offset == metadata.offset
+    assert array.axis_names == metadata.axis_names
+    assert array.units == metadata.units
