@@ -1,0 +1,24 @@
+{
+    "offset": [
+        100,
+        200,
+        400
+    ],
+    "voxel_size": [
+        1,
+        2,
+        3
+    ],
+    "axis_names": [
+        "sample^",
+        "channel^",
+        "z",
+        "y",
+        "x"
+    ],
+    "units": [
+        "nm",
+        "nm",
+        "nm"
+    ]
+}

@@ -1,0 +1,26 @@
+{
+    "offset": [
+        100,
+        200,
+        400
+    ],
+    "resolution": [
+        1,
+        2,
+        3
+    ],
+    "extras": {
+        "axes": [
+            "sample^",
+            "channel^",
+            "z",
+            "y",
+            "x"
+        ],
+        "units": [
+            "nm",
+            "nm",
+            "nm"
+        ]
+    }
+}
