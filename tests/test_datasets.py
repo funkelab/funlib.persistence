@@ -18,7 +18,8 @@ stores = {
 
 
 @pytest.mark.parametrize("store", stores.keys())
-def test_helpers(tmpdir, store):
+@pytest.mark.parametrize("dtype", [np.float32, np.uint8, np.uint64])
+def test_helpers(tmpdir, store, dtype):
     store = tmpdir / store
     metadata = MetaDataFormat().parse(
         {
@@ -41,7 +42,7 @@ def test_helpers(tmpdir, store):
             metadata.units,
             shape,
             chunk_shape,
-            dtype=np.float32,
+            dtype=dtype,
             mode="r",
         )
 
@@ -54,7 +55,7 @@ def test_helpers(tmpdir, store):
         metadata.units,
         shape,
         chunk_shape,
-        dtype=np.float32,
+        dtype=dtype,
         mode="w",
     )
     assert array.roi == Roi(
@@ -74,7 +75,7 @@ def test_helpers(tmpdir, store):
         metadata.units,
         shape,
         chunk_shape,
-        dtype=np.float32,
+        dtype=dtype,
         mode="r",
     )
     assert array.roi == Roi(
@@ -96,7 +97,7 @@ def test_helpers(tmpdir, store):
             metadata.units,
             chunk_shape,
             chunk_shape,
-            dtype=np.float32,
+            dtype=dtype,
             mode="r",
         )
 
@@ -109,7 +110,7 @@ def test_helpers(tmpdir, store):
         metadata.units,
         chunk_shape,
         chunk_shape,
-        dtype=np.float32,
+        dtype=dtype,
         mode="w",
     )
     assert array.roi == Roi(
@@ -129,7 +130,7 @@ def test_helpers(tmpdir, store):
         metadata.units,
         chunk_shape,
         chunk_shape,
-        dtype=np.float32,
+        dtype=dtype,
         mode="r+",
     )
     assert array.roi == Roi(
@@ -149,7 +150,7 @@ def test_helpers(tmpdir, store):
         metadata.units,
         chunk_shape,
         chunk_shape,
-        dtype=np.float32,
+        dtype=dtype,
         mode="a",
     )
     assert array.roi == Roi(
@@ -162,7 +163,7 @@ def test_helpers(tmpdir, store):
 
     # test prepare_ds with mode "w" overwrites existing array even if compatible
     array[:] = 2
-    assert np.all(np.isclose(array[:], np.ones(chunk_shape) * 2))
+    assert np.all(np.isclose(array[:], 2))
     array = prepare_ds(
         store,
         metadata.offset,
@@ -171,10 +172,10 @@ def test_helpers(tmpdir, store):
         metadata.units,
         chunk_shape,
         chunk_shape,
-        dtype=np.float32,
+        dtype=dtype,
         mode="w",
     )
-    assert np.all(np.isclose(array[:], np.ones(chunk_shape) * 0))
+    assert np.all(np.isclose(array[:], 0))
     assert array.roi == Roi(
         metadata.offset, metadata.voxel_size * Coordinate(*chunk_shape[-3:])
     )
