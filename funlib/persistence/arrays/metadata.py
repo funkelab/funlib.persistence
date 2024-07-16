@@ -33,7 +33,7 @@ class MetaDataFormat(BaseModel):
         if isinstance(current_key, int):
             return self.fetch(data[current_key], keys)
         if len(keys) == 0:
-            return data[current_key]
+            return data.get(current_key, None)
         elif isinstance(data, list):
             assert current_key == "{dim}", current_key
             values = []
@@ -75,19 +75,38 @@ class MetaDataFormat(BaseModel):
             else self.fetch(data, self.units_attr.split(self.nesting_delimiter))
         )
 
-        if self.trim_channel_transforms:
-            if len(axis_names) == len(units) == len(voxel_size) == len(offset):
-                offset = [o for o, axis in zip(offset, axis_names) if "^" not in axis]
-                voxel_size = [
-                    v for v, axis in zip(voxel_size, axis_names) if "^" not in axis
-                ]
-                units = [u for u, axis in zip(units, axis_names) if "^" not in axis]
+        if self.trim_channel_transforms and axis_names is not None:
+            channel_dims = [True if "^" in axis else False for axis in axis_names]
+            if sum(channel_dims) > 0:
+                if offset is not None and len(offset) == len(channel_dims):
+                    offset = [
+                        o
+                        for o, channel_dim in zip(offset, channel_dims)
+                        if not channel_dim
+                    ]
+                if voxel_size is not None and len(voxel_size) == len(channel_dims):
+                    voxel_size = [
+                        v
+                        for v, channel_dim in zip(voxel_size, channel_dims)
+                        if not channel_dim
+                    ]
+                if units is not None and len(units) == len(channel_dims):
+                    units = [
+                        u
+                        for u, channel_dim in zip(units, channel_dims)
+                        if not channel_dim
+                    ]
+
+        offset = Coordinate(offset) if offset is not None else None
+        voxel_size = Coordinate(voxel_size) if voxel_size is not None else None
+        axis_names = list(axis_names) if axis_names is not None else None
+        units = list(units) if units is not None else None
 
         metadata = MetaData(
-            offset=Coordinate(offset),
-            voxel_size=Coordinate(voxel_size),
-            axis_names=list(axis_names),
-            units=[unit if unit is not None else "" for unit in units],
+            offset=offset,
+            voxel_size=voxel_size,
+            axis_names=axis_names,
+            units=units,
         )
         metadata.validate()
 
