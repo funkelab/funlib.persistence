@@ -154,6 +154,10 @@ class SQLGraphDataBase(GraphDataBase):
             self._store_metadata(metadata)
 
     @abstractmethod
+    def _drop_edges(self) -> None:
+        pass
+
+    @abstractmethod
     def _drop_tables(self) -> None:
         pass
 

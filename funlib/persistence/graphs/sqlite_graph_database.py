@@ -67,6 +67,10 @@ class SQLiteGraphDataBase(SQLGraphDataBase):
             }
         return self._edge_array_columns
 
+    def _drop_edges(self) -> None:
+        logger.info("dropping edges table %s", self.edges_table_name)
+        self.cur.execute(f"DROP TABLE IF EXISTS {self.edges_table_name}")
+
     def _drop_tables(self) -> None:
         logger.info(
             "dropping collections %s, %s",
