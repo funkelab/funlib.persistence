@@ -440,7 +440,7 @@ class Array(Freezable):
     def validate(self):
         self.metadata.validate()
         assert len(self._axis_names) == len(self._source_data.shape), (
-            f"Axis names must be provided for every dimension. Got ({self._axis_names})"
+            f"Axis names must be provided for every dimension. Got ({self._axis_names}) "
             f"but expected {len(self.shape)} to match the data shape: {self.shape}"
         )
         if self.chunk_shape is not None:
