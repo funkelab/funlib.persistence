@@ -130,6 +130,8 @@ class MetaData:
         self._units = units
         self.shape = shape
 
+        self.validate()
+
     @property
     def offset(self) -> PydanticCoordinate:
         return (
