@@ -17,7 +17,7 @@ def test_constructor():
     Array(data, offset, (2, 2, 2))
 
     # dims don't match
-    with pytest.raises(AssertionError):
+    with pytest.raises(ValueError):
         Array(data, offset, (1, 1))
 
     Array(data, offset, (1, 1, 3))
@@ -25,9 +25,11 @@ def test_constructor():
 
     Array(data, (1, 1, 1), (1, 1, 2))
 
+
 def test_dtype():
     for dtype in [np.float32, np.uint8, np.uint64]:
         assert Array(np.zeros((1,), dtype=dtype), (0,), (1,)).dtype == dtype
+
 
 def test_getitem():
     a = Array(np.arange(0, 10).reshape(2, 5), (0, 0), (1, 1))
@@ -61,6 +63,7 @@ def test_getitem():
 
     b = a[Roi((1, 1), (1, 4))]
     np.testing.assert_array_equal(b, [[6, 7, 8, 9]])
+
 
 def test_setitem():
     # set entirely with numpy array
@@ -136,6 +139,7 @@ def test_setitem():
     assert a[Coordinate((1, 1))] == 1
     assert a[Coordinate((1, 2))] == 2
 
+
 def test_to_ndarray():
     a = Array(np.arange(0, 10).reshape(2, 5), (0, 0), (1, 1))
 
@@ -163,8 +167,11 @@ def test_to_ndarray():
     )
     np.testing.assert_array_equal(b, compare)
 
+
 def test_to_ndarray_with_slices():
-    a = Array(np.arange(0, 10*10).reshape(10, 2, 5), (0, 0), (1, 1), adapter=slice(0, 1))
+    a = Array(
+        np.arange(0, 10 * 10).reshape(10, 2, 5), (0, 0), (1, 1), adapter=slice(0, 1)
+    )
 
     b = a.to_ndarray(Roi((0, 0), (1, 5)))
     compare = np.array([[[0, 1, 2, 3, 4]]])
@@ -180,32 +187,43 @@ def test_to_ndarray_with_slices():
 
     b = a.to_ndarray(Roi((0, 0), (5, 5)), fill_value=1)
     compare = np.array(
-        [[
-            [0, 1, 2, 3, 4],
-            [5, 6, 7, 8, 9],
-            [1, 1, 1, 1, 1],
-            [1, 1, 1, 1, 1],
-            [1, 1, 1, 1, 1],
-        ]]
+        [
+            [
+                [0, 1, 2, 3, 4],
+                [5, 6, 7, 8, 9],
+                [1, 1, 1, 1, 1],
+                [1, 1, 1, 1, 1],
+                [1, 1, 1, 1, 1],
+            ]
+        ]
     )
     np.testing.assert_array_equal(b, compare)
 
+
 def test_adapters():
-    a = Array(np.arange(0, 10*10).reshape(10, 2, 5), (0, 0), (1, 1))
+    a = Array(np.arange(0, 10 * 10).reshape(10, 2, 5), (0, 0), (1, 1))
     assert a.dtype == int
 
-    a = Array(np.arange(0, 10*10).reshape(10, 2, 5), (0, 0), (1, 1), adapter=lambda x: x > 2)
+    a = Array(
+        np.arange(0, 10 * 10).reshape(10, 2, 5), (0, 0), (1, 1), adapter=lambda x: x > 2
+    )
     assert a.dtype == bool
 
-    a = Array(np.arange(0, 10*10).reshape(10, 2, 5), (0, 0), (1, 1), adapter=lambda x: x + 0.5)
+    a = Array(
+        np.arange(0, 10 * 10).reshape(10, 2, 5),
+        (0, 0),
+        (1, 1),
+        adapter=lambda x: x + 0.5,
+    )
     assert a.dtype == float
 
+
 def test_slicing():
-    a = Array(np.arange(0, 4*4).reshape(4, 2, 2), (0, 0), (1, 1))
-    
+    a = Array(np.arange(0, 4 * 4).reshape(4, 2, 2), (0, 0), (1, 1))
+
     a.adapt(np.s_[0:3, 1, :])
     assert a.shape == (3, 2)
-    assert a.axis_names == ["c0^", "d1"]
+    assert a.axis_names == ["c0^", "d1"], a.axis_names
     assert a.units == [""]
 
     a.adapt(np.s_[2, :])
@@ -217,11 +235,10 @@ def test_slicing():
 
     assert all([x == 42 for x in a._source_data[2, 1, :]]), a._source_data[2, 1, :]
 
-
     # test with list indexing
-    a = Array(np.arange(0, 4*4).reshape(4, 2, 2), (0, 0), (1, 1))
+    a = Array(np.arange(0, 4 * 4).reshape(4, 2, 2), (0, 0), (1, 1))
 
-    a.adapt(np.s_[[0,1,2], 1, :])
+    a.adapt(np.s_[[0, 1, 2], 1, :])
     assert a.shape == (3, 2)
     assert a.axis_names == ["c0^", "d1"]
     assert a.units == [""]
@@ -235,11 +252,10 @@ def test_slicing():
 
     assert all([x == 42 for x in a._source_data[2, 1, :]]), a._source_data[:]
 
-    
     # test weird case
-    a = Array(np.arange(0, 4*4).reshape(4, 2, 2), (0, 0), (1, 1))
+    a = Array(np.arange(0, 4 * 4).reshape(4, 2, 2), (0, 0), (1, 1))
 
-    a.adapt(np.s_[[2,2,2], 1, :])
+    a.adapt(np.s_[[2, 2, 2], 1, :])
     assert a.shape == (3, 2)
     assert a.axis_names == ["c0^", "d1"]
     assert a.units == [""]
@@ -247,14 +263,13 @@ def test_slicing():
     a[:, :] = np.array([42, 43, 44]).reshape(3, 1)
     assert all([x == 44 for x in a._source_data[2, 1, :]]), a._source_data[2, 1, :]
 
-
     # test_bool_indexing
-    a = Array(np.arange(0, 4*4).reshape(4, 2, 2), (0, 0), (1, 1))
+    a = Array(np.arange(0, 4 * 4).reshape(4, 2, 2), (0, 0), (1, 1))
 
     a.adapt(np.s_[np.array([True, True, True, False]), 1, :])
     assert a.shape == (3, 2)
     assert a.axis_names == ["c0^", "d1"]
     assert a.units == [""]
-    
+
     with pytest.raises(RuntimeError):
         a[:, :] = np.array([42, 43, 44]).reshape(3, 1)

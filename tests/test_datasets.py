@@ -20,8 +20,11 @@ stores = {
 @pytest.mark.parametrize("store", stores.keys())
 @pytest.mark.parametrize("dtype", [np.float32, np.uint8, np.uint64])
 def test_helpers(tmpdir, store, dtype):
+    shape = Coordinate(1, 1, 10, 20, 30)
+    chunk_shape = Coordinate(2, 3, 10, 10, 10)
     store = tmpdir / store
     metadata = MetaDataFormat().parse(
+        shape,
         {
             "offset": [100, 200, 400],
             "voxel_size": [1, 2, 3],
@@ -29,8 +32,6 @@ def test_helpers(tmpdir, store, dtype):
             "units": ["nm", "nm", "nm"],
         }
     )
-    shape = Coordinate(1, 1, 10, 20, 30)
-    chunk_shape = Coordinate(2, 3, 10, 10, 10)
 
     # test prepare_ds fails if array does not exist and mode is read
     with pytest.raises(ArrayNotFoundError):
