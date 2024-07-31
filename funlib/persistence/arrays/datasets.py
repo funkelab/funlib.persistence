@@ -87,6 +87,7 @@ def open_ds(
 
     data = zarr.open(store, mode=mode, **kwargs)
     metadata = metadata_format.parse(
+        data.shape,
         data.attrs,
         offset=offset,
         voxel_size=voxel_size,
