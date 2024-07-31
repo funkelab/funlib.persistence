@@ -58,10 +58,6 @@ class Array(Freezable):
     """
 
     data: da.Array
-    _voxel_size: Coordinate
-    _offset: Coordinate
-    _axis_names: list[str]
-    _units: list[str]
     adapter: Adapter
 
     def __init__(
@@ -76,18 +72,14 @@ class Array(Freezable):
     ):
         self.data = da.from_array(data, chunks=chunks)
         self._uncollapsed_dims = [True for _ in self.data.shape]
-        self.voxel_size = (
-            voxel_size if voxel_size is not None else (1,) * len(data.shape)
-        )
-        self.offset = offset if offset is not None else (0,) * len(data.shape)
-        self.axis_names = (
-            axis_names
-            if axis_names is not None
-            else tuple(f"c{i}^" for i in range(self.channel_dims))
-            + tuple(f"d{i}" for i in range(self.voxel_size.dims))
-        )
-        self.units = units if units is not None else ("",) * self.voxel_size.dims
         self._source_data = data
+        self._metadata = MetaData(
+            offset=Coordinate(offset) if offset is not None else None,
+            voxel_size=Coordinate(voxel_size) if voxel_size is not None else None,
+            axis_names=list(axis_names) if axis_names is not None else None,
+            units=list(units) if units is not None else None,
+            shape=self._source_data.shape,
+        )
 
         if adapter is not None:
             self.apply_adapter(adapter)
@@ -100,21 +92,12 @@ class Array(Freezable):
         self.validate()
 
     @property
-    def metadata(self) -> MetaData:
-        return MetaData(
-            offset=self._offset,
-            voxel_size=self._voxel_size,
-            axis_names=self._axis_names,
-            units=self._units,
-        )
-
-    @property
     def chunk_shape(self) -> Coordinate:
         return Coordinate(self.data.chunksize)
 
     def uncollapsed_dims(self, physical: bool = False) -> list[bool]:
         if physical:
-            return self._uncollapsed_dims[-self._voxel_size.dims :]
+            return self._uncollapsed_dims[-self._metadata.voxel_size.dims :]
         else:
             return self._uncollapsed_dims
 
@@ -123,7 +106,7 @@ class Array(Freezable):
         """Get the offset of this array in world units."""
         return Coordinate(
             [
-                self._offset[ii]
+                self._metadata.offset[ii]
                 for ii, uncollapsed in enumerate(self.uncollapsed_dims(physical=True))
                 if uncollapsed
             ]
@@ -131,14 +114,14 @@ class Array(Freezable):
 
     @offset.setter
     def offset(self, offset: Iterable[int]) -> None:
-        self._offset = Coordinate(offset)
+        self._metadata.offset = Coordinate(offset)
 
     @property
     def voxel_size(self) -> Coordinate:
         """Get the size of a voxel in world units."""
         return Coordinate(
             [
-                self._voxel_size[ii]
+                self._metadata.voxel_size[ii]
                 for ii, uncollapsed in enumerate(self.uncollapsed_dims(physical=True))
                 if uncollapsed
             ]
@@ -146,31 +129,31 @@ class Array(Freezable):
 
     @voxel_size.setter
     def voxel_size(self, voxel_size: Iterable[int]) -> None:
-        self._voxel_size = Coordinate(voxel_size)
+        self._metadata.voxel_size = Coordinate(voxel_size)
 
     @property
     def units(self) -> list[str]:
         return [
-            self._units[ii]
+            self._metadata.units[ii]
             for ii, uncollapsed in enumerate(self.uncollapsed_dims(physical=True))
             if uncollapsed
         ]
 
     @units.setter
     def units(self, units: list[str]) -> None:
-        self._units = list(units)
+        self._metadata.units = list(units)
 
     @property
     def axis_names(self) -> list[str]:
         return [
-            self._axis_names[ii]
+            self._metadata.axis_names[ii]
             for ii, uncollapsed in enumerate(self.uncollapsed_dims(physical=False))
             if uncollapsed
         ]
 
     @axis_names.setter
     def axis_names(self, axis_names):
-        self._axis_names = list(axis_names)
+        self._metadata.axis_names = list(axis_names)
 
     @property
     def roi(self):
@@ -438,9 +421,9 @@ class Array(Freezable):
         return index
 
     def validate(self):
-        self.metadata.validate()
-        assert len(self._axis_names) == len(self._source_data.shape), (
-            f"Axis names must be provided for every dimension. Got ({self._axis_names}) "
+        self._metadata.validate()
+        assert len(self.axis_names) == len(self._source_data.shape), (
+            f"Axis names must be provided for every dimension. Got ({self.axis_names}) "
             f"but expected {len(self.shape)} to match the data shape: {self.shape}"
         )
         if self.chunk_shape is not None:
