@@ -238,10 +238,10 @@ def _read_attrs(ds, order="C"):
 
     # check recursively for multiscales attribute in the zarr store tree
     try:
-    	multiscales, multiscale_group = check_for_multiscale(group=access_parent(ds))
+        multiscales, multiscale_group = check_for_multiscale(group=access_parent(ds))
     # Ignore if parent group not found - likely a newly created store
     except GroupNotFoundError as e:
-        multiscales = None 
+        multiscales = None
 
     # check for attributes in .zarr group multiscale
     if not isinstance(ds.store, (zarr.n5.N5Store, zarr.n5.N5FSStore)):
