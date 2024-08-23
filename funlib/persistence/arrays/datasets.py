@@ -14,6 +14,14 @@ from .metadata import MetaDataFormat
 logger = logging.getLogger(__name__)
 
 
+class ArrayNotFoundError(Exception):
+    """Exception raised when an array is not found in the dataset."""
+
+    def __init__(self, message: str = "Array not found in the dataset"):
+        self.message = message
+        super().__init__(self.message)
+
+
 def open_ds(
     store,
     mode: str = "r",
@@ -85,7 +93,10 @@ def open_ds(
         metadata_format if metadata_format is not None else MetaDataFormat()
     )
 
-    data = zarr.open(store, mode=mode, **kwargs)
+    try:
+        data = zarr.open(store, mode=mode, **kwargs)
+    except zarr.errors.PathNotFoundError:
+        raise ArrayNotFoundError(f"Nothing found at path {store}")
     metadata = metadata_format.parse(
         data.shape,
         data.attrs,
@@ -201,12 +212,12 @@ def prepare_ds(
     offset = Coordinate([0] * spatial_dims) if offset is None else offset
     voxel_size = Coordinate([1] * spatial_dims) if voxel_size is None else voxel_size
     axis_names = (
-        tuple(f"c{i}^" for i in range(channel_dims))
-        + tuple(f"d{i}" for i in range(spatial_dims))
+        list(f"c{i}^" for i in range(channel_dims))
+        + list(f"d{i}" for i in range(spatial_dims))
         if axis_names is None
         else axis_names
     )
-    units = ("",) * voxel_size.dims if units is None else units
+    units = [""] * voxel_size.dims if units is None else units
 
     physical_shape = Coordinate(shape[-spatial_dims:])
     roi = Roi(offset, physical_shape * voxel_size)
@@ -214,7 +225,7 @@ def prepare_ds(
     try:
         existing_array = open_ds(store, mode="r", **kwargs)
 
-    except PathNotFoundError:
+    except ArrayNotFoundError:
         existing_array = None
 
     if existing_array is not None:
@@ -277,15 +288,18 @@ def prepare_ds(
                 return existing_array
 
     # create the dataset
-    ds = zarr.open_array(
-        store=store,
-        shape=shape,
-        chunks=chunk_shape,
-        dtype=dtype,
-        dimension_separator="/",
-        mode=mode,
-        **kwargs,
-    )
+    try:
+        ds = zarr.open_array(
+            store=store,
+            shape=shape,
+            chunks=chunk_shape,
+            dtype=dtype,
+            dimension_separator="/",
+            mode=mode,
+            **kwargs,
+        )
+    except zarr.errors.ArrayNotFoundError:
+        raise ArrayNotFoundError(f"Nothing found at path {store}")
     ds.attrs.put(
         {
             "axis_names": axis_names,
