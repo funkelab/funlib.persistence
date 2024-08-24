@@ -97,17 +97,22 @@ class Array(Freezable):
 
     def uncollapsed_dims(self, physical: bool = False) -> list[bool]:
         if physical:
-            return self._uncollapsed_dims[-self._metadata.voxel_size.dims :]
+            return [
+                x
+                for x, c in zip(self._uncollapsed_dims, self._metadata.axis_names)
+                if not c.endswith("^")
+            ]
         else:
             return self._uncollapsed_dims
 
     @property
     def offset(self) -> Coordinate:
         """Get the offset of this array in world units."""
+        udims = self.uncollapsed_dims(physical=True)
         return Coordinate(
             [
                 self._metadata.offset[ii]
-                for ii, uncollapsed in enumerate(self.uncollapsed_dims(physical=True))
+                for ii, uncollapsed in enumerate(udims)
                 if uncollapsed
             ]
         )
@@ -119,10 +124,11 @@ class Array(Freezable):
     @property
     def voxel_size(self) -> Coordinate:
         """Get the size of a voxel in world units."""
+        udims = self.uncollapsed_dims(physical=True)
         return Coordinate(
             [
                 self._metadata.voxel_size[ii]
-                for ii, uncollapsed in enumerate(self.uncollapsed_dims(physical=True))
+                for ii, uncollapsed in enumerate(udims)
                 if uncollapsed
             ]
         )
@@ -133,9 +139,10 @@ class Array(Freezable):
 
     @property
     def units(self) -> list[str]:
+        udims = self.uncollapsed_dims(physical=True)
         return [
             self._metadata.units[ii]
-            for ii, uncollapsed in enumerate(self.uncollapsed_dims(physical=True))
+            for ii, uncollapsed in enumerate(udims)
             if uncollapsed
         ]
 
@@ -145,6 +152,7 @@ class Array(Freezable):
 
     @property
     def axis_names(self) -> list[str]:
+        print(self._metadata.axis_names, self._uncollapsed_dims)
         return [
             self._metadata.axis_names[ii]
             for ii, uncollapsed in enumerate(self.uncollapsed_dims(physical=False))
@@ -205,7 +213,12 @@ class Array(Freezable):
                 adapter = (adapter,)
             for ii, a in enumerate(adapter):
                 if isinstance(a, int):
-                    self._uncollapsed_dims[ii] = False
+                    for i, uc in enumerate(self._uncollapsed_dims):
+                        if uc:
+                            if ii == 0:
+                                self._uncollapsed_dims[i] = False
+                                break
+                            ii -= 1
             self.data = self.data[adapter]
         elif callable(adapter):
             self.data = adapter(self.data)

@@ -1,8 +1,7 @@
 from funlib.persistence.arrays.metadata import MetaDataFormat
-from funlib.persistence.arrays.datasets import open_ds, prepare_ds
+from funlib.persistence.arrays.datasets import open_ds, prepare_ds, ArrayNotFoundError
 from funlib.geometry import Coordinate, Roi
 
-from zarr.errors import ArrayNotFoundError
 import numpy as np
 
 import pytest
@@ -30,7 +29,7 @@ def test_helpers(tmpdir, store, dtype):
             "voxel_size": [1, 2, 3],
             "axis_names": ["sample^", "channel^", "z", "y", "x"],
             "units": ["nm", "nm", "nm"],
-        }
+        },
     )
 
     # test prepare_ds fails if array does not exist and mode is read
@@ -184,3 +183,76 @@ def test_helpers(tmpdir, store, dtype):
     assert array.offset == metadata.offset
     assert array.axis_names == metadata.axis_names
     assert array.units == metadata.units
+
+
+@pytest.mark.parametrize("store", stores.keys())
+@pytest.mark.parametrize("dtype", [np.float32, np.uint8, np.uint64])
+def test_open_ds(tmpdir, store, dtype):
+    shape = Coordinate(1, 1, 10, 20, 30)
+    store = tmpdir / store
+    metadata = MetaDataFormat().parse(
+        shape,
+        {
+            "offset": [100, 200, 400],
+            "voxel_size": [1, 2, 3],
+            "axis_names": ("sample^", "channel^", "z", "y", "x"),
+            "units": ("nm", "nm", "nm"),
+        },
+    )
+
+    # test open_ds fails if array does not exist and mode is read
+    with pytest.raises(ArrayNotFoundError):
+        open_ds(
+            store,
+            offset=metadata.offset,
+            voxel_size=metadata.voxel_size,
+            axis_names=metadata.axis_names,
+            units=metadata.units,
+            mode="r",
+        )
+
+    # test open_ds creates array if it does not exist and mode is write
+    array = prepare_ds(
+        store,
+        shape,
+        offset=metadata.offset,
+        voxel_size=metadata.voxel_size,
+        axis_names=metadata.axis_names,
+        units=metadata.units,
+        dtype=dtype,
+        mode="w",
+    )
+    assert array.roi == Roi(
+        metadata.offset, metadata.voxel_size * Coordinate(*shape[-3:])
+    )
+    assert array.voxel_size == metadata.voxel_size
+    assert array.offset == metadata.offset
+    assert array.axis_names == metadata.axis_names
+    assert array.units == metadata.units
+
+    # test open_ds opens array if it exists and mode is read
+    array = open_ds(
+        store,
+        offset=metadata.offset,
+        voxel_size=metadata.voxel_size,
+        axis_names=metadata.axis_names,
+        units=metadata.units,
+        mode="r",
+    )
+    assert array.roi == Roi(
+        metadata.offset, metadata.voxel_size * Coordinate(*shape[-3:])
+    )
+    assert array.voxel_size == metadata.voxel_size
+    assert array.offset == metadata.offset
+    assert array.axis_names == metadata.axis_names
+    assert array.units == metadata.units
+
+    # test open_ds fails if array exists and is opened in read mode
+    # with incompatible arguments
+    array = open_ds(
+        store,
+        offset=(1, 2, 3),
+        voxel_size=(1, 2, 3),
+        axis_names=None,
+        units=None,
+    )

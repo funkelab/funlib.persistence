@@ -273,3 +273,80 @@ def test_slicing():
 
     with pytest.raises(RuntimeError):
         a[:, :] = np.array([42, 43, 44]).reshape(3, 1)
+
+
+def test_slicing_channel_dim_last():
+    a = Array(
+        np.arange(0, 4 * 4).reshape(2, 2, 4),
+        (0, 0),
+        (1, 1),
+        axis_names=["d0", "d1", "c0^"],
+    )
+
+    a.adapt(np.s_[1, :, 0:3])
+    assert a.shape == (2, 3)
+    assert a.axis_names == ["d1", "c0^"], a.axis_names
+    assert a.units == [""]
+
+    a.adapt(np.s_[:, 2])
+    assert a.shape == (2,)
+    assert a.axis_names == ["d1"]
+    assert a.units == [""]
+
+    a[:] = 42
+
+    assert all([x == 42 for x in a._source_data[1, :, 2]]), a._source_data[1, :, 2]
+
+    # test with list indexing
+    a = Array(
+        np.arange(0, 4 * 4).reshape(2, 2, 4),
+        (0, 0),
+        (1, 1),
+        axis_names=["d0", "d1", "c0^"],
+    )
+
+    a.adapt(np.s_[[0, 1], 1, :])
+    assert a.shape == (2, 4)
+    assert a.axis_names == ["d0", "c0^"]
+    assert a.units == [""]
+
+    a.adapt(np.s_[1, :])
+    assert a.shape == (4,)
+    assert a.axis_names == ["c0^"]
+    assert a.units == []
+
+    a[:] = 42
+
+    assert all([x == 42 for x in a._source_data[1, 1, :]]), a._source_data[1, 1, :]
+
+    # test weird case
+    a = Array(
+        np.arange(0, 4 * 4).reshape(4, 2, 2),
+        (0, 0),
+        (1, 1),
+        axis_names=["d0", "d1", "c0^"],
+    )
+
+    a.adapt(np.s_[[2, 2, 2], 1, :])
+    assert a.shape == (3, 2)
+    assert a.axis_names == ["d0", "c0^"]
+    assert a.units == [""]
+
+    a[:, :] = np.array([42, 43, 44]).reshape(3, 1)
+    assert all([x == 44 for x in a._source_data[2, 1, :]]), a._source_data[2, 1, :]
+
+    # test_bool_indexing
+    a = Array(
+        np.arange(0, 4 * 4).reshape(2, 2, 4),
+        (0, 0),
+        (1, 1),
+        axis_names=["d0", "d1", "c0^"],
+    )
+
+    a.adapt(np.s_[1, :, np.array([True, True, True, False])])
+    assert a.shape == (2, 3)
+    assert a.axis_names == ["d1", "c0^"]
+    assert a.units == [""]
+
+    with pytest.raises(RuntimeError):
+        a[:, :] = np.array([42, 43, 44]).reshape(3, 1)
