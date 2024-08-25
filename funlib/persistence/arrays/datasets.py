@@ -98,7 +98,7 @@ def open_ds(
         data = zarr.open(store, mode=mode, **kwargs)
     except zarr.errors.PathNotFoundError:
         raise ArrayNotFoundError(f"Nothing found at path {store}")
-    
+
     metadata = metadata_format.parse(
         data.shape,
         data.attrs,
