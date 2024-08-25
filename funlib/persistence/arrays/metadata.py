@@ -23,8 +23,6 @@ class MetaDataFormat(BaseModel):
     voxel_size_attr: str = "voxel_size"
     axis_names_attr: str = "axis_names"
     units_attr: str = "units"
-    nesting_delimiter: str = "/"
-    trim_channel_transforms: bool = True
 
     class Config:
         extra = "forbid"
@@ -63,40 +61,39 @@ class MetaDataFormat(BaseModel):
         offset = (
             offset
             if offset is not None
-            else self.fetch(data, self.offset_attr.split(self.nesting_delimiter))
+            else self.fetch(data, self.offset_attr.split("/"))
         )
         voxel_size = (
             voxel_size
             if voxel_size is not None
-            else self.fetch(data, self.voxel_size_attr.split(self.nesting_delimiter))
+            else self.fetch(data, self.voxel_size_attr.split("/"))
         )
         axis_names = (
             axis_names
             if axis_names is not None
-            else self.fetch(data, self.axis_names_attr.split(self.nesting_delimiter))
+            else self.fetch(data, self.axis_names_attr.split("/"))
         )
         units = (
-            units
-            if units is not None
-            else self.fetch(data, self.units_attr.split(self.nesting_delimiter))
+            units if units is not None else self.fetch(data, self.units_attr.split("/"))
         )
 
-        if self.trim_channel_transforms and axis_names is not None:
+        # remove channel dimensions from offset, voxel_size and units
+        if axis_names is not None:
             channel_dims = [True if "^" in axis else False for axis in axis_names]
             if sum(channel_dims) > 0:
-                if offset is not None and len(offset) == len(channel_dims):
+                if offset is not None and len(offset) == len(axis_names):
                     offset = [
                         o
                         for o, channel_dim in zip(offset, channel_dims)
                         if not channel_dim
                     ]
-                if voxel_size is not None and len(voxel_size) == len(channel_dims):
+                if voxel_size is not None and len(voxel_size) == len(axis_names):
                     voxel_size = [
                         v
                         for v, channel_dim in zip(voxel_size, channel_dims)
                         if not channel_dim
                     ]
-                if units is not None and len(units) == len(channel_dims):
+                if units is not None and len(units) == len(axis_names):
                     units = [
                         u
                         for u, channel_dim in zip(units, channel_dims)
