@@ -104,4 +104,3 @@ def test_default_metadata_format(tmpdir):
     assert zarr_attrs["resolution"] == [1, 2, 3]
     assert zarr_attrs["extras/axes"] == ["sample^", "channel^", "z", "y", "x"]
     assert zarr_attrs["extras/units"] == ["nm", "nm", "nm"]
-
