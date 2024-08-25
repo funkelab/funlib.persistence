@@ -9,7 +9,7 @@ from zarr.errors import PathNotFoundError
 from funlib.geometry import Coordinate, Roi
 
 from .array import Array
-from .metadata import MetaDataFormat
+from .metadata import MetaDataFormat, get_default_metadata_format
 
 logger = logging.getLogger(__name__)
 
@@ -90,7 +90,9 @@ def open_ds(
     """
 
     metadata_format = (
-        metadata_format if metadata_format is not None else MetaDataFormat()
+        metadata_format
+        if metadata_format is not None
+        else get_default_metadata_format()
     )
 
     try:
@@ -300,12 +302,14 @@ def prepare_ds(
         )
     except zarr.errors.ArrayNotFoundError:
         raise ArrayNotFoundError(f"Nothing found at path {store}")
+
+    default_metadata_format = get_default_metadata_format()
     ds.attrs.put(
         {
-            "axis_names": axis_names,
-            "units": units,
-            "voxel_size": voxel_size,
-            "offset": roi.begin,
+            default_metadata_format.axis_names_attr: axis_names,
+            default_metadata_format.units_attr: units,
+            default_metadata_format.voxel_size_attr: voxel_size,
+            default_metadata_format.offset_attr: roi.begin,
         }
     )
 

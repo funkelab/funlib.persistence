@@ -170,7 +170,7 @@ def test_to_ndarray():
 
 def test_to_ndarray_with_slices():
     a = Array(
-        np.arange(0, 10 * 10).reshape(10, 2, 5), (0, 0), (1, 1), adapter=slice(0, 1)
+        np.arange(0, 10 * 10).reshape(10, 2, 5), (0, 0), (1, 1), lazy_op=slice(0, 1)
     )
 
     b = a.to_ndarray(Roi((0, 0), (1, 5)))
@@ -205,7 +205,7 @@ def test_adapters():
     assert a.dtype == int
 
     a = Array(
-        np.arange(0, 10 * 10).reshape(10, 2, 5), (0, 0), (1, 1), adapter=lambda x: x > 2
+        np.arange(0, 10 * 10).reshape(10, 2, 5), (0, 0), (1, 1), lazy_op=lambda x: x > 2
     )
     assert a.dtype == bool
 
@@ -213,7 +213,7 @@ def test_adapters():
         np.arange(0, 10 * 10).reshape(10, 2, 5),
         (0, 0),
         (1, 1),
-        adapter=lambda x: x + 0.5,
+        lazy_op=lambda x: x + 0.5,
     )
     assert a.dtype == float
 
@@ -221,12 +221,12 @@ def test_adapters():
 def test_slicing():
     a = Array(np.arange(0, 4 * 4).reshape(4, 2, 2), (0, 0), (1, 1))
 
-    a.adapt(np.s_[0:3, 1, :])
+    a.lazy_op(np.s_[0:3, 1, :])
     assert a.shape == (3, 2)
     assert a.axis_names == ["c0^", "d1"], a.axis_names
     assert a.units == [""]
 
-    a.adapt(np.s_[2, :])
+    a.lazy_op(np.s_[2, :])
     assert a.shape == (2,)
     assert a.axis_names == ["d1"]
     assert a.units == [""]
@@ -238,12 +238,12 @@ def test_slicing():
     # test with list indexing
     a = Array(np.arange(0, 4 * 4).reshape(4, 2, 2), (0, 0), (1, 1))
 
-    a.adapt(np.s_[[0, 1, 2], 1, :])
+    a.lazy_op(np.s_[[0, 1, 2], 1, :])
     assert a.shape == (3, 2)
     assert a.axis_names == ["c0^", "d1"]
     assert a.units == [""]
 
-    a.adapt(np.s_[2, :])
+    a.lazy_op(np.s_[2, :])
     assert a.shape == (2,)
     assert a.axis_names == ["d1"]
     assert a.units == [""]
@@ -255,7 +255,7 @@ def test_slicing():
     # test weird case
     a = Array(np.arange(0, 4 * 4).reshape(4, 2, 2), (0, 0), (1, 1))
 
-    a.adapt(np.s_[[2, 2, 2], 1, :])
+    a.lazy_op(np.s_[[2, 2, 2], 1, :])
     assert a.shape == (3, 2)
     assert a.axis_names == ["c0^", "d1"]
     assert a.units == [""]
@@ -266,7 +266,7 @@ def test_slicing():
     # test_bool_indexing
     a = Array(np.arange(0, 4 * 4).reshape(4, 2, 2), (0, 0), (1, 1))
 
-    a.adapt(np.s_[np.array([True, True, True, False]), 1, :])
+    a.lazy_op(np.s_[np.array([True, True, True, False]), 1, :])
     assert a.shape == (3, 2)
     assert a.axis_names == ["c0^", "d1"]
     assert a.units == [""]
@@ -283,12 +283,12 @@ def test_slicing_channel_dim_last():
         axis_names=["d0", "d1", "c0^"],
     )
 
-    a.adapt(np.s_[1, :, 0:3])
+    a.lazy_op(np.s_[1, :, 0:3])
     assert a.shape == (2, 3)
     assert a.axis_names == ["d1", "c0^"], a.axis_names
     assert a.units == [""]
 
-    a.adapt(np.s_[:, 2])
+    a.lazy_op(np.s_[:, 2])
     assert a.shape == (2,)
     assert a.axis_names == ["d1"]
     assert a.units == [""]
@@ -305,12 +305,12 @@ def test_slicing_channel_dim_last():
         axis_names=["d0", "d1", "c0^"],
     )
 
-    a.adapt(np.s_[[0, 1], 1, :])
+    a.lazy_op(np.s_[[0, 1], 1, :])
     assert a.shape == (2, 4)
     assert a.axis_names == ["d0", "c0^"]
     assert a.units == [""]
 
-    a.adapt(np.s_[1, :])
+    a.lazy_op(np.s_[1, :])
     assert a.shape == (4,)
     assert a.axis_names == ["c0^"]
     assert a.units == []
@@ -327,7 +327,7 @@ def test_slicing_channel_dim_last():
         axis_names=["d0", "d1", "c0^"],
     )
 
-    a.adapt(np.s_[[2, 2, 2], 1, :])
+    a.lazy_op(np.s_[[2, 2, 2], 1, :])
     assert a.shape == (3, 2)
     assert a.axis_names == ["d0", "c0^"]
     assert a.units == [""]
@@ -343,7 +343,7 @@ def test_slicing_channel_dim_last():
         axis_names=["d0", "d1", "c0^"],
     )
 
-    a.adapt(np.s_[1, :, np.array([True, True, True, False])])
+    a.lazy_op(np.s_[1, :, np.array([True, True, True, False])])
     assert a.shape == (2, 3)
     assert a.axis_names == ["d1", "c0^"]
     assert a.units == [""]

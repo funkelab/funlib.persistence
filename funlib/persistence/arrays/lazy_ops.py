@@ -1,3 +1,3 @@
 from typing import Callable, Union
 
-Adapter = Union[slice, Callable]
+LazyOp = Union[slice, Callable]

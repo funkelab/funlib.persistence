@@ -8,7 +8,7 @@ from dask.array.optimization import fuse_slice
 
 from funlib.geometry import Coordinate, Roi
 
-from .adapters import Adapter
+from .lazy_ops import LazyOp
 from .freezable import Freezable
 from .metadata import MetaData
 
@@ -49,16 +49,16 @@ class Array(Freezable):
             See https://docs.dask.org/en/stable/generated/dask.array.from_array.html for
             details.
 
-        adapter (``Optional[Adapter]``):
+        lazy_op (``Optional[LazyOp]``):
 
-            The adapter to use for this array. If you would like apply multiple
-            adapters, please look into either the `.adapt` method or the
-            `SequentialAdapter` class.
+            The lazy_op to use for this array. If you would like apply multiple
+            lazy_ops, please look into either the `.lazy_op` method or the
+            `SequentialLazyOp` class.
 
     """
 
     data: da.Array
-    adapter: Adapter
+    lazy_op: LazyOp
 
     def __init__(
         self,
@@ -68,7 +68,7 @@ class Array(Freezable):
         axis_names: Optional[Iterable[str]] = None,
         units: Optional[Iterable[str]] = None,
         chunks: Optional[Union[int, Iterable[int], str]] = "auto",
-        adapter: Optional[Adapter] = None,
+        lazy_op: Optional[LazyOp] = None,
     ):
         self.data = da.from_array(data, chunks=chunks)
         self._uncollapsed_dims = [True for _ in self.data.shape]
@@ -81,11 +81,11 @@ class Array(Freezable):
             shape=self._source_data.shape,
         )
 
-        if adapter is not None:
-            self.apply_adapter(adapter)
+        if lazy_op is not None:
+            self.apply_lazy_ops(lazy_op)
 
-        adapters = [] if adapter is None else [adapter]
-        self.adapters = adapters
+        lazy_ops = [] if lazy_op is None else [lazy_op]
+        self.lazy_ops = lazy_ops
 
         self.freeze()
 
@@ -152,7 +152,6 @@ class Array(Freezable):
 
     @property
     def axis_names(self) -> list[str]:
-        print(self._metadata.axis_names, self._uncollapsed_dims)
         return [
             self._metadata.axis_names[ii]
             for ii, uncollapsed in enumerate(self.uncollapsed_dims(physical=False))
@@ -203,15 +202,15 @@ class Array(Freezable):
 
     @property
     def is_writeable(self):
-        return len(self.adapters) == 0 or all(
-            [self._is_slice(adapter, writeable=True) for adapter in self.adapters]
+        return len(self.lazy_ops) == 0 or all(
+            [self._is_slice(lazy_op, writeable=True) for lazy_op in self.lazy_ops]
         )
 
-    def apply_adapter(self, adapter: Adapter):
-        if self._is_slice(adapter):
-            if not isinstance(adapter, tuple):
-                adapter = (adapter,)
-            for ii, a in enumerate(adapter):
+    def apply_lazy_ops(self, lazy_op: LazyOp):
+        if self._is_slice(lazy_op):
+            if not isinstance(lazy_op, tuple):
+                lazy_op = (lazy_op,)
+            for ii, a in enumerate(lazy_op):
                 if isinstance(a, int):
                     for i, uc in enumerate(self._uncollapsed_dims):
                         if uc:
@@ -219,26 +218,26 @@ class Array(Freezable):
                                 self._uncollapsed_dims[i] = False
                                 break
                             ii -= 1
-            self.data = self.data[adapter]
-        elif callable(adapter):
-            self.data = adapter(self.data)
+            self.data = self.data[lazy_op]
+        elif callable(lazy_op):
+            self.data = lazy_op(self.data)
         else:
             raise Exception(
-                f"Adapter {adapter} is not a supported adapter. "
-                f"Supported adapters are: {Adapter}"
+                f"LazyOp {lazy_op} is not a supported lazy_op. "
+                f"Supported lazy_ops are: {LazyOp}"
             )
 
-    def adapt(self, adapter: Adapter):
-        """Apply an adapter to this array.
+    def lazy_op(self, lazy_op: LazyOp):
+        """Apply an lazy_op to this array.
 
         Args:
 
-            adapter (``Adapter``):
+            lazy_op (``LazyOp``):
 
-                The adapter to apply to this array.
+                The lazy_op to apply to this array.
         """
-        self.apply_adapter(adapter)
-        self.adapters.append(adapter)
+        self.apply_lazy_ops(lazy_op)
+        self.lazy_ops.append(lazy_op)
 
     def __getitem__(self, key) -> np.ndarray:
         """Get a sub-array or a single value.
@@ -268,7 +267,7 @@ class Array(Freezable):
                     % (roi, self.roi)
                 )
 
-            return self.data[self.__slices(roi, use_adapters=False)].compute()
+            return self.data[self.__slices(roi, use_lazy_slices=False)].compute()
 
         elif isinstance(key, Coordinate):
             coordinate = key
@@ -306,10 +305,12 @@ class Array(Freezable):
                         % (roi, self.roi)
                     )
 
-                roi_slices = self.__slices(roi, use_adapters=False)
+                roi_slices = self.__slices(roi, use_lazy_slices=False)
                 self.data[roi_slices] = value
 
                 region_slices = self.__slices(roi)
+
+                print(self.data[roi_slices].shape, region_slices)
 
                 da.store(
                     self.data[roi_slices], self._source_data, regions=region_slices
@@ -317,11 +318,11 @@ class Array(Freezable):
             else:
                 self.data[key] = value
 
-                adapter_slices = [
-                    adapter for adapter in self.adapters if self._is_slice(adapter)
+                lazy_slices = [
+                    lazy_op for lazy_op in self.lazy_ops if self._is_slice(lazy_op)
                 ]
 
-                region_slices = reduce(fuse_slice, [*adapter_slices, key])
+                region_slices = reduce(fuse_slice, [*lazy_slices, key])
                 if isinstance(region_slices, slice):
                     # handle special case of a single slice i.e. array[:] = 1.
                     # in this case region_slices is not iterable, but the `da.store`
@@ -333,7 +334,7 @@ class Array(Freezable):
         else:
             raise RuntimeError(
                 "This array is not writeable since you have applied a custom callable "
-                "adapter that may or may not be invertable, or you have used a"
+                "lazy_op that may or may not be invertable, or you have used a"
                 "boolean array. Please use a list of ints to specify the axes you "
                 "want if you want to write to this array."
             )
@@ -374,7 +375,7 @@ class Array(Freezable):
 
         return data
 
-    def __slices(self, roi, use_adapters: bool = True, check_chunk_align: bool = False):
+    def __slices(self, roi, use_lazy_slices: bool = True, check_chunk_align: bool = False):
         """Get the voxel slices for the given roi."""
 
         voxel_roi = (roi - self.offset) / self.voxel_size
@@ -396,29 +397,29 @@ class Array(Freezable):
 
         roi_slices = (slice(None),) * self.channel_dims + voxel_roi.to_slices()
 
-        adapter_slices = (
-            [adapter for adapter in self.adapters if self._is_slice(adapter)]
-            if use_adapters
+        lazy_slices = (
+            [lazy_op for lazy_op in self.lazy_ops if self._is_slice(lazy_op)]
+            if use_lazy_slices
             else []
         )
 
-        combined_slice = reduce(fuse_slice, [*adapter_slices, roi_slices])
+        combined_slice = reduce(fuse_slice, [*lazy_slices, roi_slices])
 
         return combined_slice
 
-    def _is_slice(self, adapter: Adapter, writeable: bool = False) -> bool:
-        if isinstance(adapter, slice) or isinstance(adapter, int):
+    def _is_slice(self, lazy_op: LazyOp, writeable: bool = False) -> bool:
+        if isinstance(lazy_op, slice) or isinstance(lazy_op, int):
             return True
-        elif isinstance(adapter, list) and all([isinstance(a, int) for a in adapter]):
+        elif isinstance(lazy_op, list) and all([isinstance(a, int) for a in lazy_op]):
             return True
-        elif isinstance(adapter, tuple) and all(
-            [self._is_slice(a, writeable) for a in adapter]
+        elif isinstance(lazy_op, tuple) and all(
+            [self._is_slice(a, writeable) for a in lazy_op]
         ):
             return True
         elif (
-            isinstance(adapter, np.ndarray)
-            and adapter.dtype == bool
-            and adapter.ndim == 1
+            isinstance(lazy_op, np.ndarray)
+            and lazy_op.dtype == bool
+            and lazy_op.ndim == 1
         ):
             # Boolean indexing is not supported when storing regions of dask arrays
             # because dask `fuse_slice` can't combine the boolean indexing with slicing operations
