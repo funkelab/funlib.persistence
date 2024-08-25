@@ -1,6 +1,6 @@
 import logging
 from functools import reduce
-from typing import Iterable, Optional, Union
+from typing import Sequence, Optional, Union
 
 import dask.array as da
 import numpy as np
@@ -25,22 +25,22 @@ class Array(Freezable):
 
             The numpy array like object to wrap.
 
-        offset (``Optional[Iterable[int]]``):
+        offset (``Optional[Sequence[int]]``):
 
             The offset of the array in world units. Defaults to 0 for
             every dimension if not provided
 
-        voxel_size (``Optional[Iterable[int]]``):
+        voxel_size (``Optional[Sequence[int]]``):
 
             The size of a voxel. If not provided the voxel size is
             assumed to be 1 in all dimensions.
 
-        axis_names (``Optional[Iterable[str]]``):
+        axis_names (``Optional[Sequence[str]]``):
 
             The name of each axis. If not provided, the axis names
             are given names ["c1", "c2", "c3", ...]
 
-        units (``Optional[Iterable[str]]``):
+        units (``Optional[Sequence[str]]``):
 
             The units of each spatial dimension.
 
@@ -58,16 +58,15 @@ class Array(Freezable):
     """
 
     data: da.Array
-    lazy_op: LazyOp
 
     def __init__(
         self,
         data,
-        offset: Optional[Iterable[int]] = None,
-        voxel_size: Optional[Iterable[int]] = None,
-        axis_names: Optional[Iterable[str]] = None,
-        units: Optional[Iterable[str]] = None,
-        chunks: Optional[Union[int, Iterable[int], str]] = "auto",
+        offset: Optional[Sequence[int]] = None,
+        voxel_size: Optional[Sequence[int]] = None,
+        axis_names: Optional[Sequence[str]] = None,
+        units: Optional[Sequence[str]] = None,
+        chunks: Optional[Union[int, Sequence[int], str]] = "auto",
         lazy_op: Optional[LazyOp] = None,
     ):
         self.data = da.from_array(data, chunks=chunks)
@@ -190,7 +189,7 @@ class Array(Freezable):
             [self._is_slice(lazy_op, writeable=True) for lazy_op in self.lazy_ops]
         )
 
-    def apply_lazy_ops(self, lazy_op: LazyOp):
+    def apply_lazy_ops(self, lazy_op):
         if self._is_slice(lazy_op):
             if not isinstance(lazy_op, tuple):
                 lazy_op = (lazy_op,)
