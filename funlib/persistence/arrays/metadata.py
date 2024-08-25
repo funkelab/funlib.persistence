@@ -1,5 +1,7 @@
 from collections.abc import Iterable
 from typing import Any, Optional
+from pathlib import Path
+import toml
 
 from pydantic import BaseModel
 
@@ -23,6 +25,9 @@ class MetaDataFormat(BaseModel):
     units_attr: str = "units"
     nesting_delimiter: str = "/"
     trim_channel_transforms: bool = True
+
+    class Config:
+        extra = "forbid"
 
     def fetch(self, data: dict[str, Any], keys: Iterable[str]):
         current_key, *keys = keys
@@ -196,3 +201,44 @@ class MetaData:
 
     def validate(self):
         assert self.dims == self.physical_dims + self.channel_dims
+
+
+DEFAULT_METADATA_FORMAT = MetaDataFormat()
+LOCAL_PATHS = [Path("pyproject.toml"), Path("funlib_persistence.toml")]
+USER_PATHS = [
+    Path.home() / ".config" / "funlib_persistence" / "funlib_persistence.toml"
+]
+GLOBAL_PATHS = [Path("/etc/funlib_persistence/funlib_persistence.toml")]
+
+
+def read_config() -> Optional[dict]:
+    config = None
+    config = {}
+    for path in (LOCAL_PATHS + USER_PATHS + GLOBAL_PATHS)[::-1]:
+        if path.exists():
+            with open(path, "r") as f:
+                conf = toml.load(f)
+                if path.name == "pyproject.toml":
+                    conf = conf.get("tool", {}).get("funlib_persistence", {})
+                config.update(conf)
+    return config
+
+
+def set_default_metadata_format(metadata_format: MetaDataFormat):
+    global DEFAULT_METADATA_FORMAT
+    DEFAULT_METADATA_FORMAT = metadata_format
+
+
+def get_default_metadata_format() -> MetaDataFormat:
+    global DEFAULT_METADATA_FORMAT
+    return DEFAULT_METADATA_FORMAT
+
+
+def configure_library():
+    config = read_config()
+    if config:
+        set_default_metadata_format(MetaDataFormat(**config))
+
+
+# Call configure_library at the start of your library initialization
+configure_library()

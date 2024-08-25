@@ -1,5 +1,11 @@
-from funlib.persistence.arrays.metadata import MetaDataFormat
+from funlib.persistence.arrays.metadata import (
+    MetaDataFormat,
+    get_default_metadata_format,
+    set_default_metadata_format,
+)
+from funlib.persistence.arrays.datasets import open_ds, prepare_ds
 from funlib.geometry import Coordinate
+import zarr
 
 import pytest
 import json
@@ -74,3 +80,29 @@ def test_empty_metadata():
     assert metadata.voxel_size == Coordinate(1, 1, 1, 1, 1)
     assert metadata.axis_names == ["d0", "d1", "d2", "d3", "d4"]
     assert metadata.units == ["", "", "", "", ""]
+
+
+def test_default_metadata_format(tmpdir):
+    set_default_metadata_format(metadata_formats["simple"])
+    metadata = metadata_formats["simple"].parse(
+        (10, 2, 100, 100, 100),
+        json.loads(open(fixtures_dir / metadata_jsons["simple"]).read()),
+    )
+
+    prepare_ds(
+        tmpdir / "test.zarr/test",
+        (10, 2, 100, 100, 100),
+        offset=metadata.offset,
+        voxel_size=metadata.voxel_size,
+        axis_names=metadata.axis_names,
+        units=metadata.units,
+        dtype="float32",
+        mode="w",
+    )
+
+    zarr_attrs = zarr.open(str(tmpdir / "test.zarr/test")).attrs
+    assert zarr_attrs["offset"] == [100, 200, 400]
+    assert zarr_attrs["resolution"] == [1, 2, 3]
+    assert zarr_attrs["extras/axes"] == ["sample^", "channel^", "z", "y", "x"]
+    assert zarr_attrs["extras/units"] == ["nm", "nm", "nm"]
+
