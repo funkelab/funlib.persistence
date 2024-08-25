@@ -117,10 +117,6 @@ class Array(Freezable):
             ]
         )
 
-    @offset.setter
-    def offset(self, offset: Iterable[int]) -> None:
-        self._metadata.offset = Coordinate(offset)
-
     @property
     def voxel_size(self) -> Coordinate:
         """Get the size of a voxel in world units."""
@@ -133,10 +129,6 @@ class Array(Freezable):
             ]
         )
 
-    @voxel_size.setter
-    def voxel_size(self, voxel_size: Iterable[int]) -> None:
-        self._metadata.voxel_size = Coordinate(voxel_size)
-
     @property
     def units(self) -> list[str]:
         udims = self.uncollapsed_dims(physical=True)
@@ -146,10 +138,6 @@ class Array(Freezable):
             if uncollapsed
         ]
 
-    @units.setter
-    def units(self, units: list[str]) -> None:
-        self._metadata.units = list(units)
-
     @property
     def axis_names(self) -> list[str]:
         return [
@@ -157,10 +145,6 @@ class Array(Freezable):
             for ii, uncollapsed in enumerate(self.uncollapsed_dims(physical=False))
             if uncollapsed
         ]
-
-    @axis_names.setter
-    def axis_names(self, axis_names):
-        self._metadata.axis_names = list(axis_names)
 
     @property
     def roi(self):
