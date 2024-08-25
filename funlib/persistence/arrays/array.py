@@ -8,8 +8,8 @@ from dask.array.optimization import fuse_slice
 
 from funlib.geometry import Coordinate, Roi
 
-from .lazy_ops import LazyOp
 from .freezable import Freezable
+from .lazy_ops import LazyOp
 from .metadata import MetaData
 
 logger = logging.getLogger(__name__)

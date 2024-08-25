@@ -1,11 +1,10 @@
-from funlib.persistence.graphs import SQLiteGraphDataBase, PgSQLGraphDatabase
-
-import pytest
-import pymongo
-
 from pathlib import Path
+
 import psycopg2
+import pytest
 from psycopg2 import OperationalError
+
+from funlib.persistence.graphs import PgSQLGraphDatabase, SQLiteGraphDataBase
 
 
 # Attempt to connect to the default database

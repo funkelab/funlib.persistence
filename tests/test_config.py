@@ -1,9 +1,10 @@
-import pytest
-from unittest.mock import mock_open
 from pathlib import Path
-import toml
-from funlib.persistence.arrays.metadata import read_config, configure_library
 from textwrap import dedent
+from unittest.mock import mock_open
+
+import pytest
+
+from funlib.persistence.arrays.metadata import configure_library, read_config
 
 
 @pytest.fixture

@@ -1,16 +1,15 @@
-from funlib.persistence.arrays.metadata import (
-    MetaDataFormat,
-    get_default_metadata_format,
-    set_default_metadata_format,
-)
-from funlib.persistence.arrays.datasets import open_ds, prepare_ds
-from funlib.geometry import Coordinate
-import zarr
-
-import pytest
 import json
 from pathlib import Path
 
+import pytest
+import zarr
+
+from funlib.geometry import Coordinate
+from funlib.persistence.arrays.datasets import prepare_ds
+from funlib.persistence.arrays.metadata import (
+    MetaDataFormat,
+    set_default_metadata_format,
+)
 
 fixtures_dir = Path(__file__).parent / "fixtures"
 incomplete_metadatas = {

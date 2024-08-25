@@ -1,7 +1,8 @@
-import numpy as np
-from dask.array.optimization import fuse_slice
 from functools import reduce
+
+import numpy as np
 import pytest
+from dask.array.optimization import fuse_slice
 
 
 def test_slice_chaining():

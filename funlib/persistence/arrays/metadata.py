@@ -1,8 +1,8 @@
 from collections.abc import Iterable
-from typing import Any, Optional
 from pathlib import Path
-import toml
+from typing import Any, Optional
 
+import toml
 from pydantic import BaseModel
 
 from funlib.geometry import Coordinate

@@ -1,10 +1,9 @@
-from funlib.persistence.arrays.metadata import MetaDataFormat
-from funlib.persistence.arrays.datasets import open_ds, prepare_ds, ArrayNotFoundError
-from funlib.geometry import Coordinate, Roi
-
 import numpy as np
-
 import pytest
+
+from funlib.geometry import Coordinate, Roi
+from funlib.persistence.arrays.datasets import ArrayNotFoundError, open_ds, prepare_ds
+from funlib.persistence.arrays.metadata import MetaDataFormat
 
 stores = {
     "zarr": "test_array.zarr",

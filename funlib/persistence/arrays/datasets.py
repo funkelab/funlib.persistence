@@ -4,7 +4,6 @@ from typing import Iterable, Optional, Union
 import numpy as np
 import zarr
 from numpy.typing import DTypeLike
-from zarr.errors import PathNotFoundError
 
 from funlib.geometry import Coordinate, Roi
 

@@ -1,7 +1,8 @@
-from funlib.persistence.arrays import Array
-from funlib.geometry import Roi, Coordinate
 import numpy as np
 import pytest
+
+from funlib.geometry import Coordinate, Roi
+from funlib.persistence.arrays import Array
 
 
 def test_constructor():
