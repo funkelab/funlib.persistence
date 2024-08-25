@@ -173,9 +173,11 @@ class MetaData:
             len(self._units) if self._units is not None else None,
             self._voxel_size.dims if self._voxel_size is not None else None,
             self._offset.dims if self._offset is not None else None,
-            len([name for name in self._axis_names if "^" not in name])
-            if self._axis_names is not None
-            else None,
+            (
+                len([name for name in self._axis_names if "^" not in name])
+                if self._axis_names is not None
+                else None
+            ),
         ]
         potential_physical_dims = set(physical_dim_indicators)
         potential_physical_dims.discard(None)

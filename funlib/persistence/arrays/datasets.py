@@ -198,9 +198,11 @@ def prepare_ds(
             offset.dims if offset is not None else None,
             voxel_size.dims if voxel_size is not None else None,
             len(units) if units is not None else None,
-            len([n for n in axis_names if "^" not in n])
-            if axis_names is not None
-            else None,
+            (
+                len([n for n in axis_names if "^" not in n])
+                if axis_names is not None
+                else None
+            ),
         ]
     )
     spatial_dims.discard(None)

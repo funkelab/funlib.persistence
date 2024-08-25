@@ -375,7 +375,9 @@ class Array(Freezable):
 
         return data
 
-    def __slices(self, roi, use_lazy_slices: bool = True, check_chunk_align: bool = False):
+    def __slices(
+        self, roi, use_lazy_slices: bool = True, check_chunk_align: bool = False
+    ):
         """Get the voxel slices for the given roi."""
 
         voxel_roi = (roi - self.offset) / self.voxel_size
