@@ -8,16 +8,6 @@ from pydantic import BaseModel
 from funlib.geometry import Coordinate
 
 
-class PydanticCoordinate(Coordinate):
-    @classmethod
-    def __get_validators__(cls):
-        yield cls.validate
-
-    @classmethod
-    def validate(cls, v, val_info):
-        return Coordinate(*v)
-
-
 class MetaDataFormat(BaseModel):
     offset_attr: str = "offset"
     voxel_size_attr: str = "voxel_size"
@@ -120,9 +110,9 @@ class MetaDataFormat(BaseModel):
 class MetaData:
     def __init__(
         self,
-        shape: PydanticCoordinate,
-        offset: Optional[PydanticCoordinate] = None,
-        voxel_size: Optional[PydanticCoordinate] = None,
+        shape: Coordinate,
+        offset: Optional[Coordinate] = None,
+        voxel_size: Optional[Coordinate] = None,
         axis_names: Optional[list[str]] = None,
         units: Optional[list[str]] = None,
     ):
@@ -135,7 +125,7 @@ class MetaData:
         self.validate()
 
     @property
-    def offset(self) -> PydanticCoordinate:
+    def offset(self) -> Coordinate:
         return (
             self._offset
             if self._offset is not None
@@ -143,7 +133,7 @@ class MetaData:
         )
 
     @property
-    def voxel_size(self) -> PydanticCoordinate:
+    def voxel_size(self) -> Coordinate:
         return (
             self._voxel_size
             if self._voxel_size is not None
