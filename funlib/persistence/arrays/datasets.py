@@ -1,5 +1,5 @@
 import logging
-from typing import Iterable, Optional, Union
+from typing import Sequence, Optional, Union
 
 import numpy as np
 import zarr
@@ -25,11 +25,11 @@ def open_ds(
     store,
     mode: str = "r",
     metadata_format: Optional[MetaDataFormat] = None,
-    offset: Optional[Iterable[int]] = None,
-    voxel_size: Optional[Iterable[int]] = None,
-    axis_names: Optional[Iterable[str]] = None,
-    units: Optional[Iterable[str]] = None,
-    chunks: Optional[Union[int, Iterable[int], str]] = "strict",
+    offset: Optional[Sequence[int]] = None,
+    voxel_size: Optional[Sequence[int]] = None,
+    axis_names: Optional[Sequence[str]] = None,
+    units: Optional[Sequence[str]] = None,
+    chunks: Optional[Union[int, Sequence[int], str]] = "strict",
     **kwargs,
 ) -> Array:
     """
@@ -98,6 +98,7 @@ def open_ds(
         data = zarr.open(store, mode=mode, **kwargs)
     except zarr.errors.PathNotFoundError:
         raise ArrayNotFoundError(f"Nothing found at path {store}")
+    
     metadata = metadata_format.parse(
         data.shape,
         data.attrs,
@@ -119,12 +120,12 @@ def open_ds(
 
 def prepare_ds(
     store,
-    shape: Iterable[int],
+    shape: Sequence[int],
     offset: Optional[Coordinate] = None,
     voxel_size: Optional[Coordinate] = None,
-    axis_names: Optional[Iterable[str]] = None,
-    units: Optional[Iterable[str]] = None,
-    chunk_shape: Optional[Iterable[int]] = None,
+    axis_names: Optional[Sequence[str]] = None,
+    units: Optional[Sequence[str]] = None,
+    chunk_shape: Optional[Sequence[int]] = None,
     dtype: DTypeLike = np.float32,
     mode: str = "r+",
     **kwargs,
@@ -193,7 +194,7 @@ def prepare_ds(
     """
 
     n_dim = len(shape)
-    spatial_dims = set(
+    spatial_dim_setters = set(
         [
             offset.dims if offset is not None else None,
             voxel_size.dims if voxel_size is not None else None,
@@ -205,11 +206,12 @@ def prepare_ds(
             ),
         ]
     )
-    spatial_dims.discard(None)
+    spatial_dim_setters.discard(None)
     assert (
-        len(spatial_dims) <= 1
+        len(spatial_dim_setters) <= 1
     ), "Metadata must be consistent in the number of physical dimensions defined"
-    spatial_dims = spatial_dims.pop() if len(spatial_dims) > 0 else n_dim
+    spatial_dims = spatial_dim_setters.pop() if len(spatial_dim_setters) > 0 else n_dim
+    assert spatial_dims is not None
     channel_dims = n_dim - spatial_dims
 
     offset = Coordinate([0] * spatial_dims) if offset is None else offset

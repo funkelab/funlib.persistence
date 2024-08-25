@@ -1,4 +1,4 @@
-from collections.abc import Iterable
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Any, Optional
 
@@ -17,7 +17,8 @@ class MetaDataFormat(BaseModel):
     class Config:
         extra = "forbid"
 
-    def fetch(self, data: dict[str, Any], keys: Iterable[str]):
+    def fetch(self, data: dict[str | int, Any], keys: Sequence[str]):
+        current_key: str | int
         current_key, *keys = keys
         try:
             current_key = int(current_key)
@@ -42,7 +43,7 @@ class MetaDataFormat(BaseModel):
     def parse(
         self,
         shape,
-        data: dict[str, Any],
+        data: dict[str | int, Any],
         offset=None,
         voxel_size=None,
         axis_names=None,
@@ -174,7 +175,9 @@ class MetaData:
         if len(potential_physical_dims) == 0:
             return self.dims
         elif len(potential_physical_dims) == 1:
-            return potential_physical_dims.pop()
+            v = potential_physical_dims.pop()
+            assert v is not None
+            return v
         else:
             raise ValueError(
                 "Given physical dimensions are ambiguous:\n"
