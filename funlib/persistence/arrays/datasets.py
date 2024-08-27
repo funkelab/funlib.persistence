@@ -127,7 +127,7 @@ def prepare_ds(
     units: Optional[Sequence[str]] = None,
     chunk_shape: Optional[Sequence[int]] = None,
     dtype: DTypeLike = np.float32,
-    mode: str = "r+",
+    mode: str = "a",
     **kwargs,
 ) -> Array:
     """Prepare a Zarr or N5 dataset.
