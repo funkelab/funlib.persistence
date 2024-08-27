@@ -293,8 +293,6 @@ class Array(Freezable):
 
                 region_slices = self.__slices(roi)
 
-                print(self.data[roi_slices].shape, region_slices)
-
                 da.store(
                     self.data[roi_slices], self._source_data, regions=region_slices
                 )
