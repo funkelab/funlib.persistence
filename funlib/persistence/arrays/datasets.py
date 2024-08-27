@@ -193,82 +193,74 @@ def prepare_ds(
         A :class:`Array` pointing to the newly created dataset.
     """
 
-    n_dim = len(shape)
-    spatial_dim_setters = set(
-        [
-            offset.dims if offset is not None else None,
-            voxel_size.dims if voxel_size is not None else None,
-            len(units) if units is not None else None,
-            (
-                len([n for n in axis_names if "^" not in n])
-                if axis_names is not None
-                else None
-            ),
-        ]
+    metadata_format = get_default_metadata_format()
+    given_metadata = metadata_format.parse(
+        shape,
+        {},
+        offset=offset,
+        voxel_size=voxel_size,
+        axis_names=axis_names,
+        units=units,
     )
-    spatial_dim_setters.discard(None)
-    assert (
-        len(spatial_dim_setters) <= 1
-    ), "Metadata must be consistent in the number of physical dimensions defined"
-    spatial_dims = spatial_dim_setters.pop() if len(spatial_dim_setters) > 0 else n_dim
-    assert spatial_dims is not None
-    channel_dims = n_dim - spatial_dims
-
-    offset = Coordinate([0] * spatial_dims) if offset is None else offset
-    voxel_size = Coordinate([1] * spatial_dims) if voxel_size is None else voxel_size
-    axis_names = (
-        list(f"c{i}^" for i in range(channel_dims))
-        + list(f"d{i}" for i in range(spatial_dims))
-        if axis_names is None
-        else axis_names
-    )
-    units = [""] * voxel_size.dims if units is None else units
-
-    physical_shape = Coordinate(shape[-spatial_dims:])
-    roi = Roi(offset, physical_shape * voxel_size)
 
     try:
         existing_array = open_ds(store, mode="r", **kwargs)
-
     except ArrayNotFoundError:
         existing_array = None
 
     if existing_array is not None:
-        metadata_compatible = True
         data_compatible = True
 
         # data incompatibilities
-        if existing_array.shape != shape:
-            logger.info("Shapes differ: %s vs %s", existing_array.shape, shape)
-            data_compatible = False
-
-        if existing_array._source_data.chunks != chunk_shape:
+        if shape != existing_array.shape:
             logger.info(
-                "Chunk shapes differ: %s vs %s",
-                existing_array._source_data.chunks,
-                chunk_shape,
+                "Shapes differ: given (%s) vs parsed (%s)", shape, existing_array.shape
             )
             data_compatible = False
 
-        if existing_array.dtype != dtype:
-            logger.info("dtypes differ: %s vs %s", existing_array.dtype, dtype)
+        if chunk_shape is not None and chunk_shape != existing_array._source_data.chunks:
+            logger.info(
+                "Chunk shapes differ: given (%s) vs parsed (%s)",
+                chunk_shape,
+                existing_array._source_data.chunks,
+            )
             data_compatible = False
+
+        if dtype != existing_array.dtype:
+            logger.info(
+                "dtypes differ: given (%s) vs parsed (%s)", dtype, existing_array.dtype
+            )
+            data_compatible = False
+
+        metadata_compatible = True
+        existing_metadata = metadata_format.parse(
+            shape,
+            existing_array._source_data.attrs,
+        )
 
         # metadata incompatibilities
-        if existing_array.voxel_size != voxel_size:
+        if given_metadata.voxel_size != existing_metadata.voxel_size:
             logger.info(
-                "Voxel sizes differ: %s vs %s", existing_array.voxel_size, voxel_size
+                "Voxel sizes differ: given (%s) vs parsed (%s)",
+                given_metadata.voxel_size,
+                existing_metadata.voxel_size,
             )
             metadata_compatible = False
 
-        if existing_array.axis_names != axis_names:
+        if given_metadata.axis_names != existing_metadata.axis_names:
             logger.info(
-                "Axis names differ: %s vs %s", existing_array.axis_names, axis_names
+                "Axis names differ: given (%s) vs parsed (%s)",
+                given_metadata.axis_names,
+                existing_metadata.axis_names,
             )
             metadata_compatible = False
 
-        if existing_array.units != units:
-            logger.info("Units differ: %s vs %s", existing_array.units, units)
+        if given_metadata.units != existing_metadata.units:
+            logger.info(
+                "Units differ: given (%s) vs parsed(%s)",
+                given_metadata.units,
+                existing_metadata.units,
+            )
             metadata_compatible = False
 
         if not data_compatible:
@@ -290,7 +282,24 @@ def prepare_ds(
                     "Existing dataset is compatible, but mode is 'w' and thus the existing dataset will be deleted"
                 )
             else:
-                return existing_array
+                ds = zarr.open(store, mode=mode, **kwargs)
+                return Array(
+                    ds,
+                    existing_metadata.offset,
+                    existing_metadata.voxel_size,
+                    existing_metadata.axis_names,
+                    existing_metadata.units,
+                    ds.chunks,
+                )
+
+    combined_metadata = metadata_format.parse(
+        shape,
+        existing_array._source_data.attrs if existing_array is not None else {},
+        offset=offset,
+        voxel_size=voxel_size,
+        axis_names=axis_names,
+        units=units,
+    )
 
     # create the dataset
     try:
@@ -309,10 +318,10 @@ def prepare_ds(
     default_metadata_format = get_default_metadata_format()
     ds.attrs.put(
         {
-            default_metadata_format.axis_names_attr: axis_names,
-            default_metadata_format.units_attr: units,
-            default_metadata_format.voxel_size_attr: voxel_size,
-            default_metadata_format.offset_attr: roi.begin,
+            default_metadata_format.axis_names_attr: combined_metadata.axis_names,
+            default_metadata_format.units_attr: combined_metadata.units,
+            default_metadata_format.voxel_size_attr: combined_metadata.voxel_size,
+            default_metadata_format.offset_attr: combined_metadata.offset,
         }
     )
 
