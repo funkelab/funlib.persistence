@@ -39,7 +39,7 @@ dev = ['coverage>=5.0.3', 'pytest', 'pytest-mock', 'black', 'mypy', 'types-psyco
 
 [tool.ruff]
 # pyflakes, pycodestyle, isort
-select = ["F", "W", "I001"]
+lint.select = ["F", "W", "I001"]
 
 [tool.setuptools.package-data]
 "funlib.persistence" = ["py.typed"]

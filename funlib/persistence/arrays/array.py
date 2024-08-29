@@ -1,6 +1,6 @@
 import logging
 from functools import reduce
-from typing import Sequence, Optional, Union
+from typing import Optional, Sequence, Union
 
 import dask.array as da
 import numpy as np

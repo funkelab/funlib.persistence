@@ -1,11 +1,11 @@
 import logging
-from typing import Sequence, Optional, Union
+from typing import Optional, Sequence, Union
 
 import numpy as np
 import zarr
 from numpy.typing import DTypeLike
 
-from funlib.geometry import Coordinate, Roi
+from funlib.geometry import Coordinate
 
 from .array import Array
 from .metadata import MetaDataFormat, get_default_metadata_format
@@ -218,7 +218,10 @@ def prepare_ds(
             )
             data_compatible = False
 
-        if chunk_shape is not None and chunk_shape != existing_array._source_data.chunks:
+        if (
+            chunk_shape is not None
+            and chunk_shape != existing_array._source_data.chunks
+        ):
             logger.info(
                 "Chunk shapes differ: given (%s) vs parsed (%s)",
                 chunk_shape,
