@@ -283,13 +283,16 @@ def test_slicing_channel_dim_last():
         (1, 1),
         axis_names=["d0", "d1", "c0^"],
     )
+    assert a.roi == Roi((0, 0), (2, 2))
 
     a.lazy_op(np.s_[1, :, 0:3])
+    assert a.roi == Roi((0,), (2,))
     assert a.shape == (2, 3)
     assert a.axis_names == ["d1", "c0^"], a.axis_names
     assert a.units == [""]
 
     a.lazy_op(np.s_[:, 2])
+    assert a.roi == Roi((0,), (2,))
     assert a.shape == (2,)
     assert a.axis_names == ["d1"]
     assert a.units == [""]
@@ -307,11 +310,13 @@ def test_slicing_channel_dim_last():
     )
 
     a.lazy_op(np.s_[[0, 1], 1, :])
+    assert a.roi == Roi((0,), (2,))
     assert a.shape == (2, 4)
     assert a.axis_names == ["d0", "c0^"]
     assert a.units == [""]
 
     a.lazy_op(np.s_[1, :])
+    assert a.roi == Roi(tuple(), tuple())
     assert a.shape == (4,)
     assert a.axis_names == ["c0^"]
     assert a.units == []
@@ -329,6 +334,7 @@ def test_slicing_channel_dim_last():
     )
 
     a.lazy_op(np.s_[[2, 2, 2], 1, :])
+    # assert a.roi == None  # TODO: This doesn't make sense???
     assert a.shape == (3, 2)
     assert a.axis_names == ["d0", "c0^"]
     assert a.units == [""]
@@ -345,6 +351,7 @@ def test_slicing_channel_dim_last():
     )
 
     a.lazy_op(np.s_[1, :, np.array([True, True, True, False])])
+    assert a.roi == Roi((0,), (2,))
     assert a.shape == (2, 3)
     assert a.axis_names == ["d1", "c0^"]
     assert a.units == [""]

@@ -146,14 +146,23 @@ class Array(Freezable):
         ]
 
     @property
+    def physical_shape(self):
+        return tuple(
+            self._source_data.shape[ii]
+            for ii, (uncollapsed, name) in enumerate(
+                zip(self.uncollapsed_dims(physical=False), self._metadata.axis_names)
+            )
+            if uncollapsed and not name.endswith("^")
+        )
+
+    @property
     def roi(self):
         """
         Get the Roi associated with this data.
         """
-
         return Roi(
             self.offset,
-            self.voxel_size * Coordinate(self.shape[-self.voxel_size.dims :]),
+            self.voxel_size * Coordinate(self.physical_shape),
         )
 
     @property
