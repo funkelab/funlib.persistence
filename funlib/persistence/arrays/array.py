@@ -297,29 +297,17 @@ class Array(Freezable):
                         % (roi, self.roi)
                     )
 
-                roi_slices = self.__slices(roi, use_lazy_slices=False)
-                self.data[roi_slices] = value
-
                 region_slices = self.__slices(roi)
-
-                da.store(
-                    self.data[roi_slices], self._source_data, regions=region_slices
-                )
+                self._source_data[region_slices] = value
             else:
-                self.data[key] = value
 
                 lazy_slices = [
                     lazy_op for lazy_op in self.lazy_ops if self._is_slice(lazy_op)
                 ]
 
                 region_slices = reduce(fuse_slice, [*lazy_slices, key])
-                if isinstance(region_slices, slice):
-                    # handle special case of a single slice i.e. array[:] = 1.
-                    # in this case region_slices is not iterable, but the `da.store`
-                    # funciton expects regions to be iterable
-                    region_slices = (region_slices,)
 
-                da.store(self.data[key], self._source_data, regions=region_slices)
+                self._source_data[region_slices] = value
 
         else:
             raise RuntimeError(
