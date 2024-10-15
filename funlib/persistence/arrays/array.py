@@ -300,7 +300,6 @@ class Array(Freezable):
                 region_slices = self.__slices(roi)
                 self._source_data[region_slices] = value
             else:
-
                 lazy_slices = [
                     lazy_op for lazy_op in self.lazy_ops if self._is_slice(lazy_op)
                 ]
@@ -338,9 +337,7 @@ class Array(Freezable):
         """
 
         shape = roi.shape / self.voxel_size
-        data = np.zeros(
-            self.shape[: self.channel_dims] + shape, dtype=self.data.dtype
-        )
+        data = np.zeros(self.shape[: self.channel_dims] + shape, dtype=self.data.dtype)
         if fill_value != 0:
             data[:] = fill_value
 
