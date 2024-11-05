@@ -1,12 +1,14 @@
 import numpy as np
 import pytest
+import dask.array as da
 
 from funlib.geometry import Coordinate, Roi
 from funlib.persistence.arrays import Array
 
 
-def test_constructor():
-    data = np.zeros((10, 10, 10), dtype=np.float32)
+@pytest.mark.parametrize("array_constructor", [np.zeros, da.zeros])
+def test_constructor(array_constructor):
+    data = array_constructor((10, 10, 10), dtype=np.float32)
     offset = Coordinate(0, 0, 0)
 
     # consistent configurations
