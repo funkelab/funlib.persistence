@@ -69,7 +69,10 @@ class Array(Freezable):
         chunks: Optional[Union[int, Sequence[int], str]] = "auto",
         lazy_op: Optional[LazyOp] = None,
     ):
-        self.data = da.from_array(data, chunks=chunks)
+        if not isinstance(data, da.Array):
+            self.data = da.from_array(data, chunks=chunks)
+        else:
+            self.data = data
         self._uncollapsed_dims = [True for _ in self.data.shape]
         self._source_data = data
         self._metadata = MetaData(
