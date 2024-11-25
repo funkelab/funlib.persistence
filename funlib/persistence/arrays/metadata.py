@@ -13,6 +13,7 @@ class MetaDataFormat(BaseModel):
     voxel_size_attr: str = "voxel_size"
     axis_names_attr: str = "axis_names"
     units_attr: str = "units"
+    types_attr: str = "types"
 
     class Config:
         extra = "forbid"
@@ -40,6 +41,13 @@ class MetaDataFormat(BaseModel):
         else:
             return self.fetch(data[current_key], keys)
 
+    def strip_channels(self, types: list[str], to_strip: list[Sequence]) -> None:
+        to_delete = [i for i, t in enumerate(types) if t not in ["space", "time"]][::-1]
+        for ll in to_strip:
+            if ll is not None and len(ll) == len(types):
+                for i in to_delete:
+                    del ll[i]
+
     def parse(
         self,
         shape,
@@ -48,6 +56,8 @@ class MetaDataFormat(BaseModel):
         voxel_size=None,
         axis_names=None,
         units=None,
+        types=None,
+        strict=False,
     ):
         offset = (
             offset
@@ -67,34 +77,20 @@ class MetaDataFormat(BaseModel):
         units = (
             units if units is not None else self.fetch(data, self.units_attr.split("/"))
         )
+        types = (
+            types if types is not None else self.fetch(data, self.types_attr.split("/"))
+        )
 
-        # remove channel dimensions from offset, voxel_size and units
-        if axis_names is not None:
-            channel_dims = [True if "^" in axis else False for axis in axis_names]
-            if sum(channel_dims) > 0:
-                if offset is not None and len(offset) == len(axis_names):
-                    offset = [
-                        o
-                        for o, channel_dim in zip(offset, channel_dims)
-                        if not channel_dim
-                    ]
-                if voxel_size is not None and len(voxel_size) == len(axis_names):
-                    voxel_size = [
-                        v
-                        for v, channel_dim in zip(voxel_size, channel_dims)
-                        if not channel_dim
-                    ]
-                if units is not None and len(units) == len(axis_names):
-                    units = [
-                        u
-                        for u, channel_dim in zip(units, channel_dims)
-                        if not channel_dim
-                    ]
+        # we expect offset, voxel_size, and units to only apply to time and space dimensions
+        # so here we strip off values that are not space or time
+        if types is not None:
+            self.strip_channels(types, [offset, voxel_size, units])
 
         offset = Coordinate(offset) if offset is not None else None
         voxel_size = Coordinate(voxel_size) if voxel_size is not None else None
         axis_names = list(axis_names) if axis_names is not None else None
         units = list(units) if units is not None else None
+        types = list(types) if types is not None else None
 
         metadata = MetaData(
             shape=shape,
@@ -102,8 +98,9 @@ class MetaDataFormat(BaseModel):
             voxel_size=voxel_size,
             axis_names=axis_names,
             units=units,
+            types=types,
+            strict=strict,
         )
-        metadata.validate()
 
         return metadata
 
@@ -116,14 +113,17 @@ class MetaData:
         voxel_size: Optional[Coordinate] = None,
         axis_names: Optional[list[str]] = None,
         units: Optional[list[str]] = None,
+        types: Optional[list[str]] = None,
+        strict: bool = False,
     ):
         self._offset = offset
         self._voxel_size = voxel_size
         self._axis_names = axis_names
         self._units = units
+        self._types = types
         self.shape = shape
 
-        self.validate()
+        self.validate(strict)
 
     @property
     def offset(self) -> Coordinate:
@@ -151,6 +151,14 @@ class MetaData:
         )
 
     @property
+    def types(self) -> list[str]:
+        return (
+            self._types
+            if self._types is not None
+            else ["channel"] * self.channel_dims + ["space"] * self.physical_dims
+        )
+
+    @property
     def units(self) -> list[str]:
         return self._units if self._units is not None else [""] * self.physical_dims
 
@@ -165,8 +173,8 @@ class MetaData:
             self._voxel_size.dims if self._voxel_size is not None else None,
             self._offset.dims if self._offset is not None else None,
             (
-                len([name for name in self._axis_names if "^" not in name])
-                if self._axis_names is not None
+                len([type_ for type_ in self._types if type_ in ["space", "time"]])
+                if self._types is not None
                 else None
             ),
         ]
@@ -184,14 +192,35 @@ class MetaData:
                 f"Units: {self._units}\n"
                 f"Voxel size: {self._voxel_size}\n"
                 f"Offset: {self._offset}\n"
-                f"Axis names: {self._axis_names}"
+                f"Types: {self._types}"
             )
 
     @property
     def channel_dims(self):
         return self.dims - self.physical_dims
 
-    def validate(self):
+    def validate(self, strict: bool):
+        if any(
+            [
+                d is None
+                for d in [
+                    self.offset,
+                    self.voxel_size,
+                    self.axis_names,
+                    self.units,
+                    self.types,
+                ]
+            ]
+        ):
+            raise ValueError(
+                "Strict metadata parsing requires all metadata attributes to be provided.\n"
+                "Got:\n"
+                f"Offset: {self.offset}\n"
+                f"Voxel size: {self.voxel_size}\n"
+                f"Axis names: {self.axis_names}\n"
+                f"Units: {self.units}\n"
+                f"Types: {self.types}"
+            )
         assert self.dims == self.physical_dims + self.channel_dims
 
 

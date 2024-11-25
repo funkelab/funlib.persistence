@@ -4,7 +4,7 @@
             "version": "0.5-dev",
             "name": "example",
             "axes": [
-                {"name": "sample^", "type": "time", "unit": ""},
+                {"name": "sample^", "type": "sample", "unit": ""},
                 {"name": "channel^", "type": "channel"},
                 {"name": "z", "type": "space", "unit": "nm"},
                 {"name": "y", "type": "space", "unit": "nm"},
