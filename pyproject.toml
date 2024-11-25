@@ -29,6 +29,7 @@ dependencies = [
     "toml",
     "dask",
     "pydantic",
+    "pydantic-ome-ngff>=0.6",
 ]
 
 [tool.setuptools.dynamic]
