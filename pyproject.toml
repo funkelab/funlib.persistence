@@ -23,13 +23,12 @@ dependencies = [
     "zarr",
     "pymongo",
     "numpy",
-    "h5py",
     "psycopg2-binary",
     "fsspec",
     "toml",
     "dask",
     "pydantic",
-    "pydantic-ome-ngff>=0.6",
+    "pydantic-ome-ngff",
 ]
 
 [tool.setuptools.dynamic]
