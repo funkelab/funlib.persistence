@@ -28,7 +28,7 @@ dependencies = [
     "toml",
     "dask",
     "pydantic",
-    "pydantic-ome-ngff",
+    "iohub",
 ]
 
 [tool.setuptools.dynamic]
