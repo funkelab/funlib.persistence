@@ -20,5 +20,12 @@
         "nm",
         "nm",
         "nm"
+    ],
+    "types": [
+        "sample",
+        "channel",
+        "space",
+        "space",
+        "space"
     ]
 }
