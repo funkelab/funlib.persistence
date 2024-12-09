@@ -8,103 +8,6 @@ from pydantic import BaseModel
 from funlib.geometry import Coordinate
 
 
-class MetaDataFormat(BaseModel):
-    offset_attr: str = "offset"
-    voxel_size_attr: str = "voxel_size"
-    axis_names_attr: str = "axis_names"
-    units_attr: str = "units"
-    types_attr: str = "types"
-
-    class Config:
-        extra = "forbid"
-
-    def fetch(self, data: dict[str | int, Any], keys: Sequence[str]):
-        current_key: str | int
-        current_key, *keys = keys
-        try:
-            current_key = int(current_key)
-        except ValueError:
-            pass
-        if isinstance(current_key, int):
-            return self.fetch(data[current_key], keys)
-        if len(keys) == 0:
-            return data.get(current_key, None)
-        elif isinstance(data, list):
-            assert current_key == "{dim}", current_key
-            values = []
-            for sub_data in data:
-                try:
-                    values.append(self.fetch(sub_data, keys))
-                except KeyError:
-                    values.append(None)
-            return values
-        else:
-            return self.fetch(data[current_key], keys)
-
-    def strip_channels(self, types: list[str], to_strip: list[Sequence]) -> None:
-        to_delete = [i for i, t in enumerate(types) if t not in ["space", "time"]][::-1]
-        for ll in to_strip:
-            if ll is not None and len(ll) == len(types):
-                for i in to_delete:
-                    del ll[i]
-
-    def parse(
-        self,
-        shape,
-        data: dict[str | int, Any],
-        offset=None,
-        voxel_size=None,
-        axis_names=None,
-        units=None,
-        types=None,
-        strict=False,
-    ):
-        offset = (
-            offset
-            if offset is not None
-            else self.fetch(data, self.offset_attr.split("/"))
-        )
-        voxel_size = (
-            voxel_size
-            if voxel_size is not None
-            else self.fetch(data, self.voxel_size_attr.split("/"))
-        )
-        axis_names = (
-            axis_names
-            if axis_names is not None
-            else self.fetch(data, self.axis_names_attr.split("/"))
-        )
-        units = (
-            units if units is not None else self.fetch(data, self.units_attr.split("/"))
-        )
-        types = (
-            types if types is not None else self.fetch(data, self.types_attr.split("/"))
-        )
-
-        # we expect offset, voxel_size, and units to only apply to time and space dimensions
-        # so here we strip off values that are not space or time
-        if types is not None:
-            self.strip_channels(types, [offset, voxel_size, units])
-
-        offset = Coordinate(offset) if offset is not None else None
-        voxel_size = Coordinate(voxel_size) if voxel_size is not None else None
-        axis_names = list(axis_names) if axis_names is not None else None
-        units = list(units) if units is not None else None
-        types = list(types) if types is not None else None
-
-        metadata = MetaData(
-            shape=shape,
-            offset=offset,
-            voxel_size=voxel_size,
-            axis_names=axis_names,
-            units=units,
-            types=types,
-            strict=strict,
-        )
-
-        return metadata
-
-
 class MetaData:
     def __init__(
         self,
@@ -124,6 +27,35 @@ class MetaData:
         self.shape = shape
 
         self.validate(strict)
+
+    def interleave_physical(
+        self, physical: Sequence[int | str], non_physical: int | str | None
+    ) -> Sequence[int | str | None]:
+        interleaved = []
+        physical_ind = 0
+        for i, type in enumerate(self.types):
+            if type in ["space", "time"]:
+                interleaved.append(physical[physical_ind])
+                physical_ind += 1
+            else:
+                interleaved.append(non_physical)
+        return interleaved
+
+    @property
+    def ome_scale(self) -> Sequence[int]:
+        return self.interleave_physical(self.voxel_size, 1)
+
+    @property
+    def ome_translate(self) -> Sequence[int]:
+        assert self.offset % self.voxel_size == self.voxel_size * 0, (
+            "funlib.persistence only supports ome-zarr with integer multiples of voxel_size as an offset."
+            f"offset: {self.offset}, voxel_size:{self.voxel_size}, offset % voxel_size: {self.offset % self.voxel_size}"
+        )
+        return self.interleave_physical(self.offset / self.voxel_size, 0)
+
+    @property
+    def ome_units(self) -> list[str | None]:
+        return self.interleave_physical(self.units, None)
 
     @property
     def offset(self) -> Coordinate:
@@ -222,6 +154,192 @@ class MetaData:
                 f"Types: {self.types}"
             )
         assert self.dims == self.physical_dims + self.channel_dims
+
+
+class OME_MetaDataFormat(BaseModel):
+    class Config:
+        extra = "forbid"
+
+    def fetch(self, data: dict[str | int, Any], keys: Sequence[str]):
+        current_key: str | int
+        current_key, *keys = keys
+        try:
+            current_key = int(current_key)
+        except ValueError:
+            pass
+        if isinstance(current_key, int):
+            return self.fetch(data[current_key], keys)
+        if len(keys) == 0:
+            return data.get(current_key, None)
+        elif isinstance(data, list):
+            assert current_key == "{dim}", current_key
+            values = []
+            for sub_data in data:
+                try:
+                    values.append(self.fetch(sub_data, keys))
+                except KeyError:
+                    values.append(None)
+            return values
+        else:
+            return self.fetch(data[current_key], keys)
+
+    def strip_channels(self, types: list[str], to_strip: list[Sequence]) -> None:
+        to_delete = [i for i, t in enumerate(types) if t not in ["space", "time"]][::-1]
+        for ll in to_strip:
+            if ll is not None and len(ll) == len(types):
+                for i in to_delete:
+                    del ll[i]
+
+    def parse(
+        self,
+        shape,
+        data: dict[str | int, Any],
+        offset=None,
+        voxel_size=None,
+        axis_names=None,
+        units=None,
+        types=None,
+        strict=False,
+    ) -> MetaData:
+        offset = (
+            offset
+            if offset is not None
+            else self.fetch(data, self.offset_attr.split("/"))
+        )
+        voxel_size = (
+            voxel_size
+            if voxel_size is not None
+            else self.fetch(data, self.voxel_size_attr.split("/"))
+        )
+        axis_names = (
+            axis_names
+            if axis_names is not None
+            else self.fetch(data, self.axis_names_attr.split("/"))
+        )
+        units = (
+            units if units is not None else self.fetch(data, self.units_attr.split("/"))
+        )
+        types = (
+            types if types is not None else self.fetch(data, self.types_attr.split("/"))
+        )
+
+        if types is not None:
+            self.strip_channels(types, [offset, voxel_size, units])
+
+        offset = Coordinate(offset) if offset is not None else None
+        voxel_size = Coordinate(voxel_size) if voxel_size is not None else None
+        axis_names = list(axis_names) if axis_names is not None else None
+        units = list(units) if units is not None else None
+        types = list(types) if types is not None else None
+
+        metadata = MetaData(
+            shape=shape,
+            offset=offset,
+            voxel_size=voxel_size,
+            axis_names=axis_names,
+            units=units,
+            types=types,
+            strict=strict,
+        )
+
+        return metadata
+
+
+class MetaDataFormat(BaseModel):
+    offset_attr: str = "offset"
+    voxel_size_attr: str = "voxel_size"
+    axis_names_attr: str = "axis_names"
+    units_attr: str = "units"
+    types_attr: str = "types"
+
+    class Config:
+        extra = "forbid"
+
+    def fetch(self, data: dict[str | int, Any], keys: Sequence[str]):
+        current_key: str | int
+        current_key, *keys = keys
+        try:
+            current_key = int(current_key)
+        except ValueError:
+            pass
+        if isinstance(current_key, int):
+            return self.fetch(data[current_key], keys)
+        if len(keys) == 0:
+            return data.get(current_key, None)
+        elif isinstance(data, list):
+            assert current_key == "{dim}", current_key
+            values = []
+            for sub_data in data:
+                try:
+                    values.append(self.fetch(sub_data, keys))
+                except KeyError:
+                    values.append(None)
+            return values
+        else:
+            return self.fetch(data[current_key], keys)
+
+    def strip_channels(self, types: list[str], to_strip: list[Sequence]) -> None:
+        to_delete = [i for i, t in enumerate(types) if t not in ["space", "time"]][::-1]
+        for ll in to_strip:
+            if ll is not None and len(ll) == len(types):
+                for i in to_delete:
+                    del ll[i]
+
+    def parse(
+        self,
+        shape,
+        data: dict[str | int, Any],
+        offset=None,
+        voxel_size=None,
+        axis_names=None,
+        units=None,
+        types=None,
+        strict=False,
+    ) -> MetaData:
+        offset = (
+            offset
+            if offset is not None
+            else self.fetch(data, self.offset_attr.split("/"))
+        )
+        voxel_size = (
+            voxel_size
+            if voxel_size is not None
+            else self.fetch(data, self.voxel_size_attr.split("/"))
+        )
+        axis_names = (
+            axis_names
+            if axis_names is not None
+            else self.fetch(data, self.axis_names_attr.split("/"))
+        )
+        units = (
+            units if units is not None else self.fetch(data, self.units_attr.split("/"))
+        )
+        types = (
+            types if types is not None else self.fetch(data, self.types_attr.split("/"))
+        )
+
+        # we expect offset, voxel_size, and units to only apply to time and space dimensions
+        # so here we strip off values that are not space or time
+        if types is not None:
+            self.strip_channels(types, [offset, voxel_size, units])
+
+        offset = Coordinate(offset) if offset is not None else None
+        voxel_size = Coordinate(voxel_size) if voxel_size is not None else None
+        axis_names = list(axis_names) if axis_names is not None else None
+        units = list(units) if units is not None else None
+        types = list(types) if types is not None else None
+
+        metadata = MetaData(
+            shape=shape,
+            offset=offset,
+            voxel_size=voxel_size,
+            axis_names=axis_names,
+            units=units,
+            types=types,
+            strict=strict,
+        )
+
+        return metadata
 
 
 DEFAULT_METADATA_FORMAT = MetaDataFormat()
