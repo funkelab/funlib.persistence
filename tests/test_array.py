@@ -1,6 +1,6 @@
+import dask.array as da
 import numpy as np
 import pytest
-import dask.array as da
 
 from funlib.geometry import Coordinate, Roi
 from funlib.persistence.arrays import Array

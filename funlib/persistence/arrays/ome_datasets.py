@@ -1,18 +1,16 @@
 import logging
+from itertools import chain
+from pathlib import Path
 from typing import Sequence
-from funlib.geometry import Coordinate
 
-import zarr
-from iohub.ngff import open_ome_zarr, AxisMeta, TransformationMeta
-
-import dask.array as da
 import numpy as np
+from iohub.ngff import AxisMeta, TransformationMeta, open_ome_zarr
 from numpy.typing import DTypeLike
+
+from funlib.geometry import Coordinate
 
 from .array import Array
 from .metadata import MetaData, OME_MetaDataFormat
-from pathlib import Path
-from itertools import chain
 
 logger = logging.getLogger(__name__)
 
