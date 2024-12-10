@@ -1,13 +1,14 @@
 [![tests](https://github.com/funkelab/funlib.persistence/actions/workflows/tests.yaml/badge.svg)](https://github.com/funkelab/funlib.persistence/actions/workflows/tests.yaml)
 [![black](https://github.com/funkelab/funlib.persistence/actions/workflows/black.yaml/badge.svg)](https://github.com/funkelab/funlib.persistence/actions/workflows/black.yaml)
 [![mypy](https://github.com/funkelab/funlib.persistence/actions/workflows/mypy.yaml/badge.svg)](https://github.com/funkelab/funlib.persistence/actions/workflows/mypy.yaml)
+[![pypi](https://github.com/funkelab/funlib.persistence/actions/workflows/publish.yaml/badge.svg)](https://pypi.org/project/funlib.persistence/)
 
 # funlib.persistence
 Interfaces for data (arrays and graphs) and storage formats (databases and file formats)
 
 # installation
 regular installation for usage:
-`pip install .`
+`pip install funlib.persistence`
 developer installation including pytest etc.:
-`pip install ".[dev]"`
+`pip install funlib.persistence[dev]`
 
