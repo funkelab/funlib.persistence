@@ -96,7 +96,6 @@ def open_ome_ds(
 
     metadata = OME_MetaDataFormat().parse(
         dataset.shape,
-        {},
         offset=list(base_translation),
         voxel_size=list(base_scale),
         axis_names=axis_names,
@@ -196,7 +195,12 @@ def prepare_ome_ds(
     assert not store.exists(), "Store already exists!"
 
     metadata = MetaData(
-        shape, Coordinate(offset), Coordinate(voxel_size), axis_names, units, types
+        Coordinate(shape),
+        Coordinate(offset),
+        Coordinate(voxel_size),
+        list(axis_names) if axis_names is not None else None,
+        list(units) if units is not None else None,
+        list(types) if types is not None else None,
     )
 
     axis_metadata = [

@@ -31,7 +31,7 @@ class MetaData:
     def interleave_physical(
         self, physical: Sequence[int | str], non_physical: int | str | None
     ) -> Sequence[int | str | None]:
-        interleaved = []
+        interleaved: list[int | str | None] = []
         physical_ind = 0
         for i, type in enumerate(self.types):
             if type in ["space", "time"]:
@@ -43,7 +43,11 @@ class MetaData:
 
     @property
     def ome_scale(self) -> Sequence[int]:
-        return self.interleave_physical(self.voxel_size, 1)
+        return [
+            x
+            for x in self.interleave_physical(self.voxel_size, 1)
+            if isinstance(x, int)
+        ]
 
     @property
     def ome_translate(self) -> Sequence[int]:
@@ -51,11 +55,18 @@ class MetaData:
             "funlib.persistence only supports ome-zarr with integer multiples of voxel_size as an offset."
             f"offset: {self.offset}, voxel_size:{self.voxel_size}, offset % voxel_size: {self.offset % self.voxel_size}"
         )
-        return self.interleave_physical(self.offset / self.voxel_size, 0)
+        return [
+            x
+            for x in self.interleave_physical(self.offset / self.voxel_size, 0)
+            if isinstance(x, int)
+        ]
 
     @property
     def ome_units(self) -> list[str | None]:
-        return self.interleave_physical(self.units, None)
+        return [
+            str(x) if x is not None else None
+            for x in self.interleave_physical(self.units, None)
+        ]
 
     @property
     def offset(self) -> Coordinate:
@@ -160,30 +171,7 @@ class OME_MetaDataFormat(BaseModel):
     class Config:
         extra = "forbid"
 
-    def fetch(self, data: dict[str | int, Any], keys: Sequence[str]):
-        current_key: str | int
-        current_key, *keys = keys
-        try:
-            current_key = int(current_key)
-        except ValueError:
-            pass
-        if isinstance(current_key, int):
-            return self.fetch(data[current_key], keys)
-        if len(keys) == 0:
-            return data.get(current_key, None)
-        elif isinstance(data, list):
-            assert current_key == "{dim}", current_key
-            values = []
-            for sub_data in data:
-                try:
-                    values.append(self.fetch(sub_data, keys))
-                except KeyError:
-                    values.append(None)
-            return values
-        else:
-            return self.fetch(data[current_key], keys)
-
-    def strip_channels(self, types: list[str], to_strip: list[Sequence]) -> None:
+    def strip_channels(self, types: list[str], to_strip: list[list]) -> None:
         to_delete = [i for i, t in enumerate(types) if t not in ["space", "time"]][::-1]
         for ll in to_strip:
             if ll is not None and len(ll) == len(types):
@@ -193,7 +181,6 @@ class OME_MetaDataFormat(BaseModel):
     def parse(
         self,
         shape,
-        data: dict[str | int, Any],
         offset=None,
         voxel_size=None,
         axis_names=None,
@@ -201,27 +188,6 @@ class OME_MetaDataFormat(BaseModel):
         types=None,
         strict=False,
     ) -> MetaData:
-        offset = (
-            offset
-            if offset is not None
-            else self.fetch(data, self.offset_attr.split("/"))
-        )
-        voxel_size = (
-            voxel_size
-            if voxel_size is not None
-            else self.fetch(data, self.voxel_size_attr.split("/"))
-        )
-        axis_names = (
-            axis_names
-            if axis_names is not None
-            else self.fetch(data, self.axis_names_attr.split("/"))
-        )
-        units = (
-            units if units is not None else self.fetch(data, self.units_attr.split("/"))
-        )
-        types = (
-            types if types is not None else self.fetch(data, self.types_attr.split("/"))
-        )
 
         if types is not None:
             self.strip_channels(types, [offset, voxel_size, units])
@@ -278,7 +244,7 @@ class MetaDataFormat(BaseModel):
         else:
             return self.fetch(data[current_key], keys)
 
-    def strip_channels(self, types: list[str], to_strip: list[Sequence]) -> None:
+    def strip_channels(self, types: list[str], to_strip: list[list]) -> None:
         to_delete = [i for i, t in enumerate(types) if t not in ["space", "time"]][::-1]
         for ll in to_strip:
             if ll is not None and len(ll) == len(types):
