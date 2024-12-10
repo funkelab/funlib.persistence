@@ -350,7 +350,7 @@ def prepare_ds(
             default_metadata_format.units_attr: combined_metadata.units,
             default_metadata_format.voxel_size_attr: combined_metadata.voxel_size,
             default_metadata_format.offset_attr: combined_metadata.offset,
-            default_metadata_format.types_attr: combined_metadata.types
+            default_metadata_format.types_attr: combined_metadata.types,
         }
     )
 

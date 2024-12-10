@@ -127,7 +127,7 @@ def test_helpers(tmpdir, store, dtype):
     assert array.offset == metadata.offset
     assert array.axis_names == metadata.axis_names
     assert array.units == metadata.units
-    assert array.types  == metadata.types
+    assert array.types == metadata.types
 
     # test prepare_ds updates metadata existing array in "r+" or "a" mode if it exists
     array = prepare_ds(

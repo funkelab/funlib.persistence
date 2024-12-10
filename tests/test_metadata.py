@@ -73,7 +73,13 @@ def test_parse_incomplete_metadata(incomplete_metadata):
     assert incomplete_metadata.voxel_size == Coordinate(1, 1, 1)
     assert incomplete_metadata.axis_names == ["c0^", "c1^", "d0", "d1", "d2"]
     assert incomplete_metadata.units == ["", "", ""]
-    assert incomplete_metadata.types == ["channel", "channel", "space", "space", "space"]
+    assert incomplete_metadata.types == [
+        "channel",
+        "channel",
+        "space",
+        "space",
+        "space",
+    ]
 
 
 def test_empty_metadata():
