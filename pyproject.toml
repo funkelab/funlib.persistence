@@ -23,12 +23,12 @@ dependencies = [
     "zarr",
     "pymongo",
     "numpy",
-    "h5py",
     "psycopg2-binary",
     "fsspec",
     "toml",
     "dask",
     "pydantic",
+    "iohub",
 ]
 
 [tool.setuptools.dynamic]
