@@ -7,8 +7,9 @@
 Interfaces for data (arrays and graphs) and storage formats (databases and file formats)
 
 # installation
-regular installation for usage:
+Regular installation for usage:
 `pip install funlib.persistence`
-developer installation including pytest etc.:
+
+Developer installation including pytest etc.:
 `pip install funlib.persistence[dev]`
 
