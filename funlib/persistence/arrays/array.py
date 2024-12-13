@@ -1,6 +1,6 @@
 import logging
 from functools import reduce
-from typing import Optional, Sequence, Union
+from typing import Optional, Sequence, Union, Any
 
 import dask.array as da
 import numpy as np
@@ -86,7 +86,7 @@ class Array(Freezable):
 
         # used for custom metadata unrelated to indexing with physical units
         # only used if not reading from zarr and there is no built in `.attrs`
-        self._attrs = {}
+        self._attrs: dict[str, Any] = {}
 
         if lazy_op is not None:
             self.apply_lazy_ops(lazy_op)
