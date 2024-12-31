@@ -1,9 +1,9 @@
 {
-    "axis_names": [
-        "c0^",
-        "c1^",
-        "d0",
-        "d1",
-        "d2"
+    "types": [
+        "channel",
+        "channel",
+        "space",
+        "space",
+        "space"
     ]
 }
