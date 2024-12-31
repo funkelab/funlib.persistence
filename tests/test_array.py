@@ -73,13 +73,14 @@ def test_setitem():
 
     a = Array(np.zeros((2, 5)), (0, 0), (1, 1))
 
-    a[Roi((0, 0), (2, 5))] = np.arange(0, 10).reshape(2, 5)
-    assert a[Coordinate((0, 0))] == 0
-    assert a[Coordinate((0, 1))] == 1
-    assert a[Coordinate((0, 2))] == 2
-    assert a[Coordinate((1, 0))] == 5
-    assert a[Coordinate((1, 1))] == 6
-    assert a[Coordinate((1, 4))] == 9
+    data = np.arange(0, 10).reshape(2, 5)
+    a[Roi((0, 0), (2, 5))] = data
+    assert a[Coordinate((0, 0))] == a._source_data[0, 0] == 0
+    assert a[Coordinate((0, 1))] == a._source_data[0, 1] == 1
+    assert a[Coordinate((0, 2))] == a._source_data[0, 2] == 2
+    assert a[Coordinate((1, 0))] == a._source_data[1, 0] == 5
+    assert a[Coordinate((1, 1))] == a._source_data[1, 1] == 6
+    assert a[Coordinate((1, 4))] == a._source_data[1, 4] == 9
 
     # set entirely with numpy array and channels
 
