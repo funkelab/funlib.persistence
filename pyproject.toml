@@ -20,7 +20,7 @@ keywords = []
 dependencies = [
     "funlib.geometry",
     "networkx",
-    "zarr",
+    "zarr>=2,<3",
     "pymongo",
     "numpy",
     "psycopg2-binary",
