@@ -1,5 +1,5 @@
 import logging
-from typing import Optional, Sequence, Union
+from typing import Any, Optional, Sequence, Union
 
 import numpy as np
 import zarr
@@ -138,6 +138,7 @@ def prepare_ds(
     chunk_shape: Optional[Sequence[int]] = None,
     dtype: DTypeLike = np.float32,
     mode: str = "a",
+    custom_metadata: dict[str, Any] | None = None,
     **kwargs,
 ) -> Array:
     """Prepare a Zarr or N5 dataset.
@@ -192,6 +193,11 @@ def prepare_ds(
 
             The mode to open the dataset in.
             See https://zarr.readthedocs.io/en/stable/api/creation.html#zarr.creation.open_array
+
+        custom_metadata:
+
+            A dictionary of custom metadata to add to the dataset. This will be written to the
+            zarr .attrs object.
 
         kwargs:
 
@@ -344,15 +350,19 @@ def prepare_ds(
         raise ArrayNotFoundError(f"Nothing found at path {store}")
 
     default_metadata_format = get_default_metadata_format()
-    ds.attrs.put(
-        {
-            default_metadata_format.axis_names_attr: combined_metadata.axis_names,
-            default_metadata_format.units_attr: combined_metadata.units,
-            default_metadata_format.voxel_size_attr: combined_metadata.voxel_size,
-            default_metadata_format.offset_attr: combined_metadata.offset,
-            default_metadata_format.types_attr: combined_metadata.types,
-        }
-    )
+    our_metadata = {
+        default_metadata_format.axis_names_attr: combined_metadata.axis_names,
+        default_metadata_format.units_attr: combined_metadata.units,
+        default_metadata_format.voxel_size_attr: combined_metadata.voxel_size,
+        default_metadata_format.offset_attr: combined_metadata.offset,
+        default_metadata_format.types_attr: combined_metadata.types,
+    }
+    # check keys don't conflict
+    if custom_metadata is not None:
+        assert set(our_metadata.keys()).isdisjoint(custom_metadata.keys())
+        our_metadata.update(custom_metadata)
+
+    ds.attrs.put(our_metadata)
 
     # open array
     array = Array(ds, offset, voxel_size, axis_names, units, types)
