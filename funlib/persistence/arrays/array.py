@@ -1,10 +1,11 @@
 import logging
 from functools import reduce
-from typing import Optional, Sequence, Union
+from typing import Optional, Sequence, Union, Any
 
 import dask.array as da
 import numpy as np
 from dask.array.optimization import fuse_slice
+from zarr import Array as ZarrArray
 
 from funlib.geometry import Coordinate, Roi
 
@@ -83,6 +84,10 @@ class Array(Freezable):
             shape=self._source_data.shape,
         )
 
+        # used for custom metadata unrelated to indexing with physical units
+        # only used if not reading from zarr and there is no built in `.attrs`
+        self._attrs: dict[str, Any] = {}
+
         if lazy_op is not None:
             self.apply_lazy_ops(lazy_op)
 
@@ -92,6 +97,18 @@ class Array(Freezable):
         self.freeze()
 
         self.validate()
+
+    @property
+    def attrs(self) -> dict:
+        """
+        Return dict that can be used to store custom metadata. Will be persistent
+        for zarr arrays. If reading from zarr, any existing metadata (such as
+        voxel_size, axis_names, etc.) will also be exposed here.
+        """
+        if isinstance(self._source_data, ZarrArray):
+            return self._source_data.attrs
+        else:
+            return self._attrs
 
     @property
     def chunk_shape(self) -> Coordinate:

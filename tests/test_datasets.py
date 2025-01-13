@@ -16,6 +16,23 @@ stores = {
 
 
 @pytest.mark.parametrize("store", stores.keys())
+def test_metadata(tmpdir, store):
+    store = tmpdir / store
+
+    # test prepare_ds creates array if it does not exist and mode is write
+    array = prepare_ds(
+        store,
+        (10, 10),
+        mode="w",
+        custom_metadata={"custom": "metadata"},
+    )
+    assert array.attrs["custom"] == "metadata"
+    array.attrs["custom2"] = "new metadata"
+
+    assert open_ds(store).attrs["custom2"] == "new metadata"
+
+
+@pytest.mark.parametrize("store", stores.keys())
 @pytest.mark.parametrize("dtype", [np.float32, np.uint8, np.uint64])
 def test_helpers(tmpdir, store, dtype):
     shape = Coordinate(1, 1, 10, 20, 30)
