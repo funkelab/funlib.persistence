@@ -1,10 +1,10 @@
 from typing import Literal
 
 import numpy as np
-from iohub.ngff import TransformationMeta
+from iohub.ngff import TransformationMeta, Position, TiledPosition, TiledImageArray
 
 
-def _get_all_transforms(node, image: str | Literal["*"]) -> list[TransformationMeta]:
+def _get_all_transforms(node: Position | TiledImageArray | TiledPosition, image: str | Literal["*"]) -> list[TransformationMeta]:
     """Get all transforms metadata
     for one image array or the whole FOV.
 
@@ -54,7 +54,7 @@ def get_effective_scale(
         A list of floats representing the total scale
         for the image or FOV for each axis.
     """
-    transforms = node._get_all_transforms(image)
+    transforms = _get_all_transforms(node, image)
 
     full_scale = np.ones(len(node.axes), dtype=float)
     for transform in transforms:
@@ -83,7 +83,7 @@ def get_effective_translation(
         A list of floats representing the total translation
         for the image or FOV for each axis.
     """
-    transforms = node._get_all_transforms(image)
+    transforms = _get_all_transforms(node, image)
     full_translation = np.zeros(len(node.axes), dtype=float)
     for transform in transforms:
         if transform.type == "translation":
