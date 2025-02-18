@@ -28,7 +28,7 @@ dependencies = [
     "toml",
     "dask",
     "pydantic",
-    "iohub",
+    "iohub >= 0.1.0",
 ]
 
 [tool.setuptools.dynamic]
