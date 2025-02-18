@@ -2,7 +2,8 @@ import logging
 from pathlib import Path
 from typing import Sequence
 
-from iohub.ngff import AxisMeta, TransformationMeta, open_ome_zarr
+from iohub.ngff import TransformationMeta, open_ome_zarr
+from iohub.ngff.models import AxisMeta
 from numpy.typing import DTypeLike
 
 from funlib.geometry import Coordinate

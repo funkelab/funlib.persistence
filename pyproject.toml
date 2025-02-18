@@ -28,7 +28,7 @@ dependencies = [
     "toml",
     "dask",
     "pydantic",
-    "iohub >= 0.1.0",
+    "iohub @ git+https://github.com/czbiohub-sf/iohub",
 ]
 
 [tool.setuptools.dynamic]

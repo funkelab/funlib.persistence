@@ -1,7 +1,8 @@
 from typing import Literal
 
 import numpy as np
-from iohub.ngff import TransformationMeta, Position, TiledPosition, TiledImageArray
+from iohub.ngff import TransformationMeta, Position
+from iohub.ngff.nodes import TiledPosition, TiledImageArray
 
 
 def _get_all_transforms(
