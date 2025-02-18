@@ -4,7 +4,9 @@ import numpy as np
 from iohub.ngff import TransformationMeta, Position, TiledPosition, TiledImageArray
 
 
-def _get_all_transforms(node: Position | TiledImageArray | TiledPosition, image: str | Literal["*"]) -> list[TransformationMeta]:
+def _get_all_transforms(
+    node: Position | TiledImageArray | TiledPosition, image: str | Literal["*"]
+) -> list[TransformationMeta]:
     """Get all transforms metadata
     for one image array or the whole FOV.
 
