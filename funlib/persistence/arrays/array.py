@@ -115,18 +115,6 @@ class Array(Freezable):
             return self._attrs
 
     @property
-    def attrs(self) -> dict:
-        """
-        Return dict that can be used to store custom metadata. Will be persistent
-        for zarr arrays. If reading from zarr, any existing metadata (such as
-        voxel_size, axis_names, etc.) will also be exposed here.
-        """
-        if isinstance(self._source_data, ZarrArray):
-            return self._source_data.attrs
-        else:
-            return self._attrs
-
-    @property
     def chunk_shape(self) -> Coordinate:
         return Coordinate(self.data.chunksize)
 
