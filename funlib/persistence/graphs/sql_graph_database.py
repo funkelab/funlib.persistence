@@ -374,13 +374,16 @@ class SQLGraphDataBase(GraphDataBase):
 
         if len(nodes) == 0:
             return []
+        
+        endpoint_names = self.endpoint_names
+        assert endpoint_names is not None
 
         node_ids = ", ".join([str(node["id"]) for node in nodes])
-        node_condition = f"{self.endpoint_names[0]} IN ({node_ids})"  # type: ignore
+        node_condition = f"{endpoint_names[0]} IN ({node_ids})"  # type: ignore
 
         logger.debug("Reading nodes in roi %s" % roi)
         # TODO: AND vs OR here
-        desired_columns = ", ".join(self.endpoint_names + list(self.edge_attrs.keys()))  # type: ignore
+        desired_columns = ", ".join(endpoint_names + list(self.edge_attrs.keys()))  # type: ignore
         select_statement = (
             f"SELECT {desired_columns} FROM {self.edges_table_name} WHERE "
             + node_condition
@@ -391,7 +394,7 @@ class SQLGraphDataBase(GraphDataBase):
             )
         )
 
-        edge_attrs = self.endpoint_names + (  # type: ignore
+        edge_attrs = endpoint_names + (  # type: ignore
             list(self.edge_attrs.keys()) if read_attrs is None else read_attrs
         )
         attr_filter = attr_filter if attr_filter is not None else {}
@@ -402,7 +405,7 @@ class SQLGraphDataBase(GraphDataBase):
             {
                 key: val
                 for key, val in zip(
-                    self.endpoint_names + list(self.edge_attrs.keys()),
+                    endpoint_names + list(self.edge_attrs.keys()),
                     values,  # type: ignore
                 )
                 if key in edge_attrs
