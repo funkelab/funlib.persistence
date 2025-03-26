@@ -1,6 +1,7 @@
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Any, Optional
+import warnings
 
 import toml
 from pydantic import BaseModel
@@ -109,6 +110,13 @@ class MetaData:
         if self._types is not None:
             return self._types
         elif self._axis_names is not None:
+            warnings.warn(
+                "using axis names to define which axes are channels using "
+                "a '^' is deprecated and will be removed in a future version. "
+                "Please use the 'types' attribute to define the type of each axis.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
             return [
                 "channel" if name.endswith("^") else "space" for name in self.axis_names
             ]
@@ -164,6 +172,34 @@ class MetaData:
         return self.dims - self.physical_dims
 
     def validate(self, strict: bool):
+        assert (
+            all([isinstance(d, int) for d in self._offset])
+            if self._offset is not None
+            else True
+        ), f"Offset must be a sequence of ints, got {self._offset}"
+        assert (
+            all([isinstance(d, int) for d in self._voxel_size])
+            if self._voxel_size is not None
+            else True
+        ), f"Voxel size must be a sequence of ints, got {self._voxel_size}"
+        assert (
+            all([isinstance(d, str) for d in self._axis_names])
+            if self._axis_names is not None
+            else True
+        ), f"Axis names must be a sequence of strings, got {self._axis_names}"
+        assert (
+            all([isinstance(d, str) for d in self._units])
+            if self._units is not None
+            else True
+        ), f"Units must be a sequence of strings, got {self._units}"
+        assert (
+            all([isinstance(d, str) for d in self._types])
+            if self._types is not None
+            else True
+        ), (
+            f"Types must be a sequence of strings, got {self._types}\n"
+            "If you see ints, you are likely using an old api and passing chunk_shape as the types argument."
+        )
         if strict and any(
             [
                 d is None
