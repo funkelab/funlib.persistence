@@ -188,7 +188,6 @@ class OME_MetaDataFormat(BaseModel):
         types=None,
         strict=False,
     ) -> MetaData:
-
         if types is not None:
             self.strip_channels(types, [offset, voxel_size, units])
 

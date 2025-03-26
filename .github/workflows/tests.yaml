@@ -24,20 +24,15 @@ jobs:
       fail-fast: false
       matrix:
         python-version: ["3.10", "3.11", "3.12"]
+        resolution: ["highest", "lowest-direct"]
 
     env:
        PGUSER: postgres
 
     steps:
-      - uses: actions/checkout@v2
-
-      - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v2
-        with:
-          python-version: ${{ matrix.python-version }}
-
-      - name: Install dependencies
-        run: pip install ".[dev]"
-
-      - name: Test with pytest
-        run: pytest tests
+      - name: Setup checkout
+        uses: actions/checkout@master
+      - name: Install uv
+        uses: astral-sh/setup-uv@main
+      - name: Test
+        run: uv run --resoltuion ${{ matrix.resolution }} --extra dev --python=${{ matrix.python-version }} pytest tests

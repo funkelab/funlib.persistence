@@ -80,13 +80,12 @@ class SQLGraphDataBase(GraphDataBase):
         node_attrs: Optional[dict[str, AttributeType]] = None,
         edge_attrs: Optional[dict[str, AttributeType]] = None,
     ):
-        assert (
-            mode in self.valid_modes
-        ), f"Mode '{mode}' not in allowed modes {self.valid_modes}"
+        assert mode in self.valid_modes, (
+            f"Mode '{mode}' not in allowed modes {self.valid_modes}"
+        )
         self.mode = mode
 
         if mode in self.read_modes:
-
             self.position_attribute = position_attribute
             self.directed = directed
             self.total_roi = total_roi
@@ -103,7 +102,6 @@ class SQLGraphDataBase(GraphDataBase):
             self.__load_metadata(metadata)
 
         if mode in self.create_modes:
-
             # this is where we populate default values for the DB creation
 
             assert node_attrs is not None, (
@@ -404,7 +402,8 @@ class SQLGraphDataBase(GraphDataBase):
             {
                 key: val
                 for key, val in zip(
-                    self.endpoint_names + list(self.edge_attrs.keys()), values  # type: ignore
+                    self.endpoint_names + list(self.edge_attrs.keys()),
+                    values,  # type: ignore
                 )
                 if key in edge_attrs
             }
@@ -609,7 +608,6 @@ class SQLGraphDataBase(GraphDataBase):
             "endpoint_names",
             "ndims",
         ]:
-
             if getattr(self, attr_name) is None:
                 setattr(self, attr_name, metadata[attr_name])
             else:
