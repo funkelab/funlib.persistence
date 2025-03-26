@@ -7,6 +7,7 @@ from pydantic import BaseModel
 
 from funlib.geometry import Coordinate
 
+
 class MetaData:
     def __init__(
         self,
@@ -85,19 +86,32 @@ class MetaData:
 
     @property
     def axis_names(self) -> list[str]:
-        return (
-            self._axis_names
-            if self._axis_names is not None
-            else [f"c{dim}^" for dim in range(self.channel_dims)]
-            + [f"d{dim}" for dim in range(self.physical_dims)]
-        )
+        if self._axis_names is not None:
+            return self._axis_names
+        elif self._types is not None:
+            indices = {
+                "channel": iter(range(self.channel_dims)),
+                "space": iter(range(self.physical_dims)),
+            }
+            return [
+                f"d{next(indices[key])}"
+                if key == "space"
+                else f"c{next(indices['channel'])}^"
+                for key in self._types
+            ]
+        else:
+            return [f"c{dim}^" for dim in range(self.channel_dims)] + [
+                f"d{dim}" for dim in range(self.physical_dims)
+            ]
 
     @property
     def types(self) -> list[str]:
         if self._types is not None:
             return self._types
         elif self._axis_names is not None:
-            return ["channel" if name.endswith("^") else "space" for name in self.axis_names]
+            return [
+                "channel" if name.endswith("^") else "space" for name in self.axis_names
+            ]
         else:
             return ["channel"] * self.channel_dims + ["space"] * self.physical_dims
 
@@ -116,7 +130,13 @@ class MetaData:
             self._voxel_size.dims if self._voxel_size is not None else None,
             self._offset.dims if self._offset is not None else None,
             (
-                len([axis_type for axis_type in self._types if axis_type in ["space", "time"]])
+                len(
+                    [
+                        axis_type
+                        for axis_type in self._types
+                        if axis_type in ["space", "time"]
+                    ]
+                )
                 if self._types is not None
                 else None
             ),
@@ -241,7 +261,9 @@ class MetaDataFormat(BaseModel):
             types if types is not None else self.fetch(data, self.types_attr.split("/"))
         )
         if types is None and axis_names is not None:
-            types = ["channel" if name.endswith("^") else "space" for name in axis_names]
+            types = [
+                "channel" if name.endswith("^") else "space" for name in axis_names
+            ]
 
         # we expect offset, voxel_size, and units to only apply to time and space dimensions
         # so here we strip off values that are not space or time
@@ -265,7 +287,6 @@ class MetaDataFormat(BaseModel):
         )
 
         return metadata
-
 
 
 class OME_MetaDataFormat(BaseModel):
@@ -309,7 +330,6 @@ class OME_MetaDataFormat(BaseModel):
         )
 
         return metadata
-
 
 
 DEFAULT_METADATA_FORMAT = MetaDataFormat()
