@@ -1,7 +1,7 @@
+import warnings
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Any, Optional
-import warnings
 
 import toml
 from pydantic import BaseModel
