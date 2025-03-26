@@ -3,6 +3,7 @@ from abc import abstractmethod
 from typing import Any, Iterable, Optional
 
 from networkx import DiGraph, Graph
+from networkx.classes.reportviews import NodeView, OutEdgeView
 
 from funlib.geometry import Coordinate, Roi
 
@@ -216,6 +217,7 @@ class SQLGraphDataBase(GraphDataBase):
         nodes_filter: Optional[dict[str, Any]] = None,
         edges_filter: Optional[dict[str, Any]] = None,
     ) -> Graph:
+        graph: Graph
         if self.directed:
             graph = DiGraph()
         else:
@@ -248,14 +250,15 @@ class SQLGraphDataBase(GraphDataBase):
         node_attrs: Optional[list[str]] = None,
         edge_attrs: Optional[list[str]] = None,
     ) -> None:
+        graph.nodes(data=True)
         self.update_nodes(
-            nodes=graph.nodes(data=True),
+            nodes=graph.nodes,
             roi=roi,
             attributes=node_attrs,
         )
         self.update_edges(
-            nodes=graph.nodes(data=True),
-            edges=graph.edges(data=True),
+            nodes=graph.nodes,
+            edges=graph.edges,
             roi=roi,
             attributes=edge_attrs,
         )
@@ -465,8 +468,8 @@ class SQLGraphDataBase(GraphDataBase):
 
     def update_edges(
         self,
-        nodes: dict[Any, dict[str, Any]],
-        edges: dict[Any, dict[str, Any]],
+        nodes: NodeView,
+        edges: OutEdgeView,
         roi=None,
         attributes=None,
     ):
@@ -477,7 +480,7 @@ class SQLGraphDataBase(GraphDataBase):
 
         attrs = attributes if attributes is not None else []
 
-        for u, v, data in edges:
+        for u, v, data in edges(data=True):
             if not self.directed:
                 u, v = min(u, v), max(u, v)
             if roi is not None:
@@ -506,7 +509,7 @@ class SQLGraphDataBase(GraphDataBase):
 
     def write_nodes(
         self,
-        nodes: dict[Any, dict[str, Any]],
+        nodes: NodeView,
         roi=None,
         attributes=None,
         fail_if_exists=False,
@@ -538,7 +541,7 @@ class SQLGraphDataBase(GraphDataBase):
 
     def update_nodes(
         self,
-        nodes: dict[Any, dict[str, Any]],
+        nodes: NodeView,
         roi=None,
         attributes=None,
     ):
@@ -549,7 +552,7 @@ class SQLGraphDataBase(GraphDataBase):
 
         attrs = attributes if attributes is not None else []
 
-        for node, data in nodes:
+        for node, data in nodes(data=True):
             if roi is not None:
                 pos_u = self.__get_node_pos(data)
 

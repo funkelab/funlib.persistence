@@ -317,8 +317,7 @@ GLOBAL_PATHS = [Path("/etc/funlib_persistence/funlib_persistence.toml")]
 
 
 def read_config() -> Optional[dict]:
-    config = None
-    config = {}
+    config: dict[str, str] = {}
     for path in (LOCAL_PATHS + USER_PATHS + GLOBAL_PATHS)[::-1]:
         if path.exists():
             with open(path, "r") as f:
