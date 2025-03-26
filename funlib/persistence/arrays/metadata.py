@@ -95,7 +95,7 @@ class MetaData:
     @property
     def types(self) -> list[str]:
         if self._types is not None:
-            return self.types
+            return self._types
         elif self._axis_names is not None:
             return ["channel" if name.endswith("^") else "space" for name in self.axis_names]
         else:
@@ -116,7 +116,7 @@ class MetaData:
             self._voxel_size.dims if self._voxel_size is not None else None,
             self._offset.dims if self._offset is not None else None,
             (
-                len([type_ for type_ in self._types if type_ in ["space", "time"]])
+                len([axis_type for axis_type in self._types if axis_type in ["space", "time"]])
                 if self._types is not None
                 else None
             ),

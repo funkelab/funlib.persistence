@@ -57,7 +57,7 @@ def test_helpers(tmpdir, store, dtype):
             metadata.voxel_size,
             metadata.axis_names,
             metadata.units,
-            chunk_shape,
+            chunk_shape=chunk_shape,
             dtype=dtype,
             mode="r",
         )
@@ -70,7 +70,7 @@ def test_helpers(tmpdir, store, dtype):
         metadata.voxel_size,
         metadata.axis_names,
         metadata.units,
-        chunk_shape,
+        chunk_shape=chunk_shape,
         dtype=dtype,
         mode="w",
     )
@@ -90,7 +90,7 @@ def test_helpers(tmpdir, store, dtype):
         metadata.voxel_size,
         metadata.axis_names,
         metadata.units,
-        chunk_shape,
+        chunk_shape=chunk_shape,
         dtype=dtype,
         mode="r",
     )
@@ -112,7 +112,7 @@ def test_helpers(tmpdir, store, dtype):
             metadata.voxel_size,
             metadata.axis_names,
             metadata.units,
-            chunk_shape,
+            chunk_shape=chunk_shape,
             dtype=dtype,
             mode="r",
         )
@@ -125,7 +125,7 @@ def test_helpers(tmpdir, store, dtype):
         metadata.voxel_size,
         metadata.axis_names,
         metadata.units,
-        chunk_shape,
+        chunk_shape=chunk_shape,
         dtype=dtype,
         mode="w",
     )
@@ -145,7 +145,7 @@ def test_helpers(tmpdir, store, dtype):
         metadata.voxel_size * 2,
         metadata.axis_names,
         metadata.units,
-        chunk_shape,
+        chunk_shape=chunk_shape,
         dtype=dtype,
         mode="r+",
     )
@@ -165,7 +165,7 @@ def test_helpers(tmpdir, store, dtype):
         metadata.voxel_size,
         metadata.axis_names,
         metadata.units,
-        chunk_shape,
+        chunk_shape=chunk_shape,
         dtype=dtype,
         mode="a",
     )
@@ -187,7 +187,7 @@ def test_helpers(tmpdir, store, dtype):
         metadata.voxel_size,
         metadata.axis_names,
         metadata.units,
-        chunk_shape,
+        chunk_shape=chunk_shape,
         dtype=dtype,
         mode="w",
     )
