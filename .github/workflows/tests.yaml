@@ -16,6 +16,7 @@ jobs:
         platform: [ubuntu-latest, windows-latest, macos-latest]
 
     services:
+      if: matrix.platform == 'ubuntu-latest'
       postgres:
         image: postgres
         env:
