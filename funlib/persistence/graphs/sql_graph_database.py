@@ -374,7 +374,7 @@ class SQLGraphDataBase(GraphDataBase):
 
         if len(nodes) == 0:
             return []
-        
+
         endpoint_names = self.endpoint_names
         assert endpoint_names is not None
 

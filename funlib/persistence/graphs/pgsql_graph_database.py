@@ -111,12 +111,14 @@ class PgSQLGraphDatabase(SQLGraphDataBase):
         columns = list(self.edge_attrs.keys())  # type: ignore
         types = list([self.__sql_type(t) for t in self.edge_attrs.values()])
         column_types = [f"{c} {t}" for c, t in zip(columns, types)]
+        endpoint_names = self.endpoint_names
+        assert endpoint_names is not None
         self.__exec(
             f"CREATE TABLE IF NOT EXISTS {self.edges_table_name}("
-            f"{self.endpoint_names[0]} BIGINT not null, "  # type: ignore
-            f"{self.endpoint_names[1]} BIGINT not null, "
+            f"{endpoint_names[0]} BIGINT not null, "  # type: ignore
+            f"{endpoint_names[1]} BIGINT not null, "
             f"{' '.join([c + ',' for c in column_types])}"
-            f"PRIMARY KEY ({self.endpoint_names[0]}, {self.endpoint_names[1]})"
+            f"PRIMARY KEY ({endpoint_names[0]}, {endpoint_names[1]})"
             ")"
         )
 
