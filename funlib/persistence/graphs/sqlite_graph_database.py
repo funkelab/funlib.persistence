@@ -86,7 +86,6 @@ class SQLiteGraphDataBase(SQLGraphDataBase):
             self.meta_collection.unlink()
 
     def _create_tables(self) -> None:
-
         node_columns = ["id INTEGER not null PRIMARY KEY"]
         for attr in self.node_attrs.keys():
             if attr in self.node_array_columns:
@@ -135,7 +134,6 @@ class SQLiteGraphDataBase(SQLGraphDataBase):
             return json.load(f)
 
     def _select_query(self, query):
-
         # replace array_name[1] with array_name_0
         #                   ^^^
         #             Yes, that's not a typo
@@ -150,7 +148,6 @@ class SQLiteGraphDataBase(SQLGraphDataBase):
             raise ValueError(query) from e
 
     def _insert_query(self, table, columns, values, fail_if_exists=False, commit=True):
-
         # explode array attributes into multiple columns
 
         exploded_values = []

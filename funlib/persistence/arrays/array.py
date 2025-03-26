@@ -1,6 +1,6 @@
 import logging
 from functools import reduce
-from typing import Optional, Sequence, Union, Any
+from typing import Any, Optional, Sequence, Union
 
 import dask.array as da
 import numpy as np
@@ -67,8 +67,10 @@ class Array(Freezable):
         voxel_size: Optional[Sequence[int]] = None,
         axis_names: Optional[Sequence[str]] = None,
         units: Optional[Sequence[str]] = None,
+        types: Optional[Sequence[str]] = None,
         chunks: Optional[Union[int, Sequence[int], str]] = "auto",
         lazy_op: Optional[LazyOp] = None,
+        strict_metadata: bool = True,
     ):
         if not isinstance(data, da.Array):
             self.data = da.from_array(data, chunks=chunks)
@@ -81,7 +83,9 @@ class Array(Freezable):
             voxel_size=Coordinate(voxel_size) if voxel_size is not None else None,
             axis_names=list(axis_names) if axis_names is not None else None,
             units=list(units) if units is not None else None,
+            types=list(types) if types is not None else None,
             shape=self._source_data.shape,
+            strict=strict_metadata,
         )
 
         # used for custom metadata unrelated to indexing with physical units
@@ -96,7 +100,19 @@ class Array(Freezable):
 
         self.freeze()
 
-        self.validate()
+        self.validate(strict_metadata)
+
+    @property
+    def attrs(self) -> dict:
+        """
+        Return dict that can be used to store custom metadata. Will be persistent
+        for zarr arrays. If reading from zarr, any existing metadata (such as
+        voxel_size, axis_names, etc.) will also be exposed here.
+        """
+        if isinstance(self._source_data, ZarrArray):
+            return self._source_data.attrs
+        else:
+            return self._attrs
 
     @property
     def attrs(self) -> dict:
@@ -118,8 +134,8 @@ class Array(Freezable):
         if physical:
             return [
                 x
-                for x, c in zip(self._uncollapsed_dims, self._metadata.axis_names)
-                if not c.endswith("^")
+                for x, t in zip(self._uncollapsed_dims, self._metadata.types)
+                if t == "space"
             ]
         else:
             return self._uncollapsed_dims
@@ -166,13 +182,21 @@ class Array(Freezable):
         ]
 
     @property
+    def types(self) -> list[str]:
+        return [
+            self._metadata.types[ii]
+            for ii, uncollapsed in enumerate(self.uncollapsed_dims(physical=False))
+            if uncollapsed
+        ]
+
+    @property
     def physical_shape(self):
         return tuple(
             self._source_data.shape[ii]
-            for ii, (uncollapsed, name) in enumerate(
-                zip(self.uncollapsed_dims(physical=False), self._metadata.axis_names)
+            for ii, (uncollapsed, type) in enumerate(
+                zip(self.uncollapsed_dims(physical=False), self._metadata.types)
             )
-            if uncollapsed and not name.endswith("^")
+            if uncollapsed and type in ["space", "time"]
         )
 
     @property
@@ -438,8 +462,8 @@ class Array(Freezable):
             index = (Ellipsis,) + index
         return index
 
-    def validate(self):
-        self._metadata.validate()
+    def validate(self, strict: bool = False):
+        self._metadata.validate(strict)
         assert len(self.axis_names) == len(self._source_data.shape), (
             f"Axis names must be provided for every dimension. Got ({self.axis_names}) "
             f"but expected {len(self.shape)} to match the data shape: {self.shape}"

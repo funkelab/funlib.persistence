@@ -29,7 +29,9 @@ def open_ds(
     voxel_size: Optional[Sequence[int]] = None,
     axis_names: Optional[Sequence[str]] = None,
     units: Optional[Sequence[str]] = None,
+    types: Optional[Sequence[str]] = None,
     chunks: Optional[Union[int, Sequence[int], str]] = "strict",
+    strict_metadata: bool = False,
     **kwargs,
 ) -> Array:
     """
@@ -67,6 +69,11 @@ def open_ds(
         units (`str`, (optional)):
 
             An override for the units of your dataset.
+
+        types (`str`, (optional)):
+
+            An override for the types of your axes. For more details see:
+            https://ngff.openmicroscopy.org/latest/#axes-md
 
         chunks (`Coordinate`, (optional)):
 
@@ -106,6 +113,7 @@ def open_ds(
         voxel_size=voxel_size,
         axis_names=axis_names,
         units=units,
+        types=types,
     )
 
     return Array(
@@ -114,6 +122,7 @@ def open_ds(
         metadata.voxel_size,
         metadata.axis_names,
         metadata.units,
+        metadata.types,
         data.chunks if chunks == "strict" else chunks,
     )
 
@@ -125,6 +134,7 @@ def prepare_ds(
     voxel_size: Optional[Coordinate] = None,
     axis_names: Optional[Sequence[str]] = None,
     units: Optional[Sequence[str]] = None,
+    types: Optional[Sequence[str]] = None,
     chunk_shape: Optional[Sequence[int]] = None,
     dtype: DTypeLike = np.float32,
     mode: str = "a",
@@ -156,8 +166,7 @@ def prepare_ds(
 
         axis_names:
 
-            The axis names of the dataset to create. The names of non-physical
-            dimensions should end with "^". e.g. ["samples^", "channels^", "z", "y", "x"]
+            The axis names of the dataset to create.
             Set to ["c{i}^", "d{j}"] by default. Where i, j are the index of the non-physical
             and physical dimensions respectively.
 
@@ -165,6 +174,11 @@ def prepare_ds(
 
             The units of the dataset to create. Only provide for physical dimensions.
             Set to all "" by default.
+
+        types:
+
+            The types of the axes of the dataset to create. For more details see:
+            https://ngff.openmicroscopy.org/latest/#axes-md
 
         chunk_shape:
 
@@ -207,6 +221,7 @@ def prepare_ds(
         voxel_size=voxel_size,
         axis_names=axis_names,
         units=units,
+        types=types,
     )
 
     try:
@@ -256,6 +271,14 @@ def prepare_ds(
             )
             metadata_compatible = False
 
+        if given_metadata.types != existing_metadata.types:
+            logger.info(
+                "Types differ: given (%s) vs parsed (%s)",
+                given_metadata.types,
+                existing_metadata.types,
+            )
+            metadata_compatible = False
+
         if given_metadata.axis_names != existing_metadata.axis_names:
             logger.info(
                 "Axis names differ: given (%s) vs parsed (%s)",
@@ -298,6 +321,7 @@ def prepare_ds(
                     existing_metadata.voxel_size,
                     existing_metadata.axis_names,
                     existing_metadata.units,
+                    existing_metadata.types,
                     ds.chunks,
                 )
 
@@ -308,6 +332,7 @@ def prepare_ds(
         voxel_size=voxel_size,
         axis_names=axis_names,
         units=units,
+        types=types,
     )
 
     # create the dataset
@@ -330,6 +355,7 @@ def prepare_ds(
         default_metadata_format.units_attr: combined_metadata.units,
         default_metadata_format.voxel_size_attr: combined_metadata.voxel_size,
         default_metadata_format.offset_attr: combined_metadata.offset,
+        default_metadata_format.types_attr: combined_metadata.types,
     }
     # check keys don't conflict
     if custom_metadata is not None:
@@ -339,6 +365,6 @@ def prepare_ds(
     ds.attrs.put(our_metadata)
 
     # open array
-    array = Array(ds, offset, voxel_size, axis_names, units)
+    array = Array(ds, offset, voxel_size, axis_names, units, types)
 
     return array

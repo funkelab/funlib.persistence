@@ -3,6 +3,7 @@ from abc import abstractmethod
 from typing import Any, Iterable, Optional
 
 from networkx import DiGraph, Graph
+from networkx.classes.reportviews import NodeView, OutEdgeView
 
 from funlib.geometry import Coordinate, Roi
 
@@ -79,13 +80,12 @@ class SQLGraphDataBase(GraphDataBase):
         node_attrs: Optional[dict[str, AttributeType]] = None,
         edge_attrs: Optional[dict[str, AttributeType]] = None,
     ):
-        assert (
-            mode in self.valid_modes
-        ), f"Mode '{mode}' not in allowed modes {self.valid_modes}"
+        assert mode in self.valid_modes, (
+            f"Mode '{mode}' not in allowed modes {self.valid_modes}"
+        )
         self.mode = mode
 
         if mode in self.read_modes:
-
             self.position_attribute = position_attribute
             self.directed = directed
             self.total_roi = total_roi
@@ -102,7 +102,6 @@ class SQLGraphDataBase(GraphDataBase):
             self.__load_metadata(metadata)
 
         if mode in self.create_modes:
-
             # this is where we populate default values for the DB creation
 
             assert node_attrs is not None, (
@@ -216,6 +215,7 @@ class SQLGraphDataBase(GraphDataBase):
         nodes_filter: Optional[dict[str, Any]] = None,
         edges_filter: Optional[dict[str, Any]] = None,
     ) -> Graph:
+        graph: Graph
         if self.directed:
             graph = DiGraph()
         else:
@@ -248,14 +248,15 @@ class SQLGraphDataBase(GraphDataBase):
         node_attrs: Optional[list[str]] = None,
         edge_attrs: Optional[list[str]] = None,
     ) -> None:
+        graph.nodes(data=True)
         self.update_nodes(
-            nodes=graph.nodes(data=True),
+            nodes=graph.nodes,
             roi=roi,
             attributes=node_attrs,
         )
         self.update_edges(
-            nodes=graph.nodes(data=True),
-            edges=graph.edges(data=True),
+            nodes=graph.nodes,
+            edges=graph.edges,
             roi=roi,
             attributes=edge_attrs,
         )
@@ -374,12 +375,15 @@ class SQLGraphDataBase(GraphDataBase):
         if len(nodes) == 0:
             return []
 
+        endpoint_names = self.endpoint_names
+        assert endpoint_names is not None
+
         node_ids = ", ".join([str(node["id"]) for node in nodes])
-        node_condition = f"{self.endpoint_names[0]} IN ({node_ids})"  # type: ignore
+        node_condition = f"{endpoint_names[0]} IN ({node_ids})"  # type: ignore
 
         logger.debug("Reading nodes in roi %s" % roi)
         # TODO: AND vs OR here
-        desired_columns = ", ".join(self.endpoint_names + list(self.edge_attrs.keys()))  # type: ignore
+        desired_columns = ", ".join(endpoint_names + list(self.edge_attrs.keys()))  # type: ignore
         select_statement = (
             f"SELECT {desired_columns} FROM {self.edges_table_name} WHERE "
             + node_condition
@@ -390,7 +394,7 @@ class SQLGraphDataBase(GraphDataBase):
             )
         )
 
-        edge_attrs = self.endpoint_names + (  # type: ignore
+        edge_attrs = endpoint_names + (  # type: ignore
             list(self.edge_attrs.keys()) if read_attrs is None else read_attrs
         )
         attr_filter = attr_filter if attr_filter is not None else {}
@@ -401,7 +405,8 @@ class SQLGraphDataBase(GraphDataBase):
             {
                 key: val
                 for key, val in zip(
-                    self.endpoint_names + list(self.edge_attrs.keys()), values  # type: ignore
+                    endpoint_names + list(self.edge_attrs.keys()),
+                    values,  # type: ignore
                 )
                 if key in edge_attrs
             }
@@ -465,8 +470,8 @@ class SQLGraphDataBase(GraphDataBase):
 
     def update_edges(
         self,
-        nodes: dict[Any, dict[str, Any]],
-        edges: dict[Any, dict[str, Any]],
+        nodes: NodeView,
+        edges: OutEdgeView,
         roi=None,
         attributes=None,
     ):
@@ -477,7 +482,7 @@ class SQLGraphDataBase(GraphDataBase):
 
         attrs = attributes if attributes is not None else []
 
-        for u, v, data in edges:
+        for u, v, data in edges(data=True):
             if not self.directed:
                 u, v = min(u, v), max(u, v)
             if roi is not None:
@@ -506,7 +511,7 @@ class SQLGraphDataBase(GraphDataBase):
 
     def write_nodes(
         self,
-        nodes: dict[Any, dict[str, Any]],
+        nodes: NodeView,
         roi=None,
         attributes=None,
         fail_if_exists=False,
@@ -538,7 +543,7 @@ class SQLGraphDataBase(GraphDataBase):
 
     def update_nodes(
         self,
-        nodes: dict[Any, dict[str, Any]],
+        nodes: NodeView,
         roi=None,
         attributes=None,
     ):
@@ -549,7 +554,7 @@ class SQLGraphDataBase(GraphDataBase):
 
         attrs = attributes if attributes is not None else []
 
-        for node, data in nodes:
+        for node, data in nodes(data=True):
             if roi is not None:
                 pos_u = self.__get_node_pos(data)
 
@@ -606,7 +611,6 @@ class SQLGraphDataBase(GraphDataBase):
             "endpoint_names",
             "ndims",
         ]:
-
             if getattr(self, attr_name) is None:
                 setattr(self, attr_name, metadata[attr_name])
             else:
