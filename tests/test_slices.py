@@ -6,7 +6,6 @@ from dask.array.optimization import fuse_slice
 
 
 def test_slice_chaining():
-
     def combine_slices(*slices):
         return reduce(fuse_slice, slices)
 
