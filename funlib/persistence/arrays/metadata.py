@@ -10,7 +10,7 @@ from funlib.geometry import Coordinate
 
 
 def strip_channels(
-    types: Sequence[str], to_strip: Sequence[Sequence]
+    types: Sequence[str], to_strip: Sequence[Sequence | None]
 ) -> list[Sequence]:
     """
     Filters out values corresponding to non spatial or temporal dimensions in metadata
@@ -23,9 +23,9 @@ def strip_channels(
     keep_ind = [i for i, t in enumerate(types) if t in ["space", "time"]]
     outputs: list[Sequence] = []
     for sequence in to_strip:
-        if len(sequence) == len(keep_ind):
+        if sequence is None or len(sequence) == len(keep_ind):
             # nothing to strip, its already the appropriate length
-            outputs.append([sequence[i] for i in keep_ind])
+            outputs.append(sequence)
         elif len(sequence) == len(types):
             # value provided for all dimensions, strip out the non spatial or temporal dimensions
             stripped_sequence = []
@@ -56,11 +56,11 @@ class MetaData:
             )
 
         self.shape = Coordinate(shape)
-        self._offset = Coordinate(offset)
-        self._voxel_size = Coordinate(voxel_size)
-        self._axis_names = axis_names
-        self._units = units
-        self._types = types
+        self._offset = Coordinate(offset) if offset is not None else None
+        self._voxel_size = Coordinate(voxel_size) if voxel_size is not None else None
+        self._axis_names = list(axis_names) if axis_names is not None else None
+        self._units = list(units) if units is not None else None
+        self._types = list(types) if types is not None else None
 
         self.validate(strict)
 
@@ -310,18 +310,18 @@ class MetaDataFormat(BaseModel):
                     return None
 
             if isinstance(current_key, int):
-                return self.fetch(data[current_key], keys)
+                return recurse(data[current_key], keys)
             elif isinstance(data, list):
                 assert current_key == "{dim}", current_key
                 values = []
                 for sub_data in data:
                     try:
-                        values.append(self.fetch(sub_data, keys))
+                        values.append(recurse(sub_data, keys))
                     except KeyError:
                         values.append(None)
                 return values
             else:
-                return self.fetch(data[current_key], keys)
+                return recurse(data[current_key], keys)
 
         return recurse(data, keys)
 
@@ -336,27 +336,19 @@ class MetaDataFormat(BaseModel):
         types=None,
         strict=False,
     ) -> MetaData:
-        offset = (
-            offset
-            if offset is not None
-            else self.fetch(data, self.offset_attr.split("/"))
-        )
+        offset = offset if offset is not None else self.fetch(data, self.offset_attr)
         voxel_size = (
             voxel_size
             if voxel_size is not None
-            else self.fetch(data, self.voxel_size_attr.split("/"))
+            else self.fetch(data, self.voxel_size_attr)
         )
         axis_names = (
             axis_names
             if axis_names is not None
-            else self.fetch(data, self.axis_names_attr.split("/"))
+            else self.fetch(data, self.axis_names_attr)
         )
-        units = (
-            units if units is not None else self.fetch(data, self.units_attr.split("/"))
-        )
-        types = (
-            types if types is not None else self.fetch(data, self.types_attr.split("/"))
-        )
+        units = units if units is not None else self.fetch(data, self.units_attr)
+        types = types if types is not None else self.fetch(data, self.types_attr)
         if types is None and axis_names is not None:
             types = [
                 "channel" if name.endswith("^") else "space" for name in axis_names
