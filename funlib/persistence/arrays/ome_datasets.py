@@ -9,7 +9,7 @@ from numpy.typing import DTypeLike
 from funlib.geometry import Coordinate
 
 from .array import Array
-from .metadata import MetaData, OME_MetaDataFormat
+from .metadata import MetaData
 from .ome_tmp import get_effective_scale, get_effective_translation
 
 logger = logging.getLogger(__name__)
@@ -62,14 +62,14 @@ def open_ome_ds(
 
     dataset = ome_zarr[name]
 
-    metadata = OME_MetaDataFormat().parse(
-        dataset.shape,
-        offset=list(offset),
-        voxel_size=list(scale),
-        axis_names=axis_names,
-        units=units,
-        types=types,
-    )
+    metadata = MetaData(
+            shape=dataset.shape,
+            offset=offset,
+            voxel_size=scale,
+            axis_names=axis_names,
+            units=units,
+            types=types,
+        )
 
     return Array(
         dataset,
