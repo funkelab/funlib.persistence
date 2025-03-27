@@ -18,17 +18,16 @@ classifiers = ["Programming Language :: Python :: 3"]
 keywords = []
 
 dependencies = [
-    "funlib.geometry",
-    "networkx",
     "zarr>=2,<3",
-    "pymongo",
-    "numpy",
-    "h5py",
-    "psycopg2-binary",
-    "fsspec",
-    "toml",
-    "dask",
-    "pydantic",
+    "iohub >= 0.2.0b0",
+    "funlib.geometry>=0.3.0",
+    "networkx>=3.0.0",
+    "pymongo>=4.0.0",
+    "numpy>=2.0.0",
+    "pydantic>=2.0.0",
+    "dask>=2024.0.0",
+    "toml>=0.10.0",
+    "psycopg2-binary>=2.9.5",
 ]
 
 [tool.setuptools.dynamic]
@@ -36,13 +35,14 @@ version = { attr = "funlib.persistence.__version__" }
 
 [project.optional-dependencies]
 dev = [
-    'coverage>=5.0.3',
-    'pytest',
-    'pytest-mock',
-    'black',
-    'mypy',
-    'types-psycopg2',
-    'types-toml',
+    "coverage>=7.7.1",
+    "mypy>=1.15.0",
+    "pytest>=8.3.5",
+    "pytest-mock>=3.14.0",
+    "ruff>=0.11.2",
+    "types-networkx",
+    "types-psycopg2",
+    "types-toml",
 ]
 
 [tool.ruff]
@@ -51,3 +51,14 @@ lint.select = ["F", "W", "I001"]
 
 [tool.setuptools.package-data]
 "funlib.persistence" = ["py.typed"]
+
+[tool.mypy]
+explicit_package_bases = true
+
+# # module specific overrides
+[[tool.mypy.overrides]]
+module = [
+    "zarr.*",
+    "iohub.*",
+]
+ignore_missing_imports = true
