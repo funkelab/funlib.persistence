@@ -2,6 +2,7 @@ import warnings
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Any, Optional, Sequence
+import zarr
 
 import toml
 from pydantic import BaseModel
@@ -11,7 +12,7 @@ from funlib.geometry import Coordinate
 
 def strip_channels(
     types: Sequence[str], to_strip: Sequence[Sequence | None]
-) -> list[Sequence]:
+) -> list[Sequence | None]:
     """
     Filters out values corresponding to non spatial or temporal dimensions in metadata
     that is tied to the spatial or temporal dimensions.
@@ -21,7 +22,7 @@ def strip_channels(
     If the sequence is already the correct length, it is returned as is.
     """
     keep_ind = [i for i, t in enumerate(types) if t in ["space", "time"]]
-    outputs: list[Sequence] = []
+    outputs: list[Sequence | None] = []
     for sequence in to_strip:
         if sequence is None or len(sequence) == len(keep_ind):
             # nothing to strip, its already the appropriate length
@@ -45,9 +46,9 @@ class MetaData:
         shape: Sequence[int],
         offset: Optional[Sequence[int]] = None,
         voxel_size: Optional[Sequence[int]] = None,
-        axis_names: Optional[list[str]] = None,
-        units: Optional[list[str]] = None,
-        types: Optional[list[str]] = None,
+        axis_names: Optional[Sequence[str]] = None,
+        units: Optional[Sequence[str]] = None,
+        types: Optional[Sequence[str]] = None,
         strict: bool = False,
     ):
         if types is not None:
@@ -267,7 +268,9 @@ class MetaDataFormat(BaseModel):
     class Config:
         extra = "forbid"
 
-    def fetch(self, data: dict[str | int, Any], key: str) -> Sequence[str | int | None] | None:
+    def fetch(
+        self, data: dict[str | int, Any], key: str
+    ) -> Sequence[str | int | None] | None:
         """
         Given a dictionary of attributes from e.g. zarr.open(...).attrs, fetch the value
         of the attribute specified by the keys.
@@ -290,9 +293,9 @@ class MetaDataFormat(BaseModel):
         keys = key.split("/")
 
         def recurse(
-            data: dict[str | int, Any] | list[str, int], keys: list[str]
-        ) -> Sequence[str | int | None] | None:
-            current_key: str
+            data: dict[str | int, Any] | list[Any], keys: list[str]
+        ) -> Sequence[str | int | None] | str | int | None:
+            current_key: str | int
             current_key, *keys = keys
             try:
                 current_key = int(current_key)
@@ -302,28 +305,34 @@ class MetaDataFormat(BaseModel):
             # base case
             if len(keys) == 0:
                 # this key returns the data we want
-                try:
+                if isinstance(data, (dict, zarr.attrs.Attributes)):
+                    return data.get(str(current_key), None)
+                elif isinstance(data, list):
+                    assert isinstance(current_key, int), current_key
                     return data[current_key]
-                except KeyError:
-                    # This happens when e.g. trying to fetch
-                    # undefined voxel size for a channel dimension
-                    return None
+                else:
+                    raise RuntimeError(f"Unable to index data: {data} with key: {key}")
 
             if isinstance(current_key, int):
                 return recurse(data[current_key], keys)
+
             elif isinstance(data, list):
                 assert current_key == "{dim}", current_key
-                values = []
+                values: list[str | int | None] = []
                 for sub_data in data:
                     try:
-                        values.append(recurse(sub_data, keys))
+                        sub_value = recurse(sub_data, keys)
+                        assert isinstance(sub_value, (str, int)) or sub_value is None
+                        values.append(sub_value)
                     except KeyError:
                         values.append(None)
                 return values
             else:
                 return recurse(data[current_key], keys)
 
-        return recurse(data, keys)
+        result = recurse(data, keys)
+        assert isinstance(result, Sequence) or result is None, result
+        return result
 
     def parse(
         self,
