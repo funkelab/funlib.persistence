@@ -267,7 +267,7 @@ class MetaDataFormat(BaseModel):
     class Config:
         extra = "forbid"
 
-    def fetch(self, data: dict[str | int, Any], key: str):
+    def fetch(self, data: dict[str | int, Any], key: str) -> Sequence[str | int | None] | None:
         """
         Given a dictionary of attributes from e.g. zarr.open(...).attrs, fetch the value
         of the attribute specified by the keys.
@@ -291,7 +291,7 @@ class MetaDataFormat(BaseModel):
 
         def recurse(
             data: dict[str | int, Any] | list[str, int], keys: list[str]
-        ) -> Sequence[str | int]:
+        ) -> Sequence[str | int | None] | None:
             current_key: str
             current_key, *keys = keys
             try:
