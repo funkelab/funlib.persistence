@@ -85,7 +85,7 @@ class Array(Freezable):
         types: Optional[Sequence[str]] = None,
         chunks: Optional[Union[int, Sequence[int], str]] = "auto",
         lazy_op: Optional[LazyOp] = None,
-        strict_metadata: bool = True,
+        strict_metadata: bool = False,
     ):
         if not isinstance(data, da.Array):
             self.data = da.from_array(data, chunks=chunks)
