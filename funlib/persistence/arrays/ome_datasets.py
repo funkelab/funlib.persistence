@@ -10,7 +10,6 @@ from funlib.geometry import Coordinate
 
 from .array import Array
 from .metadata import MetaData
-from .ome_tmp import get_effective_scale, get_effective_translation
 
 logger = logging.getLogger(__name__)
 
@@ -57,8 +56,8 @@ def open_ome_ds(
     units = [axis.unit for axis in axes if axis.unit is not None]
     types = [axis.type for axis in axes if axis.type is not None]
 
-    scale = get_effective_scale(ome_zarr, name)
-    offset = get_effective_translation(ome_zarr, name)
+    scale = ome_zarr.get_effective_scale(name)
+    offset = ome_zarr.get_effective_translation(name)
 
     dataset = ome_zarr[name]
 
