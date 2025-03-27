@@ -90,14 +90,12 @@ class MetaData:
         if self._axis_names is not None:
             return self._axis_names
         elif self._types is not None:
-            indices = {
-                "channel": iter(range(self.channel_dims)),
-                "space": iter(range(self.physical_dims)),
-            }
+            channel_ind = iter(range(self.channel_dims))
+            spatial_ind = iter(range(self.physical_dims))
             return [
-                f"d{next(indices[key])}"
-                if key == "space"
-                else f"c{next(indices['channel'])}^"
+                f"d{next(spatial_ind)}"
+                if key in ["space", "time"]
+                else f"c{next(channel_ind)}^"
                 for key in self._types
             ]
         else:

@@ -48,6 +48,8 @@ class Array(Freezable):
         types (``Optional[Sequence[str]]``):
 
             The type of each dimension. Can be "space", "channel", or "time".
+            We treat both "space" and "time" as spatial dimensions for indexing with
+            Roi and Coordinate classes in world units.
             If not provided, we fall back on the axis names and assume "channel"
             for any axis name that ends with "^" and "space" otherwise. If neither
             are provided we assume "space" for all dimensions.
@@ -134,11 +136,17 @@ class Array(Freezable):
         return Coordinate(self.data.chunksize)
 
     def uncollapsed_dims(self, physical: bool = False) -> list[bool]:
+        """
+        We support lazy slicing of arrays, such as `x = Array(np.ones(5,5,5))` and
+        `x.lazy_op(np.s![0, :, :])`. This will result in the first dimension being
+        collapsed and future slicing operations will need to be 2D.
+        We use `_uncollapsed_dims` to keep track of which dimensions are sliceable.
+        """
         if physical:
             return [
                 x
                 for x, t in zip(self._uncollapsed_dims, self._metadata.types)
-                if t == "space"
+                if t in ["space", "time"]
             ]
         else:
             return self._uncollapsed_dims
