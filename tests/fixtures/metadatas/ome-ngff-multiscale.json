@@ -6,7 +6,7 @@
             "axes": [
                 {"name": "sample^", "type": "sample", "unit": ""},
                 {"name": "channel^", "type": "channel"},
-                {"name": "z", "type": "space", "unit": "nm"},
+                {"name": "t", "type": "time", "unit": "nm"},
                 {"name": "y", "type": "space", "unit": "nm"},
                 {"name": "x", "type": "space", "unit": "nm"}
             ],

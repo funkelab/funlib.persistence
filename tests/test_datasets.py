@@ -43,9 +43,9 @@ def test_helpers(tmpdir, store, dtype):
         {
             "offset": [100, 200, 400],
             "voxel_size": [1, 2, 3],
-            "axis_names": ["sample^", "channel^", "z", "y", "x"],
+            "axis_names": ["sample^", "channel^", "t", "y", "x"],
             "units": ["nm", "nm", "nm"],
-            "types": ["sample", "channel", "space", "space", "space"],
+            "types": ["sample", "channel", "time", "space", "space"],
         },
     )
 
