@@ -49,7 +49,7 @@ def open_ome_ds(
         A :class:`Array` supporting spatial indexing on your dataset.
     """
 
-    assert (store / name).exists(), f"Store: {store/name} does not exist!"
+    assert (store / name).exists(), f"Store: {store / name} does not exist!"
 
     ome_zarr = open_ome_zarr(store, mode=mode, **kwargs)
     axes = ome_zarr.axes
@@ -63,13 +63,13 @@ def open_ome_ds(
     dataset = ome_zarr[name]
 
     metadata = MetaData(
-            shape=dataset.shape,
-            offset=offset,
-            voxel_size=scale,
-            axis_names=axis_names,
-            units=units,
-            types=types,
-        )
+        shape=dataset.shape,
+        offset=offset,
+        voxel_size=scale,
+        axis_names=axis_names,
+        units=units,
+        types=types,
+    )
 
     return Array(
         dataset,
