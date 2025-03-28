@@ -1,6 +1,6 @@
 import logging
+from collections.abc import Sequence
 from pathlib import Path
-from typing import Sequence
 
 from iohub.ngff import TransformationMeta, open_ome_zarr
 from iohub.ngff.models import AxisMeta

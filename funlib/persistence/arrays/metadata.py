@@ -1,10 +1,10 @@
 import warnings
 from collections.abc import Sequence
 from pathlib import Path
-from typing import Any, Optional, Sequence
-import zarr
+from typing import Any, Optional
 
 import toml
+import zarr
 from pydantic import BaseModel
 
 from funlib.geometry import Coordinate
