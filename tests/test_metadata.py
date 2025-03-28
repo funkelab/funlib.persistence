@@ -35,6 +35,7 @@ metadata_formats = {
         units_attr="extras/units",
     ),
     "ome-ngff-multiscale": MetaDataFormat(
+        types_attr="multiscales/0/axes/{dim}/type",
         axis_names_attr="multiscales/0/axes/{dim}/name",
         units_attr="multiscales/0/axes/{dim}/unit",
         voxel_size_attr="multiscales/0/coordinateTransformations/0/scale",
@@ -52,9 +53,10 @@ def metadata(request):
 
 
 def test_parse_metadata(metadata):
+    assert metadata.types == ["sample", "channel", "time", "space", "space"]
     assert metadata.offset == Coordinate(100, 200, 400)
     assert metadata.voxel_size == Coordinate(1, 2, 3)
-    assert metadata.axis_names == ["sample^", "channel^", "z", "y", "x"]
+    assert metadata.axis_names == ["sample^", "channel^", "t", "y", "x"]
     assert metadata.units == ["nm", "nm", "nm"]
 
 
@@ -71,6 +73,13 @@ def test_parse_incomplete_metadata(incomplete_metadata):
     assert incomplete_metadata.voxel_size == Coordinate(1, 1, 1)
     assert incomplete_metadata.axis_names == ["c0^", "c1^", "d0", "d1", "d2"]
     assert incomplete_metadata.units == ["", "", ""]
+    assert incomplete_metadata.types == [
+        "channel",
+        "channel",
+        "space",
+        "space",
+        "space",
+    ]
 
 
 def test_empty_metadata():
@@ -79,6 +88,7 @@ def test_empty_metadata():
     assert metadata.voxel_size == Coordinate(1, 1, 1, 1, 1)
     assert metadata.axis_names == ["d0", "d1", "d2", "d3", "d4"]
     assert metadata.units == ["", "", "", "", ""]
+    assert metadata.types == ["space", "space", "space", "space", "space"]
 
 
 def test_default_metadata_format(tmpdir):
@@ -95,12 +105,14 @@ def test_default_metadata_format(tmpdir):
         voxel_size=metadata.voxel_size,
         axis_names=metadata.axis_names,
         units=metadata.units,
+        types=metadata.types,
         dtype="float32",
         mode="w",
     )
 
-    zarr_attrs = zarr.open(str(tmpdir / "test.zarr/test")).attrs
+    zarr_attrs = dict(**zarr.open(str(tmpdir / "test.zarr/test")).attrs)
     assert zarr_attrs["offset"] == [100, 200, 400]
     assert zarr_attrs["resolution"] == [1, 2, 3]
-    assert zarr_attrs["extras/axes"] == ["sample^", "channel^", "z", "y", "x"]
+    assert zarr_attrs["extras/axes"] == ["sample^", "channel^", "t", "y", "x"]
     assert zarr_attrs["extras/units"] == ["nm", "nm", "nm"]
+    assert zarr_attrs["types"] == ["sample", "channel", "time", "space", "space"]

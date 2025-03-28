@@ -13,7 +13,7 @@
         "axes": [
             "sample^",
             "channel^",
-            "z",
+            "t",
             "y",
             "x"
         ],
@@ -22,5 +22,12 @@
             "nm",
             "nm"
         ]
-    }
+    },
+    "types": [
+        "sample",
+        "channel",
+        "time",
+        "space",
+        "space"
+    ]
 }

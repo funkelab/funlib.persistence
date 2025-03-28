@@ -1,6 +1,7 @@
 import logging
+from collections.abc import Sequence
 from functools import reduce
-from typing import Any, Optional, Sequence, Union
+from typing import Any, Optional, Union
 
 import dask.array as da
 import numpy as np
@@ -45,6 +46,17 @@ class Array(Freezable):
 
             The units of each spatial dimension.
 
+        types (``Optional[Sequence[str]]``):
+
+            The type of each dimension. Can be "space", "channel", or "time".
+            We treat both "space" and "time" as spatial dimensions for indexing with
+            Roi and Coordinate classes in world units.
+            If not provided, we fall back on the axis names and assume "channel"
+            for any axis name that ends with "^" and "space" otherwise. If neither
+            are provided we assume "space" for all dimensions.
+            Note that the axis name parsing is depricated and will be removed in
+            future versions and we highly recommend providing the types directly.
+
         chunks (`tuple[int]` or `str` or `int`, optional):
 
             See https://docs.dask.org/en/stable/generated/dask.array.from_array.html for
@@ -55,6 +67,12 @@ class Array(Freezable):
             The lazy_op to use for this array. If you would like apply multiple
             lazy_ops, please look into either the `.lazy_op` method or the
             `SequentialLazyOp` class.
+
+        strict_metadata (``bool``):
+
+            If True, then all metadata fields must be provided, including
+            offset, voxel_size, axis_names, units, and types. Metadata
+            can either be passed in or read from array attributes.
 
     """
 
@@ -67,8 +85,10 @@ class Array(Freezable):
         voxel_size: Optional[Sequence[int]] = None,
         axis_names: Optional[Sequence[str]] = None,
         units: Optional[Sequence[str]] = None,
+        types: Optional[Sequence[str]] = None,
         chunks: Optional[Union[int, Sequence[int], str]] = "auto",
         lazy_op: Optional[LazyOp] = None,
+        strict_metadata: bool = False,
     ):
         if not isinstance(data, da.Array):
             self.data = da.from_array(data, chunks=chunks)
@@ -81,7 +101,9 @@ class Array(Freezable):
             voxel_size=Coordinate(voxel_size) if voxel_size is not None else None,
             axis_names=list(axis_names) if axis_names is not None else None,
             units=list(units) if units is not None else None,
+            types=list(types) if types is not None else None,
             shape=self._source_data.shape,
+            strict=strict_metadata,
         )
 
         # used for custom metadata unrelated to indexing with physical units
@@ -96,7 +118,7 @@ class Array(Freezable):
 
         self.freeze()
 
-        self.validate()
+        self.validate(strict_metadata)
 
     @property
     def attrs(self) -> dict:
@@ -115,11 +137,17 @@ class Array(Freezable):
         return Coordinate(self.data.chunksize)
 
     def uncollapsed_dims(self, physical: bool = False) -> list[bool]:
+        """
+        We support lazy slicing of arrays, such as `x = Array(np.ones(5,5,5))` and
+        `x.lazy_op(np.s![0, :, :])`. This will result in the first dimension being
+        collapsed and future slicing operations will need to be 2D.
+        We use `_uncollapsed_dims` to keep track of which dimensions are sliceable.
+        """
         if physical:
             return [
                 x
-                for x, c in zip(self._uncollapsed_dims, self._metadata.axis_names)
-                if not c.endswith("^")
+                for x, t in zip(self._uncollapsed_dims, self._metadata.types)
+                if t in ["space", "time"]
             ]
         else:
             return self._uncollapsed_dims
@@ -166,13 +194,21 @@ class Array(Freezable):
         ]
 
     @property
+    def types(self) -> list[str]:
+        return [
+            self._metadata.types[ii]
+            for ii, uncollapsed in enumerate(self.uncollapsed_dims(physical=False))
+            if uncollapsed
+        ]
+
+    @property
     def physical_shape(self):
         return tuple(
             self._source_data.shape[ii]
-            for ii, (uncollapsed, name) in enumerate(
-                zip(self.uncollapsed_dims(physical=False), self._metadata.axis_names)
+            for ii, (uncollapsed, type) in enumerate(
+                zip(self.uncollapsed_dims(physical=False), self._metadata.types)
             )
-            if uncollapsed and not name.endswith("^")
+            if uncollapsed and type in ["space", "time"]
         )
 
     @property
@@ -438,8 +474,8 @@ class Array(Freezable):
             index = (Ellipsis,) + index
         return index
 
-    def validate(self):
-        self._metadata.validate()
+    def validate(self, strict: bool = False):
+        self._metadata.validate(strict)
         assert len(self.axis_names) == len(self._source_data.shape), (
             f"Axis names must be provided for every dimension. Got ({self.axis_names}) "
             f"but expected {len(self.shape)} to match the data shape: {self.shape}"

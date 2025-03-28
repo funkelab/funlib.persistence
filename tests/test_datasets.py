@@ -43,8 +43,9 @@ def test_helpers(tmpdir, store, dtype):
         {
             "offset": [100, 200, 400],
             "voxel_size": [1, 2, 3],
-            "axis_names": ["sample^", "channel^", "z", "y", "x"],
+            "axis_names": ["sample^", "channel^", "t", "y", "x"],
             "units": ["nm", "nm", "nm"],
+            "types": ["sample", "channel", "time", "space", "space"],
         },
     )
 
@@ -57,7 +58,8 @@ def test_helpers(tmpdir, store, dtype):
             metadata.voxel_size,
             metadata.axis_names,
             metadata.units,
-            chunk_shape,
+            metadata.types,
+            chunk_shape=chunk_shape,
             dtype=dtype,
             mode="r",
         )
@@ -70,7 +72,8 @@ def test_helpers(tmpdir, store, dtype):
         metadata.voxel_size,
         metadata.axis_names,
         metadata.units,
-        chunk_shape,
+        metadata.types,
+        chunk_shape=chunk_shape,
         dtype=dtype,
         mode="w",
     )
@@ -81,6 +84,7 @@ def test_helpers(tmpdir, store, dtype):
     assert array.offset == metadata.offset
     assert array.axis_names == metadata.axis_names
     assert array.units == metadata.units
+    assert array.types == metadata.types
 
     # test prepare_ds opens array if it exists and mode is read
     array = prepare_ds(
@@ -90,7 +94,8 @@ def test_helpers(tmpdir, store, dtype):
         metadata.voxel_size,
         metadata.axis_names,
         metadata.units,
-        chunk_shape,
+        metadata.types,
+        chunk_shape=chunk_shape,
         dtype=dtype,
         mode="r",
     )
@@ -101,6 +106,7 @@ def test_helpers(tmpdir, store, dtype):
     assert array.offset == metadata.offset
     assert array.axis_names == metadata.axis_names
     assert array.units == metadata.units
+    assert array.types == metadata.types
 
     # test prepare_ds fails if array exists and is opened in read mode
     # with incompatible arguments
@@ -112,7 +118,8 @@ def test_helpers(tmpdir, store, dtype):
             metadata.voxel_size,
             metadata.axis_names,
             metadata.units,
-            chunk_shape,
+            metadata.types,
+            chunk_shape=chunk_shape,
             dtype=dtype,
             mode="r",
         )
@@ -125,7 +132,8 @@ def test_helpers(tmpdir, store, dtype):
         metadata.voxel_size,
         metadata.axis_names,
         metadata.units,
-        chunk_shape,
+        metadata.types,
+        chunk_shape=chunk_shape,
         dtype=dtype,
         mode="w",
     )
@@ -136,6 +144,7 @@ def test_helpers(tmpdir, store, dtype):
     assert array.offset == metadata.offset
     assert array.axis_names == metadata.axis_names
     assert array.units == metadata.units
+    assert array.types == metadata.types
 
     # test prepare_ds updates metadata existing array in "r+" or "a" mode if it exists
     array = prepare_ds(
@@ -145,7 +154,8 @@ def test_helpers(tmpdir, store, dtype):
         metadata.voxel_size * 2,
         metadata.axis_names,
         metadata.units,
-        chunk_shape,
+        metadata.types,
+        chunk_shape=chunk_shape,
         dtype=dtype,
         mode="r+",
     )
@@ -156,6 +166,7 @@ def test_helpers(tmpdir, store, dtype):
     assert array.offset == metadata.offset
     assert array.axis_names == metadata.axis_names
     assert array.units == metadata.units
+    assert array.types == metadata.types
 
     # test prepare_ds updates existing array in "r+" or "a" mode if it exists
     array = prepare_ds(
@@ -165,7 +176,8 @@ def test_helpers(tmpdir, store, dtype):
         metadata.voxel_size,
         metadata.axis_names,
         metadata.units,
-        chunk_shape,
+        metadata.types,
+        chunk_shape=chunk_shape,
         dtype=dtype,
         mode="a",
     )
@@ -176,6 +188,7 @@ def test_helpers(tmpdir, store, dtype):
     assert array.offset == metadata.offset
     assert array.axis_names == metadata.axis_names
     assert array.units == metadata.units
+    assert array.types == metadata.types
 
     # test prepare_ds with mode "w" overwrites existing array even if compatible
     array[:] = 2
@@ -187,7 +200,8 @@ def test_helpers(tmpdir, store, dtype):
         metadata.voxel_size,
         metadata.axis_names,
         metadata.units,
-        chunk_shape,
+        metadata.types,
+        chunk_shape=chunk_shape,
         dtype=dtype,
         mode="w",
     )
@@ -199,6 +213,7 @@ def test_helpers(tmpdir, store, dtype):
     assert array.offset == metadata.offset
     assert array.axis_names == metadata.axis_names
     assert array.units == metadata.units
+    assert array.types == metadata.types
 
 
 @pytest.mark.parametrize("store", stores.keys())
@@ -213,6 +228,7 @@ def test_open_ds(tmpdir, store, dtype):
             "voxel_size": [1, 2, 3],
             "axis_names": ("sample^", "channel^", "z", "y", "x"),
             "units": ("nm", "nm", "nm"),
+            "types": ["sample", "channel", "space", "space", "space"],
         },
     )
 
@@ -224,6 +240,7 @@ def test_open_ds(tmpdir, store, dtype):
             voxel_size=metadata.voxel_size,
             axis_names=metadata.axis_names,
             units=metadata.units,
+            types=metadata.types,
             mode="r",
         )
 
@@ -235,6 +252,7 @@ def test_open_ds(tmpdir, store, dtype):
         voxel_size=metadata.voxel_size,
         axis_names=metadata.axis_names,
         units=metadata.units,
+        types=metadata.types,
         dtype=dtype,
         mode="w",
     )
