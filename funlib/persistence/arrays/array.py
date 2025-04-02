@@ -156,11 +156,10 @@ class Array(Freezable):
     @property
     def offset(self) -> Coordinate:
         """Get the offset of this array in world units."""
-        udims = self.uncollapsed_dims(physical=True)
         return Coordinate(
             [
                 self._metadata.offset[ii]
-                for ii, uncollapsed in enumerate(udims)
+                for ii, uncollapsed in enumerate(self.uncollapsed_dims(physical=True))
                 if uncollapsed
             ]
         )
@@ -168,21 +167,19 @@ class Array(Freezable):
     @property
     def voxel_size(self) -> Coordinate:
         """Get the size of a voxel in world units."""
-        udims = self.uncollapsed_dims(physical=True)
         return Coordinate(
             [
                 self._metadata.voxel_size[ii]
-                for ii, uncollapsed in enumerate(udims)
+                for ii, uncollapsed in enumerate(self.uncollapsed_dims(physical=True))
                 if uncollapsed
             ]
         )
 
     @property
     def units(self) -> list[str]:
-        udims = self.uncollapsed_dims(physical=True)
         return [
             self._metadata.units[ii]
-            for ii, uncollapsed in enumerate(udims)
+            for ii, uncollapsed in enumerate(self.uncollapsed_dims(physical=True))
             if uncollapsed
         ]
 
@@ -205,11 +202,9 @@ class Array(Freezable):
     @property
     def physical_shape(self):
         return tuple(
-            self._source_data.shape[ii]
-            for ii, (uncollapsed, type) in enumerate(
-                zip(self.uncollapsed_dims(physical=False), self._metadata.types)
-            )
-            if uncollapsed and type in ["space", "time"]
+            self.data.shape[ii]
+            for ii, axis_type in enumerate(self.types)
+            if axis_type in ["space", "time"]
         )
 
     @property
