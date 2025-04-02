@@ -13,6 +13,7 @@ from funlib.geometry import Coordinate, Roi
 from .freezable import Freezable
 from .lazy_ops import LazyOp
 from .metadata import MetaData
+from .utils import interleave
 
 logger = logging.getLogger(__name__)
 
@@ -267,6 +268,16 @@ class Array(Freezable):
                                 break
                             ii -= 1
             self.data = self.data[lazy_op]
+        elif isinstance(lazy_op, Roi):
+            assert all(self.uncollapsed_dims(physical=True)), (
+                "Lazily slicing with a Roi is not yet supported with some collapsed dimensions."
+            )
+            assert lazy_op.dims == self.spatial_dims, (
+                "Must provide a Roi with the same number of dimensions as this array."
+            )
+            slices = self.__slices(lazy_op, use_lazy_slices=False)
+            self.data = self.data[slices]
+            self._metadata._offset = lazy_op.offset
         elif callable(lazy_op):
             self.data = lazy_op(self.data)
         else:
@@ -441,7 +452,13 @@ class Array(Freezable):
                     % (roi, voxel_roi, self.chunk_shape, d)
                 )
 
-        roi_slices = (slice(None),) * self.channel_dims + voxel_roi.to_slices()
+        roi_slices = tuple(
+            interleave(
+                voxel_roi.to_slices(),
+                (slice(None),) * self.channel_dims,
+                [axis_type in ["space", "time"] for axis_type in self.types],
+            )
+        )
 
         lazy_slices = (
             [lazy_op for lazy_op in self.lazy_ops if self._is_slice(lazy_op)]
