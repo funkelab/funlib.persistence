@@ -276,13 +276,21 @@ class Array(Freezable):
             )
 
     def lazy_op(self, lazy_op: LazyOp):
-        """Apply an lazy_op to this array.
+        """Apply an lazy operation to this array.
 
         Args:
 
             lazy_op (``LazyOp``):
 
-                The lazy_op to apply to this array.
+                The lazy operation to apply to this array. Common lazy operations include
+                slicing (e.g. `array.lazy_op(np.s_[0, :, :])`), thresholding (e.g. `array.lazy_op(lambda d: d > 0.5)`),
+                or normalizing (e.g. `array.lazy_op(lambda d: d / 255)`).
+                Note that the lazy operation must come in the form of a slicing operation or a callable that
+                takes a dask array and returns a dask array.
+                Lazy operations that would change the shape of the array may make it impossible to properly query
+                the data with `Coordinate` or `Roi` objects. In these cases, it may be more appropriate to recreate
+                the array with the appropriate metadata. For example:
+                `sub_array = Array(array.data[::2, ::2, ::2], array.offset, array.voxel_size * 2, ...)`
         """
         self.apply_lazy_ops(lazy_op)
         self.lazy_ops.append(lazy_op)
@@ -292,18 +300,16 @@ class Array(Freezable):
 
         Args:
 
-            key (`class:Roi` or `class:Coordinate`):
+            key (`class:Roi` or `class:Coordinate` or any numpy compatible key):
 
-                The ROI specifying the sub-array or a coordinate for a single
-                value.
+                The `Roi`, `Coordinate`, or numpy compatible key indicating the data
+                you want to read.
 
         Returns:
 
-            If ``key`` is a `class:Roi`, returns a `class:Array` that
-            represents this ROI. This is a light-weight operation that does not
-            access the actual data held by this array. If ``key`` is a
-            `class:Coordinate`, the array value (possible multi-channel)
-            closest to the coordinate is returned.
+            A numpy array containing the data requested by the key. If using a `class:Roi`
+            or `class:Coordinate`, the data will be returned in world units. If using
+            a numpy compatible key, the data will be sliced as a regular numpy array.
         """
 
         if isinstance(key, Roi):
@@ -379,7 +385,7 @@ class Array(Freezable):
                 "want if you want to write to this array."
             )
 
-    def to_ndarray(self, roi, fill_value=0):
+    def to_ndarray(self, roi: Roi, fill_value=0) -> np.ndarray:
         """An alternative implementation of `__getitem__` that supports
         using fill values to request data that may extend outside the
         roi covered by self.
