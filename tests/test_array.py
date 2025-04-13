@@ -413,7 +413,7 @@ def test_writeable():
     assert a.axis_names == ["d0", "d1"]
     assert a.is_writeable
 
-    a.lazy_op(Roi((0,0),(2,2)))
+    a.lazy_op(Roi((0, 0), (2, 2)))
     assert a.shape == (2, 2)
     assert a.axis_names == ["d0", "d1"]
     assert a.is_writeable
