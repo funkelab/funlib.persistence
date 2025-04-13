@@ -397,3 +397,28 @@ def test_lazy_op():
     assert a.dtype == int
     a.lazy_op(lambda b: b > 2)
     assert a.dtype == bool
+
+
+def test_writeable():
+    a = Array(
+        np.arange(0, 4 * 4).reshape(4, 2, 2),
+        (0, 0),
+        (1, 1),
+        types=["space", "channel", "time"],
+    )
+    assert a.is_writeable
+
+    a.lazy_op(np.s_[0:3, 1, :])
+    assert a.shape == (3, 2)
+    assert a.axis_names == ["d0", "d1"]
+    assert a.is_writeable
+
+    a.lazy_op(Roi((0,0),(2,2)))
+    assert a.shape == (2, 2)
+    assert a.axis_names == ["d0", "d1"]
+    assert a.is_writeable
+
+    a.lazy_op(lambda b: b > 2)
+    assert a.shape == (2, 2)
+    assert a.axis_names == ["d0", "d1"]
+    assert not a.is_writeable
