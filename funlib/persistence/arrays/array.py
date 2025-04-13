@@ -247,7 +247,10 @@ class Array(Freezable):
     @property
     def is_writeable(self):
         return len(self.lazy_ops) == 0 or all(
-            [self._is_slice(lazy_op, writeable=True) for lazy_op in self.lazy_ops]
+            [
+                self._is_slice(lazy_op, writeable=True) or isinstance(lazy_op, Roi)
+                for lazy_op in self.lazy_ops
+            ]
         )
 
     def apply_lazy_ops(self, lazy_op):
