@@ -1,3 +1,5 @@
 from typing import Callable, Union
 
-LazyOp = Union[slice, Callable]
+from funlib.geometry import Roi
+
+LazyOp = Union[slice, Callable, Roi]

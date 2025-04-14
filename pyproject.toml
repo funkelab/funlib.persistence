@@ -19,7 +19,11 @@ keywords = []
 
 dependencies = [
     "zarr>=2,<3",
-    "iohub >= 0.2.0b0",
+    # ImportError: cannot import name 'cbuffer_sizes' from 'numcodecs.blosc'
+    # We can pin zarr to >2.18.7 but then we have to drop python 3.10
+    # pin numcodecs to avoid breaking change
+    "numcodecs>0.13,<0.16.0",
+    "iohub>=0.2.0b0",
     "funlib.geometry>=0.3.0",
     "networkx>=3.0.0",
     "pymongo>=4.0.0",
@@ -57,8 +61,5 @@ explicit_package_bases = true
 
 # # module specific overrides
 [[tool.mypy.overrides]]
-module = [
-    "zarr.*",
-    "iohub.*",
-]
+module = ["zarr.*", "iohub.*"]
 ignore_missing_imports = true

@@ -13,6 +13,7 @@ from funlib.geometry import Coordinate, Roi
 from .freezable import Freezable
 from .lazy_ops import LazyOp
 from .metadata import MetaData
+from .utils import interleave
 
 logger = logging.getLogger(__name__)
 
@@ -155,11 +156,10 @@ class Array(Freezable):
     @property
     def offset(self) -> Coordinate:
         """Get the offset of this array in world units."""
-        udims = self.uncollapsed_dims(physical=True)
         return Coordinate(
             [
                 self._metadata.offset[ii]
-                for ii, uncollapsed in enumerate(udims)
+                for ii, uncollapsed in enumerate(self.uncollapsed_dims(physical=True))
                 if uncollapsed
             ]
         )
@@ -167,21 +167,19 @@ class Array(Freezable):
     @property
     def voxel_size(self) -> Coordinate:
         """Get the size of a voxel in world units."""
-        udims = self.uncollapsed_dims(physical=True)
         return Coordinate(
             [
                 self._metadata.voxel_size[ii]
-                for ii, uncollapsed in enumerate(udims)
+                for ii, uncollapsed in enumerate(self.uncollapsed_dims(physical=True))
                 if uncollapsed
             ]
         )
 
     @property
     def units(self) -> list[str]:
-        udims = self.uncollapsed_dims(physical=True)
         return [
             self._metadata.units[ii]
-            for ii, uncollapsed in enumerate(udims)
+            for ii, uncollapsed in enumerate(self.uncollapsed_dims(physical=True))
             if uncollapsed
         ]
 
@@ -204,11 +202,9 @@ class Array(Freezable):
     @property
     def physical_shape(self):
         return tuple(
-            self._source_data.shape[ii]
-            for ii, (uncollapsed, type) in enumerate(
-                zip(self.uncollapsed_dims(physical=False), self._metadata.types)
-            )
-            if uncollapsed and type in ["space", "time"]
+            self.data.shape[ii]
+            for ii, axis_type in enumerate(self.types)
+            if axis_type in ["space", "time"]
         )
 
     @property
@@ -251,7 +247,10 @@ class Array(Freezable):
     @property
     def is_writeable(self):
         return len(self.lazy_ops) == 0 or all(
-            [self._is_slice(lazy_op, writeable=True) for lazy_op in self.lazy_ops]
+            [
+                self._is_slice(lazy_op, writeable=True) or isinstance(lazy_op, Roi)
+                for lazy_op in self.lazy_ops
+            ]
         )
 
     def apply_lazy_ops(self, lazy_op):
@@ -267,6 +266,16 @@ class Array(Freezable):
                                 break
                             ii -= 1
             self.data = self.data[lazy_op]
+        elif isinstance(lazy_op, Roi):
+            assert all(self.uncollapsed_dims(physical=True)), (
+                "Lazily slicing with a Roi is not yet supported with some collapsed dimensions."
+            )
+            assert lazy_op.dims == self.spatial_dims, (
+                "Must provide a Roi with the same number of dimensions as this array."
+            )
+            slices = self.__slices(lazy_op, use_lazy_slices=False)
+            self.data = self.data[slices]
+            self._metadata._offset = lazy_op.offset
         elif callable(lazy_op):
             self.data = lazy_op(self.data)
         else:
@@ -441,7 +450,13 @@ class Array(Freezable):
                     % (roi, voxel_roi, self.chunk_shape, d)
                 )
 
-        roi_slices = (slice(None),) * self.channel_dims + voxel_roi.to_slices()
+        roi_slices = tuple(
+            interleave(
+                voxel_roi.to_slices(),
+                (slice(None),) * self.channel_dims,
+                [axis_type in ["space", "time"] for axis_type in self.types],
+            )
+        )
 
         lazy_slices = (
             [lazy_op for lazy_op in self.lazy_ops if self._is_slice(lazy_op)]
