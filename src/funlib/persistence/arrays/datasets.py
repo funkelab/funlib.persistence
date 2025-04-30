@@ -241,42 +241,54 @@ def _find_existing(store, kwargs: dict) -> tuple[Optional[Array], bool]:
         return None, True
 
 
-def _differ(what: str, given, existing) -> bool:
+def _differ(what: str, given, existing) -> tuple[str, object, object]:
     logger.info("%s differ: given (%s) vs parsed (%s)", what, given, existing)
-    return True
+    return (what, given, existing)
 
 
-def _data_compatible(
+def _data_mismatches(
     existing: Array, shape, chunk_shape, inner_chunk_shape, dtype
-) -> bool:
-    """Whether the existing array can hold the requested one: same shape, dtype,
-    write-safe chunk shape (the shard if sharded) and, if given, inner chunk shape."""
+) -> list[tuple[str, object, object]]:
+    """The ways the existing array cannot hold the requested one, as
+    ``(what, given, existing)`` triples: shape, dtype, write-safe chunk shape (the
+    shard if sharded) and, if given, inner chunk shape. Empty means compatible."""
     source = existing._source_data
     write_unit = source.shards if source.shards is not None else source.chunks
-    mismatch = False
+    mismatches = []
     if tuple(shape) != tuple(existing.shape):
-        mismatch = _differ("Shapes", tuple(shape), existing.shape)
+        mismatches.append(_differ("Shapes", tuple(shape), existing.shape))
     if chunk_shape is not None and tuple(chunk_shape) != tuple(write_unit):
-        mismatch = _differ(
-            "Chunk shapes (the write unit)", tuple(chunk_shape), write_unit
+        mismatches.append(
+            _differ("Chunk shapes (the write unit)", tuple(chunk_shape), write_unit)
         )
     if inner_chunk_shape is not None and tuple(
         int(c) for c in inner_chunk_shape
     ) != tuple(source.chunks):
-        mismatch = _differ(
-            "Inner chunk shapes", tuple(inner_chunk_shape), source.chunks
+        mismatches.append(
+            _differ("Inner chunk shapes", tuple(inner_chunk_shape), source.chunks)
         )
     if dtype != existing.dtype:
-        mismatch = _differ("dtypes", dtype, existing.dtype)
-    return not mismatch
+        mismatches.append(_differ("dtypes", dtype, existing.dtype))
+    return mismatches
 
 
-def _metadata_compatible(given, existing) -> bool:
-    mismatch = False
+def _metadata_mismatches(given, existing) -> list[tuple[str, object, object]]:
+    """The metadata fields on which ``given`` and ``existing`` disagree, as
+    ``(what, given, existing)`` triples. Empty means compatible."""
+    mismatches = []
     for field in ("voxel_size", "types", "axis_names", "units"):
         if getattr(given, field) != getattr(existing, field):
-            mismatch = _differ(field, getattr(given, field), getattr(existing, field))
-    return not mismatch
+            mismatches.append(
+                _differ(field, getattr(given, field), getattr(existing, field))
+            )
+    return mismatches
+
+
+def _describe_mismatches(mismatches: list[tuple[str, object, object]]) -> str:
+    return "\n".join(
+        f"{what}: (given) {given} vs (parsed) {existing}"
+        for what, given, existing in mismatches
+    )
 
 
 def _create_sharded(
@@ -469,21 +481,28 @@ def prepare_ds(
 
     if existing is not None:
         existing_metadata = metadata_format.parse(shape, existing._source_data.attrs)
-        if not _data_compatible(existing, shape, chunk_shape, inner_chunk_shape, dtype):
+        data_mismatches = _data_mismatches(
+            existing, shape, chunk_shape, inner_chunk_shape, dtype
+        )
+        metadata_mismatches = _metadata_mismatches(given_metadata, existing_metadata)
+        if data_mismatches:
             if mode != "w":
                 raise PermissionError(
-                    "Existing dataset is not compatible, but mode is not 'w'."
+                    f"Existing dataset ({store}) is not compatible, but mode is not 'w'.\n"
+                    + _describe_mismatches(data_mismatches + metadata_mismatches)
                 )
             logger.info("Existing dataset is not compatible, creating a new one")
-        elif not _metadata_compatible(given_metadata, existing_metadata):
+        elif metadata_mismatches:
             if mode == "r":
                 raise PermissionError(
-                    "Existing metadata is not compatible, but mode is 'r' and the metadata can't be updated."
+                    f"Existing metadata ({store}) is not compatible, but mode is 'r' "
+                    "and the metadata can't be updated.\n"
+                    + _describe_mismatches(metadata_mismatches)
                 )
             # the structure matches: reopened and relabelled below
         elif mode == "w":
             logger.info(
-                "Existing dataset is compatible, but mode is 'w' and thus the existing dataset will be deleted"
+                "Existing dataset is compatible, but mode is 'w' and thus the existing dataset will be deleted."
             )
         else:
             ds = zarr.open(store, mode=mode, **kwargs)
