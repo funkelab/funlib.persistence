@@ -233,6 +233,7 @@ def prepare_ds(
 
     if existing_array is not None:
         data_compatible = True
+        inconsistencies = []
 
         # data incompatibilities
         if shape != existing_array.shape:
@@ -240,6 +241,7 @@ def prepare_ds(
                 "Shapes differ: given (%s) vs parsed (%s)", shape, existing_array.shape
             )
             data_compatible = False
+            inconsistencies.append(("Shape", shape, existing_array.shape))
 
         if (
             chunk_shape is not None
@@ -251,12 +253,16 @@ def prepare_ds(
                 existing_array._source_data.chunks,
             )
             data_compatible = False
+            inconsistencies.append(
+                ("Chunk shape", chunk_shape, existing_array._source_data.chunks)
+            )
 
         if dtype != existing_array.dtype:
             logger.info(
                 "dtypes differ: given (%s) vs parsed (%s)", dtype, existing_array.dtype
             )
             data_compatible = False
+            inconsistencies.append(("dtype", dtype, existing_array.dtype))
 
         metadata_compatible = True
         existing_metadata = metadata_format.parse(
@@ -272,6 +278,9 @@ def prepare_ds(
                 existing_metadata.voxel_size,
             )
             metadata_compatible = False
+            inconsistencies.append(
+                ("Voxel size", given_metadata.voxel_size, existing_metadata.voxel_size)
+            )
 
         if given_metadata.types != existing_metadata.types:
             logger.info(
@@ -280,6 +289,9 @@ def prepare_ds(
                 existing_metadata.types,
             )
             metadata_compatible = False
+            inconsistencies.append(
+                ("Types", given_metadata.types, existing_metadata.types)
+            )
 
         if given_metadata.axis_names != existing_metadata.axis_names:
             logger.info(
@@ -288,6 +300,9 @@ def prepare_ds(
                 existing_metadata.axis_names,
             )
             metadata_compatible = False
+            inconsistencies.append(
+                ("Axis names", given_metadata.axis_names, existing_metadata.axis_names)
+            )
 
         if given_metadata.units != existing_metadata.units:
             logger.info(
@@ -296,6 +311,9 @@ def prepare_ds(
                 existing_metadata.units,
             )
             metadata_compatible = False
+            inconsistencies.append(
+                ("Units", given_metadata.units, existing_metadata.units)
+            )
 
         if not data_compatible:
             logger.info(
@@ -303,17 +321,19 @@ def prepare_ds(
             )
             if mode != "w":
                 raise PermissionError(
-                    "Existing dataset is not compatible, but mode is not 'w'."
+                    f"Existing dataset ({store}) is not compatible, but mode is not 'w'.\n"
+                    '\n'.join(f"{name}: (given) {given} vs (parsed) {parsed}" for name, given, parsed in inconsistencies)
                 )
         elif not metadata_compatible:
             if mode == "r":
                 raise PermissionError(
-                    "Existing metadata is not compatible, but mode is 'r' and the metadata can't be udpated."
+                    "Existing metadata is not compatible, but mode is 'r' and the metadata can't be udpated.\n"
+                    '\n'.join(f"{name}: (given) {given} vs (parsed) {parsed}" for name, given, parsed in inconsistencies)
                 )
         else:
             if mode == "w":
                 logger.info(
-                    "Existing dataset is compatible, but mode is 'w' and thus the existing dataset will be deleted"
+                    "Existing dataset is compatible, but mode is 'w' and thus the existing dataset will be deleted.
                 )
             else:
                 ds = zarr.open(store, mode=mode, **kwargs)
