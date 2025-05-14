@@ -12,15 +12,6 @@ from .metadata import MetaDataFormat, get_default_metadata_format
 
 logger = logging.getLogger(__name__)
 
-
-class ArrayNotFoundError(Exception):
-    """Exception raised when an array is not found in the dataset."""
-
-    def __init__(self, message: str = "Array not found in the dataset"):
-        self.message = message
-        super().__init__(self.message)
-
-
 def open_ds(
     store,
     mode: str = "r",
@@ -106,10 +97,7 @@ def open_ds(
         else get_default_metadata_format()
     )
 
-    try:
-        data = zarr.open(store, mode=mode, **kwargs)
-    except zarr.errors.PathNotFoundError:
-        raise ArrayNotFoundError(f"Nothing found at path {store}")
+    data = zarr.open(store, mode=mode, **kwargs)
 
     metadata = metadata_format.parse(
         data.shape,
@@ -238,7 +226,7 @@ def prepare_ds(
 
     try:
         existing_array = open_ds(store, mode="r", **kwargs)
-    except ArrayNotFoundError:
+    except FileNotFoundError:
         existing_array = None
 
     if existing_array is not None:
@@ -348,18 +336,14 @@ def prepare_ds(
     )
 
     # create the dataset
-    try:
-        ds = zarr.open_array(
-            store=store,
-            shape=shape,
-            chunks=chunk_shape,
-            dtype=dtype,
-            dimension_separator="/",
-            mode=mode,
-            **kwargs,
-        )
-    except zarr.errors.ArrayNotFoundError:
-        raise ArrayNotFoundError(f"Nothing found at path {store}")
+    ds = zarr.open_array(
+        store=store,
+        shape=shape,
+        chunks=chunk_shape,
+        dtype=dtype,
+        mode=mode,
+        **kwargs,
+    )
 
     default_metadata_format = get_default_metadata_format()
     our_metadata = {

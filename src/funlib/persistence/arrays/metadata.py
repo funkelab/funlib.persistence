@@ -305,7 +305,7 @@ class MetaDataFormat(BaseModel):
             # base case
             if len(keys) == 0:
                 # this key returns the data we want
-                if isinstance(data, (dict, zarr.attrs.Attributes)):
+                if isinstance(data, (dict, zarr.core.attributes.Attributes)):
                     return data.get(str(current_key), None)
                 elif isinstance(data, list):
                     assert isinstance(current_key, int), current_key

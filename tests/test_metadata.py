@@ -99,7 +99,7 @@ def test_default_metadata_format(tmpdir):
     )
 
     prepare_ds(
-        tmpdir / "test.zarr/test",
+        str(tmpdir / "test.zarr/test"),
         (10, 2, 100, 100, 100),
         offset=metadata.offset,
         voxel_size=metadata.voxel_size,
