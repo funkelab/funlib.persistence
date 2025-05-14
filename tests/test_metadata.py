@@ -91,7 +91,7 @@ def test_empty_metadata():
     assert metadata.types == ["space", "space", "space", "space", "space"]
 
 
-def test_default_metadata_format(tmpdir):
+def test_default_metadata_format(tmp_path):
     set_default_metadata_format(metadata_formats["simple"])
     metadata = metadata_formats["simple"].parse(
         (10, 2, 100, 100, 100),
@@ -99,7 +99,7 @@ def test_default_metadata_format(tmpdir):
     )
 
     prepare_ds(
-        str(tmpdir / "test.zarr/test"),
+        tmp_path / "test.zarr/test",
         (10, 2, 100, 100, 100),
         offset=metadata.offset,
         voxel_size=metadata.voxel_size,
@@ -110,7 +110,7 @@ def test_default_metadata_format(tmpdir):
         mode="w",
     )
 
-    zarr_attrs = dict(**zarr.open(str(tmpdir / "test.zarr/test")).attrs)
+    zarr_attrs = dict(**zarr.open(tmp_path / "test.zarr/test").attrs)
     assert zarr_attrs["offset"] == [100, 200, 400]
     assert zarr_attrs["resolution"] == [1, 2, 3]
     assert zarr_attrs["extras/axes"] == ["sample^", "channel^", "t", "y", "x"]

@@ -52,15 +52,14 @@ psql_param = (
         psql_param,
     )
 )
-def provider_factory(request, tmpdir):
-    tmpdir = Path(tmpdir)
+def provider_factory(request, tmp_path):
 
     @contextmanager
     def sqlite_provider_factory(
         mode, directed=None, total_roi=None, node_attrs=None, edge_attrs=None
     ):
         provider = SQLiteGraphDataBase(
-            tmpdir / "test_sqlite_graph.db",
+            tmp_path / "test_sqlite_graph.db",
             position_attribute="position",
             mode=mode,
             directed=directed,
