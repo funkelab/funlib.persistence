@@ -1,6 +1,6 @@
 import logging
 from functools import reduce
-from typing import Optional, Sequence, Union, Any
+from typing import Any, Optional, Sequence, Union
 
 import dask.array as da
 import numpy as np
@@ -449,3 +449,56 @@ class Array(Freezable):
                 f"Chunk shape ({self.chunk_shape}) must have the same "
                 f"number of dimensions as the data ({self.shape})"
             )
+
+    def to_pixel_space(
+        self, world_loc: Roi | Coordinate | Sequence[int | float]
+    ) -> Roi | Coordinate | np.ndarray:
+        """Convert a point or roi in world space into the pixel space of this array.
+        Works on sequences of floats by returning a numpy array that is not guaranteed
+        to be aligned with pixels.
+
+        Args:
+            world_loc (Roi | Coordinate | Sequence[int | float]):  The world space
+                point or roi to convert to pixel space
+
+        Raises:
+            ValueError: If the world location falls outside the array's roi
+
+        Returns:
+            Roi | Coordinate | np.ndarray: The point or roi converted into the pixel
+                space of the array. If the input was a Coordinate or Roi, returns
+                the same type of object. If the input was a sequence of python numbers,
+                returns a numpy array with the result, which may or may not be integers.
+        """
+        if not self.roi.contains(world_loc):
+            raise ValueError(
+                f"Given world location {world_loc} is not included in this array with world ROI {self.roi}"
+            )
+        if isinstance(world_loc, (Roi, Coordinate)):
+            return (world_loc - self.roi.offset) / self.voxel_size
+        else:
+            return (np.array(world_loc) - np.array(self.roi.offset)) / np.array(
+                self.voxel_size
+            )
+
+    def to_world_space(
+        self, pixel_loc: Roi | Coordinate | Sequence[int | float]
+    ) -> Roi | Coordinate:
+        """Convert a point or roi from pixel space in this array to the world
+        coordinate system defined by this array's roi and voxel size.
+        Works on Coordiantes and Rois, as well as sequences of ints or floats.
+
+        Args:
+            pixel_loc (Roi | Coordinate | Sequence[int | float]): A location in pixel space
+                of this array's data.
+
+        Returns:
+            Roi | Coordinate: The world location of the given pixel location. If the input
+                was a Roi or Coordinate, return the same type of object. If it was a
+                sequence of python numbers, return a numpy array that may be int or float.
+        """
+        if isinstance(pixel_loc, (Roi, Coordinate)):
+            return pixel_loc * self.voxel_size + self.roi.offset
+        return np.array(pixel_loc) * np.array(self.voxel_size) + np.array(
+            self.roi.offset
+        )
