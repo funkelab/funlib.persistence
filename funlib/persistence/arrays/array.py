@@ -1,7 +1,7 @@
 import logging
 from collections.abc import Sequence
 from functools import reduce
-from typing import Any, Optional, Sequence, Union
+from typing import Any, Optional, Union
 
 import dask.array as da
 import numpy as np
