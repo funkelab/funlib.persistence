@@ -422,3 +422,44 @@ def test_writeable():
     assert a.shape == (2, 2)
     assert a.axis_names == ["d0", "d1"]
     assert not a.is_writeable
+
+def test_to_pixel_world_space_coordinate():
+    offset = Coordinate(1, -1, 2)
+    shape = Coordinate(10, 10, 10)
+    voxel_size = Coordinate(1, 2, 1)
+    data = np.zeros(shape=shape)
+
+    arr = Array(data=data, offset=offset, voxel_size=voxel_size)
+    world_loc = Coordinate(1, -1, 2)
+    pixel_loc = Coordinate(0, 0, 0)
+    assert arr.to_pixel_space(world_loc) == pixel_loc
+    assert arr.to_world_space(pixel_loc) == world_loc
+
+    world_loc = np.array([1.5, 0, 2.5])
+    pixel_loc = np.array([0.5, 0.5, 0.5])
+    np.testing.assert_array_equal(arr.to_pixel_space(world_loc), pixel_loc)
+    np.testing.assert_array_equal(arr.to_world_space(pixel_loc), world_loc)
+
+    arr.lazy_op(np.s_[:, 0])
+    world_loc = Coordinate(1, 2)
+    pixel_loc = Coordinate(0, 0)
+    assert arr.to_pixel_space(world_loc) == pixel_loc
+    assert arr.to_world_space(pixel_loc) == world_loc
+
+    world_loc = np.array([1.5, 2.5])
+    pixel_loc = np.array([0.5, 0.5])
+    np.testing.assert_array_equal(arr.to_pixel_space(world_loc), pixel_loc)
+    np.testing.assert_array_equal(arr.to_world_space(pixel_loc), world_loc)
+
+
+def test_to_pixel_world_space_roi():
+    offset = Coordinate(1, -1, 2)
+    shape = Coordinate(10, 10, 10)
+    data = np.zeros(shape=shape)
+    voxel_size = Coordinate(1, 2, 1)
+    arr = Array(data=data, offset=offset, voxel_size=voxel_size)
+
+    world_loc = Roi((1, -1, 2), (10, 20, 10))
+    pixel_loc = Roi((0, 0, 0), (10, 10, 10))
+    assert arr.to_pixel_space(world_loc) == pixel_loc
+    assert arr.to_world_space(pixel_loc) == world_loc
