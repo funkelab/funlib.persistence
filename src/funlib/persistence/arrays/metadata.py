@@ -2,6 +2,7 @@ import warnings
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any, Optional
+import numbers
 
 import toml
 from funlib.geometry import Coordinate
@@ -205,12 +206,12 @@ class MetaData:
 
     def validate(self, strict: bool):
         assert (
-            all([isinstance(d, int) for d in self._offset])
+            all([isinstance(d, numbers.Number) for d in self._offset])
             if self._offset is not None
             else True
         ), f"Offset must be a sequence of ints, got {self._offset}"
         assert (
-            all([isinstance(d, int) for d in self._voxel_size])
+            all([isinstance(d, numbers.Number) for d in self._voxel_size])
             if self._voxel_size is not None
             else True
         ), f"Voxel size must be a sequence of ints, got {self._voxel_size}"

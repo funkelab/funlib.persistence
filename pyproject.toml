@@ -18,9 +18,13 @@ classifiers = ["Programming Language :: Python :: 3"]
 keywords = []
 
 dependencies = [
-    "zarr>=3,<4",
-    "iohub>=0.3.0a5",
-    "funlib.geometry>=0.3.0",
+    "zarr>=2,<3",
+    # ImportError: cannot import name 'cbuffer_sizes' from 'numcodecs.blosc'
+    # We can pin zarr to >2.18.7 but then we have to drop python 3.10
+    # pin numcodecs to avoid breaking change
+    "numcodecs>0.13,<0.16.0",
+    "iohub>=0.2.0b0",
+    "funlib-geometry>=0.3.0",
     "networkx>=3.0.0",
     "pymongo>=4.0.0",
     "numpy>=2.0.0",
@@ -57,3 +61,5 @@ lint.select = ["F", "W", "I001"]
 module = ["zarr.*", "iohub.*"]
 ignore_missing_imports = true
 
+[tool.uv.sources]
+funlib-geometry = { git = "https://github.com/funkelab/funlib.geometry", rev = "float-coords" }

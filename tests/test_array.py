@@ -436,8 +436,8 @@ def test_to_pixel_world_space_coordinate():
     assert arr.to_pixel_space(world_loc) == pixel_loc
     assert arr.to_world_space(pixel_loc) == world_loc
 
-    world_loc = np.array([1.5, 0, 2.5])
-    pixel_loc = np.array([0.5, 0.5, 0.5])
+    world_loc = Coordinate(1.5, 0, 2.5)
+    pixel_loc = Coordinate(0.5, 0.5, 0.5)
     np.testing.assert_array_equal(arr.to_pixel_space(world_loc), pixel_loc)
     np.testing.assert_array_equal(arr.to_world_space(pixel_loc), world_loc)
 
@@ -447,10 +447,40 @@ def test_to_pixel_world_space_coordinate():
     assert arr.to_pixel_space(world_loc) == pixel_loc
     assert arr.to_world_space(pixel_loc) == world_loc
 
-    world_loc = np.array([1.5, 2.5])
-    pixel_loc = np.array([0.5, 0.5])
+    world_loc = Coordinate(1.5, 2.5)
+    pixel_loc = Coordinate(0.5, 0.5)
     np.testing.assert_array_equal(arr.to_pixel_space(world_loc), pixel_loc)
     np.testing.assert_array_equal(arr.to_world_space(pixel_loc), world_loc)
+
+
+    offset = Coordinate(1.5, -0.5, 2.5)
+    shape = Coordinate(10, 10, 10)
+    voxel_size = Coordinate(1.5, 2.5, 0.5)
+    data = np.zeros(shape=shape)
+
+    arr = Array(data=data, offset=offset, voxel_size=voxel_size)
+    world_loc = Coordinate(1.5, -0.5, 2.5)
+    pixel_loc = Coordinate(0, 0, 0)
+    assert arr.to_pixel_space(world_loc) == pixel_loc
+    assert arr.to_world_space(pixel_loc) == world_loc
+
+    world_loc = Coordinate(3, 2, 3)
+    pixel_loc = Coordinate(1, 1, 1)
+    np.testing.assert_array_equal(arr.to_pixel_space(world_loc), pixel_loc)
+    np.testing.assert_array_equal(arr.to_world_space(pixel_loc), world_loc)
+
+    arr.lazy_op(np.s_[:, 0])
+    world_loc = Coordinate(1.5, 2.5)
+    pixel_loc = Coordinate(0, 0)
+    assert arr.to_pixel_space(world_loc) == pixel_loc
+    assert arr.to_world_space(pixel_loc) == world_loc
+
+    world_loc = Coordinate(2.25, 2.75)
+    pixel_loc = Coordinate(0.5, 0.5)
+    np.testing.assert_array_equal(arr.to_pixel_space(world_loc), pixel_loc)
+    np.testing.assert_array_equal(arr.to_world_space(pixel_loc), world_loc)
+
+
 
 
 def test_to_pixel_world_space_roi():

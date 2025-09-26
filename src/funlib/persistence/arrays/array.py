@@ -417,6 +417,11 @@ class Array(Freezable):
         """
 
         shape = roi.shape / self.voxel_size
+        shape = Coordinate(np.round(shape, decimals=0).astype(int))
+        assert np.isclose(
+            shape, roi.shape / self.voxel_size, rtol=1e-3, atol=1e-3
+        ).all()
+
         data = np.zeros(self.shape[: self.channel_dims] + shape, dtype=self.data.dtype)
         if fill_value != 0:
             data[:] = fill_value
