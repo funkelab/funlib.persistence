@@ -16,15 +16,15 @@ def test_constructor(array_constructor):
     Array(data, offset, (1, 1, 2))
     Array(data, offset, (1, 5, 2))
     Array(data, offset, (10, 5, 2))
-    Array(data, (1, 1, 1), (1, 1, 1))
-    Array(data, offset, (2, 2, 2))
+    Array(data, (1.5, 1.5, 1.5), (1.5, 1.5, 1.5))
+    Array(data, offset, (2.5, 2.5, 2.5))
 
     # dims don't match
     with pytest.raises(ValueError):
         Array(data, offset, (1, 1))
 
     Array(data, offset, (1, 1, 3))
-    Array(data, offset, (1, 1, 4))
+    Array(data, offset, (1, 1, 4.5))
 
     Array(data, (1, 1, 1), (1, 1, 2))
 
@@ -35,36 +35,36 @@ def test_dtype():
 
 
 def test_getitem():
-    a = Array(np.arange(0, 10).reshape(2, 5), (0, 0), (1, 1))
+    a = Array(np.arange(0, 10).reshape(2, 5), (0.5, 0.5), (1, 1))
 
-    assert a[FloatCoordinate((0, 0))] == 0
+    assert a[FloatCoordinate((0.5, 0.5))] == 0
     assert a[0, 0] == 0
-    assert a[FloatCoordinate((0, 1))] == 1
+    assert a[FloatCoordinate((0.5, 1.5))] == 1
     assert a[0, 1] == 1
-    assert a[FloatCoordinate((0, 2))] == 2
+    assert a[FloatCoordinate((0.5, 2.5))] == 2
     assert a[0, 2] == 2
-    assert a[FloatCoordinate((1, 0))] == 5
+    assert a[FloatCoordinate((1.5, 0.5))] == 5
     assert a[1, 0] == 5
-    assert a[FloatCoordinate((1, 1))] == 6
+    assert a[FloatCoordinate((1.5, 1.5))] == 6
     assert a[1, 1] == 6
     with pytest.raises(IndexError):
-        a[FloatCoordinate((1, 5))]
+        a[FloatCoordinate((1.5, 5.5))]
     with pytest.raises(IndexError):
         a[1, 5]
     with pytest.raises(IndexError):
-        a[FloatCoordinate((2, 5))]
+        a[FloatCoordinate((2.5, 5.5))]
     with pytest.raises(IndexError):
         a[2, 5]
     with pytest.raises(IndexError):
-        a[FloatCoordinate((-1, 0))]
+        a[FloatCoordinate((-0.5, 0.5))]
     with pytest.raises(IndexError):
-        a[FloatCoordinate((0, -1))]
+        a[FloatCoordinate((0.5, -0.5))]
 
     # Test negative indexes
     assert a[0, -1] == 4
     assert a[-1, 0] == 5
 
-    b = a[FloatRoi((1, 1), (1, 4))]
+    b = a[FloatRoi((1.5, 1.5), (1, 4))]
     np.testing.assert_array_equal(b, [[6, 7, 8, 9]])
 
 
