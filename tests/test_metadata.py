@@ -3,8 +3,8 @@ from pathlib import Path
 
 import pytest
 import zarr
-from funlib.geometry import Coordinate
 
+from funlib.geometry import FloatCoordinate
 from funlib.persistence.arrays.datasets import prepare_ds
 from funlib.persistence.arrays.metadata import (
     MetaDataFormat,
@@ -54,8 +54,8 @@ def metadata(request):
 
 def test_parse_metadata(metadata):
     assert metadata.types == ["sample", "channel", "time", "space", "space"]
-    assert metadata.offset == Coordinate(100, 200, 400)
-    assert metadata.voxel_size == Coordinate(1, 2, 3)
+    assert metadata.offset == FloatCoordinate(100, 200, 400)
+    assert metadata.voxel_size == FloatCoordinate(1, 2, 3)
     assert metadata.axis_names == ["sample^", "channel^", "t", "y", "x"]
     assert metadata.units == ["nm", "nm", "nm"]
 
@@ -69,8 +69,8 @@ def incomplete_metadata(request):
 
 
 def test_parse_incomplete_metadata(incomplete_metadata):
-    assert incomplete_metadata.offset == Coordinate(0, 0, 0)
-    assert incomplete_metadata.voxel_size == Coordinate(1, 1, 1)
+    assert incomplete_metadata.offset == FloatCoordinate(0, 0, 0)
+    assert incomplete_metadata.voxel_size == FloatCoordinate(1, 1, 1)
     assert incomplete_metadata.axis_names == ["c0^", "c1^", "d0", "d1", "d2"]
     assert incomplete_metadata.units == ["", "", ""]
     assert incomplete_metadata.types == [
@@ -84,8 +84,8 @@ def test_parse_incomplete_metadata(incomplete_metadata):
 
 def test_empty_metadata():
     metadata = MetaDataFormat().parse((10, 2, 100, 100, 100), {})
-    assert metadata.offset == Coordinate(0, 0, 0, 0, 0)
-    assert metadata.voxel_size == Coordinate(1, 1, 1, 1, 1)
+    assert metadata.offset == FloatCoordinate(0, 0, 0, 0, 0)
+    assert metadata.voxel_size == FloatCoordinate(1, 1, 1, 1, 1)
     assert metadata.axis_names == ["d0", "d1", "d2", "d3", "d4"]
     assert metadata.units == ["", "", "", "", ""]
     assert metadata.types == ["space", "space", "space", "space", "space"]

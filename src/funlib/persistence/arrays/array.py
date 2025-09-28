@@ -6,8 +6,9 @@ from typing import Any, Optional, Union
 import dask.array as da
 import numpy as np
 from dask.array.optimization import fuse_slice
-from funlib.geometry import Coordinate, Roi
 from zarr import Array as ZarrArray
+
+from funlib.geometry import FloatCoordinate, FloatRoi
 
 from .freezable import Freezable
 from .lazy_ops import LazyOp
@@ -50,7 +51,7 @@ class Array(Freezable):
 
             The type of each dimension. Can be "space", "channel", or "time".
             We treat both "space" and "time" as spatial dimensions for indexing with
-            Roi and Coordinate classes in world units.
+            FloatRoi and FloatCoordinate classes in world units.
             If not provided, we fall back on the axis names and assume "channel"
             for any axis name that ends with "^" and "space" otherwise. If neither
             are provided we assume "space" for all dimensions.
@@ -97,8 +98,8 @@ class Array(Freezable):
         self._uncollapsed_dims = [True for _ in self.data.shape]
         self._source_data = data
         self._metadata = MetaData(
-            offset=Coordinate(offset) if offset is not None else None,
-            voxel_size=Coordinate(voxel_size) if voxel_size is not None else None,
+            offset=FloatCoordinate(offset) if offset is not None else None,
+            voxel_size=FloatCoordinate(voxel_size) if voxel_size is not None else None,
             axis_names=list(axis_names) if axis_names is not None else None,
             units=list(units) if units is not None else None,
             types=list(types) if types is not None else None,
@@ -133,8 +134,8 @@ class Array(Freezable):
             return self._attrs
 
     @property
-    def chunk_shape(self) -> Coordinate:
-        return Coordinate(self.data.chunksize)  # ty: ignore[unresolved-attribute]
+    def chunk_shape(self) -> FloatCoordinate:
+        return FloatCoordinate(self.data.chunksize)
 
     def uncollapsed_dims(self, physical: bool = False) -> list[bool]:
         """
@@ -153,9 +154,9 @@ class Array(Freezable):
             return self._uncollapsed_dims
 
     @property
-    def offset(self) -> Coordinate:
+    def offset(self) -> FloatCoordinate:
         """Get the offset of this array in world units."""
-        return Coordinate(
+        return FloatCoordinate(
             [
                 self._metadata.offset[ii]
                 for ii, uncollapsed in enumerate(self.uncollapsed_dims(physical=True))
@@ -164,9 +165,9 @@ class Array(Freezable):
         )
 
     @property
-    def voxel_size(self) -> Coordinate:
+    def voxel_size(self) -> FloatCoordinate:
         """Get the size of a voxel in world units."""
-        return Coordinate(
+        return FloatCoordinate(
             [
                 self._metadata.voxel_size[ii]
                 for ii, uncollapsed in enumerate(self.uncollapsed_dims(physical=True))
@@ -209,11 +210,11 @@ class Array(Freezable):
     @property
     def roi(self):
         """
-        Get the Roi associated with this data.
+        Get the FloatRoi associated with this data.
         """
-        return Roi(
+        return FloatRoi(
             self.offset,
-            self.voxel_size * Coordinate(self.physical_shape),
+            self.voxel_size * FloatCoordinate(self.physical_shape),
         )
 
     @property
@@ -247,7 +248,7 @@ class Array(Freezable):
     def is_writeable(self):
         return len(self.lazy_ops) == 0 or all(
             [
-                self._is_slice(lazy_op, writeable=True) or isinstance(lazy_op, Roi)
+                self._is_slice(lazy_op, writeable=True) or isinstance(lazy_op, FloatRoi)
                 for lazy_op in self.lazy_ops
             ]
         )
@@ -265,12 +266,12 @@ class Array(Freezable):
                                 break
                             ii -= 1
             self.data = self.data[lazy_op]
-        elif isinstance(lazy_op, Roi):
+        elif isinstance(lazy_op, FloatRoi):
             assert all(self.uncollapsed_dims(physical=True)), (
-                "Lazily slicing with a Roi is not yet supported with some collapsed dimensions."
+                "Lazily slicing with a FloatRoi is not yet supported with some collapsed dimensions."
             )
             assert lazy_op.dims == self.spatial_dims, (
-                "Must provide a Roi with the same number of dimensions as this array."
+                "Must provide a FloatRoi with the same number of dimensions as this array."
             )
             slices = self.__slices(lazy_op, use_lazy_slices=False)
             self.data = self.data[slices]
@@ -296,7 +297,7 @@ class Array(Freezable):
                 Note that the lazy operation must come in the form of a slicing operation or a callable that
                 takes a dask array and returns a dask array.
                 Lazy operations that would change the shape of the array may make it impossible to properly query
-                the data with `Coordinate` or `Roi` objects. In these cases, it may be more appropriate to recreate
+                the data with `FloatCoordinate` or `FloatRoi` objects. In these cases, it may be more appropriate to recreate
                 the array with the appropriate metadata. For example:
                 `sub_array = Array(array.data[::2, ::2, ::2], array.offset, array.voxel_size * 2, ...)`
         """
@@ -308,19 +309,19 @@ class Array(Freezable):
 
         Args:
 
-            key (`class:Roi` or `class:Coordinate` or any numpy compatible key):
+            key (`class:FloatRoi` or `class:FloatCoordinate` or any numpy compatible key):
 
-                The `Roi`, `Coordinate`, or numpy compatible key indicating the data
+                The `FloatRoi`, `FloatCoordinate`, or numpy compatible key indicating the data
                 you want to read.
 
         Returns:
 
-            A numpy array containing the data requested by the key. If using a `class:Roi`
-            or `class:Coordinate`, the data will be returned in world units. If using
+            A numpy array containing the data requested by the key. If using a `class:FloatRoi`
+            or `class:FloatCoordinate`, the data will be returned in world units. If using
             a numpy compatible key, the data will be sliced as a regular numpy array.
         """
 
-        if isinstance(key, Roi):
+        if isinstance(key, FloatRoi):
             roi = key
 
             if not self.roi.contains(roi):
@@ -331,7 +332,7 @@ class Array(Freezable):
 
             return self.data[self.__slices(roi, use_lazy_slices=False)].compute()
 
-        elif isinstance(key, Coordinate):
+        elif isinstance(key, FloatCoordinate):
             coordinate = key
 
             if not self.roi.contains(coordinate):
@@ -348,7 +349,7 @@ class Array(Freezable):
 
         Args:
 
-            key (`class:Roi` or any numpy compatible key):
+            key (`class:FloatRoi`):
 
                 The region to write to. Can be a `Roi` for world-unit indexing,
                 or any numpy-compatible key (e.g. ``np.s_[:]``, a slice, a tuple
@@ -361,7 +362,7 @@ class Array(Freezable):
         """
 
         if self.is_writeable:
-            if isinstance(key, Roi):
+            if isinstance(key, FloatRoi):
                 roi = key
 
                 if not self.roi.contains(roi):
@@ -396,14 +397,14 @@ class Array(Freezable):
                 "want if you want to write to this array."
             )
 
-    def to_ndarray(self, roi: Roi, fill_value=0) -> np.ndarray:
+    def to_ndarray(self, roi: FloatRoi, fill_value=0) -> np.ndarray:
         """An alternative implementation of `__getitem__` that supports
         using fill values to request data that may extend outside the
         roi covered by self.
 
         Args:
 
-            roi (`class:Roi`, optional):
+            roi (`class:FloatRoi`, optional):
 
                 If given, copy only the data represented by this ROI. This is
                 equivalent to::
@@ -417,7 +418,7 @@ class Array(Freezable):
         """
 
         shape = roi.shape / self.voxel_size
-        shape = Coordinate(np.round(shape, decimals=0).astype(int))
+        shape = FloatCoordinate(np.round(shape, decimals=0).astype(int))
         assert np.isclose(
             shape, roi.shape / self.voxel_size, rtol=1e-3, atol=1e-3
         ).all()
@@ -515,22 +516,22 @@ class Array(Freezable):
             )
 
     def to_pixel_space(
-        self, world_loc: Roi | Coordinate | Sequence[int | float] | np.ndarray
-    ) -> Roi | Coordinate | np.ndarray:
+        self, world_loc: FloatRoi | FloatCoordinate | Sequence[int | float]
+    ) -> FloatRoi | FloatCoordinate | np.ndarray:
         """Convert a point or roi in world space into the pixel space of this array.
         Works on sequences of floats by returning a numpy array that is not guaranteed
         to be aligned with pixels.
 
         Args:
-            world_loc (Roi | Coordinate | Sequence[int | float]):  The world space
+            world_loc (FloatRoi | FloatCoordinate | Sequence[int | float]):  The world space
                 point or roi to convert to pixel space
 
         Raises:
             ValueError: If the world location falls outside the array's roi
 
         Returns:
-            Roi | Coordinate | np.ndarray: The point or roi converted into the pixel
-                space of the array. If the input was a Coordinate or Roi, returns
+            FloatRoi | FloatCoordinate | np.ndarray: The point or roi converted into the pixel
+                space of the array. If the input was a FloatCoordinate or FloatRoi, returns
                 the same type of object. If the input was a sequence of python numbers,
                 returns a numpy array with the result, which may or may not be integers.
         """
@@ -538,7 +539,7 @@ class Array(Freezable):
             raise ValueError(
                 f"Given world location {world_loc} is not included in this array with world ROI {self.roi}"
             )
-        if isinstance(world_loc, (Roi, Coordinate)):
+        if isinstance(world_loc, (FloatRoi, FloatCoordinate)):
             return (world_loc - self.roi.offset) / self.voxel_size
         else:
             return (np.array(world_loc) - np.array(self.roi.offset)) / np.array(
@@ -546,22 +547,22 @@ class Array(Freezable):
             )
 
     def to_world_space(
-        self, pixel_loc: Roi | Coordinate | Sequence[int | float] | np.ndarray
-    ) -> Roi | Coordinate:
+        self, pixel_loc: FloatRoi | FloatCoordinate | Sequence[int | float]
+    ) -> FloatRoi | FloatCoordinate:
         """Convert a point or roi from pixel space in this array to the world
         coordinate system defined by this array's roi and voxel size.
         Works on Coordiantes and Rois, as well as sequences of ints or floats.
 
         Args:
-            pixel_loc (Roi | Coordinate | Sequence[int | float]): A location in pixel space
+            pixel_loc (FloatRoi | FloatCoordinate | Sequence[int | float]): A location in pixel space
                 of this array's data.
 
         Returns:
-            Roi | Coordinate: The world location of the given pixel location. If the input
-                was a Roi or Coordinate, return the same type of object. If it was a
+            FloatRoi | FloatCoordinate: The world location of the given pixel location. If the input
+                was a FloatRoi or FloatCoordinate, return the same type of object. If it was a
                 sequence of python numbers, return a numpy array that may be int or float.
         """
-        if isinstance(pixel_loc, (Roi, Coordinate)):
+        if isinstance(pixel_loc, (FloatRoi, FloatCoordinate)):
             return pixel_loc * self.voxel_size + self.roi.offset
         return np.array(pixel_loc) * np.array(self.voxel_size) + np.array(
             self.roi.offset

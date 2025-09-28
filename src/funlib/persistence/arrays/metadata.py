@@ -5,8 +5,10 @@ from typing import Any, Optional
 import numbers
 
 import toml
-from funlib.geometry import Coordinate
+import zarr
 from pydantic import BaseModel
+
+from funlib.geometry import FloatCoordinate
 
 
 def strip_channels(
@@ -55,9 +57,9 @@ class MetaData:
                 types, [offset, voxel_size, units]
             )
 
-        self.shape = Coordinate(shape)
-        self._offset = Coordinate(offset) if offset is not None else None
-        self._voxel_size = Coordinate(voxel_size) if voxel_size is not None else None
+        self.shape = FloatCoordinate(shape)
+        self._offset = FloatCoordinate(offset) if offset is not None else None
+        self._voxel_size = FloatCoordinate(voxel_size) if voxel_size is not None else None
         self._axis_names = list(axis_names) if axis_names is not None else None
         self._units = list(units) if units is not None else None
         self._types = list(types) if types is not None else None
@@ -105,19 +107,19 @@ class MetaData:
         ]
 
     @property
-    def offset(self) -> Coordinate:
+    def offset(self) -> FloatCoordinate:
         return (
             self._offset
             if self._offset is not None
-            else Coordinate((0,) * self.physical_dims)
+            else FloatCoordinate((0,) * self.physical_dims)
         )
 
     @property
-    def voxel_size(self) -> Coordinate:
+    def voxel_size(self) -> FloatCoordinate:
         return (
             self._voxel_size
             if self._voxel_size is not None
-            else Coordinate((1,) * self.physical_dims)
+            else FloatCoordinate((1,) * self.physical_dims)
         )
 
     @property

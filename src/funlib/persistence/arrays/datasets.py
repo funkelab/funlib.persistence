@@ -4,8 +4,9 @@ from typing import Any, Literal, Optional, Union
 
 import numpy as np
 import zarr
-from funlib.geometry import Coordinate
 from numpy.typing import DTypeLike
+
+from funlib.geometry import FloatCoordinate
 
 from .array import Array
 from .metadata import MetaDataFormat, get_default_metadata_format
@@ -43,12 +44,12 @@ def open_ds(
             A description of the metadata format. If not provided, the default attributes will
             be used.
 
-        offset (`Coordinate`, (optional)):
+        offset (`FloatCoordinate`, (optional)):
 
             An override for the offset of the dataset in world units.
             Useful if your metadata is not stored with your array.
 
-        voxel_size (`Coordinate`, (optional)):
+        voxel_size (`FloatCoordinate`, (optional)):
 
             An override for the size of one voxel in the dataset in world units.
             Useful if your metadata is not stored with your array.
@@ -66,7 +67,7 @@ def open_ds(
             An override for the types of your axes. For more details see:
             https://ngff.openmicroscopy.org/latest/#axes-md
 
-        chunks (`Coordinate`, (optional)):
+        chunks (`FloatCoordinate`, (optional)):
 
             An override for the size of the chunks in the dataset.
             The default value ("strict") will use the chunksize of the dataset.
@@ -126,8 +127,8 @@ def open_ds(
 def prepare_ds(
     store,
     shape: Sequence[int],
-    offset: Optional[Coordinate] = None,
-    voxel_size: Optional[Coordinate] = None,
+    offset: Optional[FloatCoordinate] = None,
+    voxel_size: Optional[FloatCoordinate] = None,
     axis_names: Optional[Sequence[str]] = None,
     units: Optional[Sequence[str]] = None,
     types: Optional[Sequence[str]] = None,

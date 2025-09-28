@@ -1,8 +1,8 @@
 import numpy as np
 import pytest
-from funlib.geometry import Coordinate, Roi
 
-from funlib.persistence.arrays.datasets import open_ds, prepare_ds
+from funlib.geometry import FloatCoordinate, FloatRoi
+from funlib.persistence.arrays.datasets import ArrayNotFoundError, open_ds, prepare_ds
 from funlib.persistence.arrays.metadata import MetaDataFormat
 
 stores = {
@@ -34,10 +34,10 @@ def test_metadata(tmp_path, store):
 
 @pytest.mark.parametrize("store", stores.keys())
 @pytest.mark.parametrize("dtype", [np.float32, np.uint8, np.uint64])
-def test_helpers(tmp_path, store, dtype):
-    shape = Coordinate(1, 1, 10, 20, 30)
-    chunk_shape = Coordinate(2, 3, 10, 10, 10)
-    store = tmp_path / store
+def test_helpers(tmpdir, store, dtype):
+    shape = FloatCoordinate(1, 1, 10, 20, 30)
+    chunk_shape = FloatCoordinate(2, 3, 10, 10, 10)
+    store = tmpdir / store
     metadata = MetaDataFormat().parse(
         shape,
         {
@@ -77,8 +77,8 @@ def test_helpers(tmp_path, store, dtype):
         dtype=dtype,
         mode="w",
     )
-    assert array.roi == Roi(
-        metadata.offset, metadata.voxel_size * Coordinate(*shape[-3:])
+    assert array.roi == FloatRoi(
+        metadata.offset, metadata.voxel_size * FloatCoordinate(*shape[-3:])
     )
     assert array.voxel_size == metadata.voxel_size
     assert array.offset == metadata.offset
@@ -99,8 +99,8 @@ def test_helpers(tmp_path, store, dtype):
         dtype=dtype,
         mode="r",
     )
-    assert array.roi == Roi(
-        metadata.offset, metadata.voxel_size * Coordinate(*shape[-3:])
+    assert array.roi == FloatRoi(
+        metadata.offset, metadata.voxel_size * FloatCoordinate(*shape[-3:])
     )
     assert array.voxel_size == metadata.voxel_size
     assert array.offset == metadata.offset
@@ -137,8 +137,8 @@ def test_helpers(tmp_path, store, dtype):
         dtype=dtype,
         mode="w",
     )
-    assert array.roi == Roi(
-        metadata.offset, metadata.voxel_size * Coordinate(*chunk_shape[-3:])
+    assert array.roi == FloatRoi(
+        metadata.offset, metadata.voxel_size * FloatCoordinate(*chunk_shape[-3:])
     )
     assert array.voxel_size == metadata.voxel_size
     assert array.offset == metadata.offset
@@ -159,8 +159,8 @@ def test_helpers(tmp_path, store, dtype):
         dtype=dtype,
         mode="r+",
     )
-    assert array.roi == Roi(
-        metadata.offset, metadata.voxel_size * Coordinate(*chunk_shape[-3:]) * 2
+    assert array.roi == FloatRoi(
+        metadata.offset, metadata.voxel_size * FloatCoordinate(*chunk_shape[-3:]) * 2
     )
     assert array.voxel_size == metadata.voxel_size * 2
     assert array.offset == metadata.offset
@@ -181,8 +181,8 @@ def test_helpers(tmp_path, store, dtype):
         dtype=dtype,
         mode="a",
     )
-    assert array.roi == Roi(
-        metadata.offset, metadata.voxel_size * Coordinate(*chunk_shape[-3:])
+    assert array.roi == FloatRoi(
+        metadata.offset, metadata.voxel_size * FloatCoordinate(*chunk_shape[-3:])
     )
     assert array.voxel_size == metadata.voxel_size
     assert array.offset == metadata.offset
@@ -206,8 +206,8 @@ def test_helpers(tmp_path, store, dtype):
         mode="w",
     )
     assert np.all(np.isclose(array[:], 0))
-    assert array.roi == Roi(
-        metadata.offset, metadata.voxel_size * Coordinate(*chunk_shape[-3:])
+    assert array.roi == FloatRoi(
+        metadata.offset, metadata.voxel_size * FloatCoordinate(*chunk_shape[-3:])
     )
     assert array.voxel_size == metadata.voxel_size
     assert array.offset == metadata.offset
@@ -218,9 +218,9 @@ def test_helpers(tmp_path, store, dtype):
 
 @pytest.mark.parametrize("store", stores.keys())
 @pytest.mark.parametrize("dtype", [np.float32, np.uint8, np.uint64])
-def test_open_ds(tmp_path, store, dtype):
-    shape = Coordinate(1, 1, 10, 20, 30)
-    store = tmp_path / store
+def test_open_ds(tmpdir, store, dtype):
+    shape = FloatCoordinate(1, 1, 10, 20, 30)
+    store = tmpdir / store
     metadata = MetaDataFormat().parse(
         shape,
         {
@@ -256,8 +256,8 @@ def test_open_ds(tmp_path, store, dtype):
         dtype=dtype,
         mode="w",
     )
-    assert array.roi == Roi(
-        metadata.offset, metadata.voxel_size * Coordinate(*shape[-3:])
+    assert array.roi == FloatRoi(
+        metadata.offset, metadata.voxel_size * FloatCoordinate(*shape[-3:])
     )
     assert array.voxel_size == metadata.voxel_size
     assert array.offset == metadata.offset
@@ -273,8 +273,8 @@ def test_open_ds(tmp_path, store, dtype):
         units=metadata.units,
         mode="r",
     )
-    assert array.roi == Roi(
-        metadata.offset, metadata.voxel_size * Coordinate(*shape[-3:])
+    assert array.roi == FloatRoi(
+        metadata.offset, metadata.voxel_size * FloatCoordinate(*shape[-3:])
     )
     assert array.voxel_size == metadata.voxel_size
     assert array.offset == metadata.offset

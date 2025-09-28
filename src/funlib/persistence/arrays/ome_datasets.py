@@ -8,6 +8,8 @@ from iohub.ngff import TransformationMeta, open_ome_zarr
 from iohub.ngff.models import AxisMeta
 from numpy.typing import DTypeLike
 
+from funlib.geometry import FloatCoordinate
+
 from .array import Array
 from .metadata import MetaData
 
@@ -162,9 +164,9 @@ def prepare_ome_ds(
     assert not store.exists(), "Store already exists!"
 
     metadata = MetaData(
-        Coordinate(shape),
-        Coordinate(offset),
-        Coordinate(voxel_size),
+        FloatCoordinate(shape),
+        FloatCoordinate(offset),
+        FloatCoordinate(voxel_size),
         list(axis_names) if axis_names is not None else None,
         list(units) if units is not None else None,
         list(types) if types is not None else None,
