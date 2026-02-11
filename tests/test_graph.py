@@ -653,6 +653,65 @@ def test_read_edges_fetch_on_v(provider_factory, write_method):
         assert graph_edges_u_and_v == {(0, 5), (1, 5), (2, 8), (5, 8)}
 
 
+def test_graph_roi_upper_bound_exclusive(provider_factory):
+    """Nodes at exactly the upper bound of the ROI must be excluded.
+
+    ROI is half-open [begin, end). A node whose position equals end in any
+    dimension should NOT appear in read_nodes or read_graph results.
+
+    Regression test for: https://github.com/funkelab/funlib.persistence/issues/XX
+    """
+    roi = Roi((0, 0, 0), (10, 10, 10))  # [0, 10) in each dim
+
+    graph = nx.Graph()
+    # Interior node — clearly inside
+    graph.add_node(1, position=(5.0, 5.0, 5.0))
+    # Node exactly on lower bound — should be included
+    graph.add_node(2, position=(0.0, 0.0, 0.0))
+    # Nodes exactly on upper bound — should be excluded
+    graph.add_node(3, position=(10.0, 5.0, 5.0))  # x == end
+    graph.add_node(4, position=(5.0, 10.0, 5.0))  # y == end
+    graph.add_node(5, position=(5.0, 5.0, 10.0))  # z == end
+    graph.add_node(6, position=(10.0, 10.0, 10.0))  # all dims == end
+    # Edge crossing the boundary (u inside, v on boundary)
+    graph.add_edge(1, 3)
+
+    with provider_factory(
+        "w",
+        node_attrs={"position": Vec(float, 3)},
+    ) as gp:
+        gp.write_graph(graph)
+
+    with provider_factory("r") as gp:
+        # read_nodes: only nodes strictly inside [0, 10)
+        nodes = gp.read_nodes(roi)
+        node_ids = {n["id"] for n in nodes}
+        assert node_ids == {1, 2}, f"Expected {{1, 2}}, got {node_ids}"
+
+        # read_graph: same node set, edge (1,3) should still appear
+        # because node 3 is pulled in as a bare node via the edge
+        result = gp.read_graph(roi)
+        result_node_ids = set(result.nodes())
+        # Node 3 may appear as a bare node (no position) via the edge
+        assert 1 in result_node_ids
+        assert 2 in result_node_ids
+        # Nodes 4, 5, 6 have no edges to interior nodes — must not appear
+        assert 4 not in result_node_ids
+        assert 5 not in result_node_ids
+        assert 6 not in result_node_ids
+
+        # Verify that nodes returned by read_nodes all have positions inside ROI
+        for node in nodes:
+            pos = node["position"]
+            for dim in range(3):
+                assert pos[dim] >= roi.begin[dim], (
+                    f"Node {node['id']} pos[{dim}]={pos[dim]} < roi.begin={roi.begin[dim]}"
+                )
+                assert pos[dim] < roi.end[dim], (
+                    f"Node {node['id']} pos[{dim}]={pos[dim]} >= roi.end={roi.end[dim]}"
+                )
+
+
 def _build_grid_graph(size):
     """Build a 3D grid graph with size^3 nodes and ~3*size^2*(size-1) edges."""
     from itertools import product
