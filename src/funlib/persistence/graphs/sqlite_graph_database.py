@@ -223,7 +223,7 @@ class SQLiteGraphDataBase(SQLGraphDataBase):
             else self.edge_array_columns
         )
 
-        exploded_columns = None
+        exploded_columns: list[str] = []
         exploded_rows = []
         for row in rows:
             exploded_cols = []
@@ -236,7 +236,7 @@ class SQLiteGraphDataBase(SQLGraphDataBase):
                 else:
                     exploded_cols.append(column)
                     exploded_vals.append(value)
-            if exploded_columns is None:
+            if not exploded_columns:
                 exploded_columns = exploded_cols
             exploded_rows.append(exploded_vals)
 

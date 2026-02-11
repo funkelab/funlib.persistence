@@ -1,6 +1,6 @@
 import logging
 from abc import ABC, abstractmethod
-from typing import Optional
+from typing import Any, Optional
 
 from funlib.geometry import Roi
 from networkx import Graph
@@ -58,6 +58,8 @@ class GraphDataBase(ABC):
         read_edges: bool = True,
         node_attrs: Optional[list[str]] = None,
         edge_attrs: Optional[list[str]] = None,
+        nodes_filter: Optional[dict[str, Any]] = None,
+        edges_filter: Optional[dict[str, Any]] = None,
         fetch_on_v: bool = False,
     ) -> Graph:
         """
@@ -80,6 +82,14 @@ class GraphDataBase(ABC):
             edge_attrs (``list[str]`` or ``None``):
 
                 If not ``None``, only read the given edge attributes.
+
+            nodes_filter (``dict[str, Any]`` or ``None``):
+
+                If not ``None``, only read nodes matching these attribute values.
+
+            edges_filter (``dict[str, Any]`` or ``None``):
+
+                If not ``None``, only read edges matching these attribute values.
 
             fetch_on_v (``bool``):
 
