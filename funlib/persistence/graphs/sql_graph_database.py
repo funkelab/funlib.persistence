@@ -691,7 +691,7 @@ class SQLGraphDataBase(GraphDataBase):
                 )
             elif roi.begin[dim] is not None:
                 query += f"{pos_attr}[{dim + 1}]>={roi.begin[dim]}"
-            elif roi.begin[dim] is not None:
+            elif roi.end[dim] is not None:
                 query += f"{pos_attr}[{dim + 1}]<{roi.end[dim]}"
             else:
                 query = query[:-5]
