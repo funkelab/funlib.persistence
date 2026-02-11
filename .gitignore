@@ -131,3 +131,4 @@ dmypy.json
 
 *.sw[pmno]
 daisy_logs
+uv.lock
