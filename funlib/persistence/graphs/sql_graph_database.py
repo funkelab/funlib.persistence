@@ -392,9 +392,6 @@ class SQLGraphDataBase(GraphDataBase):
         edge_attrs = endpoint_names + (  # type: ignore
             list(self.edge_attrs.keys()) if read_attrs is None else read_attrs
         )
-        attr_filter = attr_filter if attr_filter is not None else {}
-        for k, v in attr_filter.items():
-            select_statement += f" AND {k}={self.__convert_to_sql(v)}"
 
         edges = [
             {
