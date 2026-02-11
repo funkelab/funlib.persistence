@@ -531,7 +531,9 @@ class SQLGraphDataBase(GraphDataBase):
             logger.debug("No nodes to insert in %s", roi)
             return
 
-        self._insert_query(self.nodes_table_name, columns, values, fail_if_exists=True)
+        self._insert_query(
+            self.nodes_table_name, columns, values, fail_if_exists=fail_if_exists
+        )
 
     def update_nodes(
         self,
