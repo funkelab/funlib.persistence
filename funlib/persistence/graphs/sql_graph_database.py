@@ -334,10 +334,6 @@ class SQLGraphDataBase(GraphDataBase):
             )
         )
 
-        attr_filter = attr_filter if attr_filter is not None else {}
-        for k, v in attr_filter.items():
-            select_statement += f" AND {k}={self.__convert_to_sql(v)}"
-
         nodes = [
             self._columns_to_node_attrs(
                 {key: val for key, val in zip(read_columns, values)}, read_attrs
