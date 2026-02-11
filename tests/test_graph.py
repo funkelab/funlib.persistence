@@ -289,6 +289,41 @@ def test_graph_fail_if_exists(provider_factory):
         graph_provider.write_edges(graph.nodes(), graph.edges(), fail_if_exists=True)
 
 
+def test_graph_duplicate_insert_behavior(provider_factory):
+    """Test that fail_if_exists controls whether duplicate inserts raise."""
+    graph_provider = provider_factory(
+        "w",
+        node_attrs={"position": Vec(float, 3), "selected": bool},
+        edge_attrs={"selected": bool},
+    )
+    roi = Roi((0, 0, 0), (10, 10, 10))
+    graph = graph_provider[roi]
+
+    graph.add_node(2, position=(2, 2, 2), selected=True)
+    graph.add_node(42, position=(1, 1, 1), selected=False)
+    graph.add_edge(2, 42, selected=True)
+
+    # Initial write
+    graph_provider.write_nodes(graph.nodes())
+    graph_provider.write_edges(graph.nodes(), graph.edges())
+
+    # fail_if_exists=True should raise on duplicate nodes and edges
+    with pytest.raises(Exception):
+        graph_provider.write_nodes(graph.nodes(), fail_if_exists=True)
+    with pytest.raises(Exception):
+        graph_provider.write_edges(graph.nodes(), graph.edges(), fail_if_exists=True)
+
+    # fail_if_exists=False should silently ignore duplicates
+    graph_provider.write_nodes(graph.nodes(), fail_if_exists=False)
+    graph_provider.write_edges(graph.nodes(), graph.edges(), fail_if_exists=False)
+
+    # Verify the original data is still intact
+    graph_provider = provider_factory("r")
+    result = graph_provider.read_graph(roi)
+    assert set(result.nodes()) == {2, 42}
+    assert len(result.edges()) == 1
+
+
 def test_graph_fail_if_not_exists(provider_factory):
     graph_provider = provider_factory(
         "w",
