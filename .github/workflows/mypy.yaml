@@ -12,4 +12,4 @@ jobs:
       - name: Install uv
         uses: astral-sh/setup-uv@main
       - name: mypy
-        run: uv run --extra dev mypy funlib/persistence tests
+        run: uv run --extra dev mypy src tests
