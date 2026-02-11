@@ -5,7 +5,6 @@ from typing import Any, Optional
 
 import toml
 import zarr
-import zarr.attrs
 from funlib.geometry import Coordinate
 from pydantic import BaseModel
 
