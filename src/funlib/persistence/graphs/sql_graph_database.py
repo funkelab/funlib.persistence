@@ -85,20 +85,20 @@ class SQLGraphDataBase(GraphDataBase):
         self.mode = mode
 
         if mode in self.read_modes:
-            self.position_attribute = position_attribute
-            self.directed = directed
-            self.total_roi = total_roi
-            self.nodes_table_name = nodes_table
-            self.edges_table_name = edges_table
-            self.endpoint_names = endpoint_names
-            self._node_attrs = node_attrs
-            self._edge_attrs = edge_attrs
-            self.ndims = None  # to be read from metadata
-
             metadata = self._read_metadata()
             if metadata is None:
                 raise RuntimeError("metadata does not exist, can't open in read mode")
-            self.__load_metadata(metadata)
+            self.__load_metadata(
+                metadata,
+                position_attribute=position_attribute,
+                directed=directed,
+                total_roi=total_roi,
+                nodes_table=nodes_table,
+                edges_table=edges_table,
+                endpoint_names=endpoint_names,
+                node_attrs=node_attrs,
+                edge_attrs=edge_attrs,
+            )
 
         if mode in self.create_modes:
             # this is where we populate default values for the DB creation
@@ -112,7 +112,7 @@ class SQLGraphDataBase(GraphDataBase):
             def get(value, default):
                 return value if value is not None else default
 
-            self.position_attribute = get(position_attribute, "position")
+            self.position_attribute: str = get(position_attribute, "position")
 
             assert self.position_attribute in node_attrs, (
                 "No type information for position attribute "
@@ -121,7 +121,7 @@ class SQLGraphDataBase(GraphDataBase):
 
             position_type = node_attrs[self.position_attribute]
             if isinstance(position_type, Vec):
-                self.ndims = position_type.size
+                self.ndims: int = position_type.size
                 assert self.ndims > 1, (
                     "Don't use Vecs of size 1 for the position, use the "
                     "scalar type directly instead (i.e., 'float' instead of "
@@ -131,13 +131,13 @@ class SQLGraphDataBase(GraphDataBase):
             else:
                 self.ndims = 1
 
-            self.directed = get(directed, False)
-            self.total_roi = get(
+            self.directed: bool = get(directed, False)
+            self.total_roi: Roi = get(
                 total_roi, Roi((None,) * self.ndims, (None,) * self.ndims)
             )
-            self.nodes_table_name = get(nodes_table, "nodes")
-            self.edges_table_name = get(edges_table, "edges")
-            self.endpoint_names = get(endpoint_names, ["u", "v"])
+            self.nodes_table_name: str = get(nodes_table, "nodes")
+            self.edges_table_name: str = get(edges_table, "edges")
+            self.endpoint_names: list[str] = get(endpoint_names, ["u", "v"])
             self._node_attrs = node_attrs  # no default, needs to be given
             self._edge_attrs = get(edge_attrs, {})
 
@@ -266,7 +266,7 @@ class SQLGraphDataBase(GraphDataBase):
                     attr_filter=edges_filter,
                     fetch_on_v=fetch_on_v,
                 )
-            u, v = self.endpoint_names  # type: ignore
+            u, v = self.endpoint_names
             try:
                 edge_list = [(e[u], e[v], self.__remove_keys(e, [u, v])) for e in edges]
             except KeyError as e:
@@ -466,7 +466,6 @@ class SQLGraphDataBase(GraphDataBase):
             )
 
         endpoint_names = self.endpoint_names
-        assert endpoint_names is not None
 
         # 1. Determine the base SELECT statement and WHERE clause
 
@@ -628,8 +627,8 @@ class SQLGraphDataBase(GraphDataBase):
                 if not roi.contains(pos_u):
                     logger.debug(
                         (
-                            f"Skipping edge with {self.endpoint_names[0]} {{}}, {self.endpoint_names[1]} {{}},"  # type: ignore
-                            + f"and data {{}} because {self.endpoint_names[0]} not in roi {{}}"  # type: ignore
+                            f"Skipping edge with {self.endpoint_names[0]} {{}}, {self.endpoint_names[1]} {{}},"
+                            + f"and data {{}} because {self.endpoint_names[0]} not in roi {{}}"
                         ).format(u, v, data, roi)
                     )
                     continue
@@ -639,7 +638,7 @@ class SQLGraphDataBase(GraphDataBase):
             update_statement = (
                 f"UPDATE {self.edges_table_name} SET "
                 f"{', '.join(setters)} WHERE "
-                f"{self.endpoint_names[0]}={u} AND {self.endpoint_names[1]}={v}"  # type: ignore
+                f"{self.endpoint_names[0]}={u} AND {self.endpoint_names[1]}={v}"
             )
 
             self._update_query(update_statement, commit=False)
@@ -721,7 +720,6 @@ class SQLGraphDataBase(GraphDataBase):
 
     def __create_metadata(self):
         """Sets the metadata in the meta collection to the provided values"""
-
         metadata = {
             "position_attribute": self.position_attribute,
             "directed": self.directed,
@@ -737,59 +735,64 @@ class SQLGraphDataBase(GraphDataBase):
 
         return metadata
 
-    def __load_metadata(self, metadata):
+    def __load_metadata(
+        self,
+        metadata,
+        position_attribute: Optional[str] = None,
+        directed: Optional[bool] = None,
+        total_roi: Optional[Roi] = None,
+        nodes_table: Optional[str] = None,
+        edges_table: Optional[str] = None,
+        endpoint_names: Optional[list[str]] = None,
+        node_attrs: Optional[dict[str, AttributeType]] = None,
+        edge_attrs: Optional[dict[str, AttributeType]] = None,
+    ):
         """Load the provided metadata into this object's attributes, check if
-        it is consistent with already populated fields."""
+        user-provided overrides are consistent with stored metadata."""
 
-        # simple attributes
-        for attr_name in [
-            "position_attribute",
-            "directed",
-            "nodes_table_name",
-            "edges_table_name",
-            "endpoint_names",
-            "ndims",
-        ]:
-            if getattr(self, attr_name) is None:
-                setattr(self, attr_name, metadata[attr_name])
-            else:
-                value = getattr(self, attr_name)
-                assert value == metadata[attr_name], (
-                    f"Attribute {attr_name} is already set to {value} for this "
-                    "object, but disagrees with the stored metadata value of "
-                    f"{metadata[attr_name]}"
+        # For each simple attribute, use metadata as the source of truth.
+        # If the user also provided a value, check consistency.
+        overrides: dict[str, Any] = {
+            "position_attribute": position_attribute,
+            "directed": directed,
+            "nodes_table_name": nodes_table,
+            "edges_table_name": edges_table,
+            "endpoint_names": endpoint_names,
+            "ndims": None,  # ndims is never user-provided
+        }
+        for attr_name, override in overrides.items():
+            stored = metadata[attr_name]
+            if override is not None:
+                assert override == stored, (
+                    f"Attribute {attr_name} was given as {override}, but "
+                    f"disagrees with the stored metadata value of {stored}"
                 )
+            setattr(self, attr_name, stored)
 
-        # special attributes
+        # total_roi
+        stored_roi = Roi(metadata["total_roi_offset"], metadata["total_roi_shape"])
+        if total_roi is not None:
+            assert total_roi == stored_roi, (
+                f"Attribute total_roi was given as {total_roi}, but "
+                f"disagrees with the stored metadata value of {stored_roi}"
+            )
+        self.total_roi = stored_roi
 
-        total_roi = Roi(metadata["total_roi_offset"], metadata["total_roi_shape"])
-        if self.total_roi is None:
-            self.total_roi = total_roi
-        else:
-            assert self.total_roi == total_roi, (
-                f"Attribute total_roi is already set to {self.total_roi} for "
-                "this object, but disagrees with the stored metadata value of "
-                f"{total_roi}"
+        # node_attrs / edge_attrs
+        stored_node_attrs = {k: eval(v) for k, v in metadata["node_attrs"].items()}
+        stored_edge_attrs = {k: eval(v) for k, v in metadata["edge_attrs"].items()}
+        if node_attrs is not None:
+            assert node_attrs == stored_node_attrs, (
+                f"Attribute node_attrs was given as {node_attrs}, but "
+                f"disagrees with the stored metadata value of {stored_node_attrs}"
             )
-
-        node_attrs = {k: eval(v) for k, v in metadata["node_attrs"].items()}
-        edge_attrs = {k: eval(v) for k, v in metadata["edge_attrs"].items()}
-        if self._node_attrs is None:
-            self.node_attrs = node_attrs
-        else:
-            assert self.node_attrs == node_attrs, (
-                f"Attribute node_attrs is already set to {self.node_attrs} for "
-                "this object, but disagrees with the stored metadata value of "
-                f"{node_attrs}"
+        self._node_attrs = stored_node_attrs
+        if edge_attrs is not None:
+            assert edge_attrs == stored_edge_attrs, (
+                f"Attribute edge_attrs was given as {edge_attrs}, but "
+                f"disagrees with the stored metadata value of {stored_edge_attrs}"
             )
-        if self._edge_attrs is None:
-            self.edge_attrs = edge_attrs
-        else:
-            assert self.edge_attrs == edge_attrs, (
-                f"Attribute edge_attrs is already set to {self.edge_attrs} for "
-                "this object, but disagrees with the stored metadata value of "
-                f"{edge_attrs}"
-            )
+        self._edge_attrs = stored_edge_attrs
 
     def __remove_keys(self, dictionary, keys):
         """Removes given keys from dictionary."""
@@ -798,7 +801,7 @@ class SQLGraphDataBase(GraphDataBase):
 
     def __get_node_pos(self, n: dict[str, Any]) -> Optional[Coordinate]:
         try:
-            return Coordinate(n[self.position_attribute])  # type: ignore
+            return Coordinate(n[self.position_attribute])
         except KeyError:
             return None
 
@@ -822,7 +825,7 @@ class SQLGraphDataBase(GraphDataBase):
     def __roi_query(self, roi: Roi) -> str:
         query = "WHERE "
         pos_attr = self.position_attribute
-        for dim in range(self.ndims):  # type: ignore
+        for dim in range(self.ndims):
             if dim > 0:
                 query += " AND "
             if roi.begin[dim] is not None and roi.end[dim] is not None:

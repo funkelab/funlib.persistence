@@ -10,7 +10,7 @@ from funlib.geometry import Roi
 from psycopg2 import sql
 
 from ..types import Vec
-from .sql_graph_database import SQLGraphDataBase
+from .sql_graph_database import AttributeType, SQLGraphDataBase
 
 logger = logging.getLogger(__name__)
 
@@ -30,8 +30,8 @@ class PgSQLGraphDatabase(SQLGraphDataBase):
         nodes_table: str = "nodes",
         edges_table: str = "edges",
         endpoint_names: Optional[list[str]] = None,
-        node_attrs: Optional[dict[str, type]] = None,
-        edge_attrs: Optional[dict[str, type]] = None,
+        node_attrs: Optional[dict[str, AttributeType]] = None,
+        edge_attrs: Optional[dict[str, AttributeType]] = None,
     ):
         self.db_host = db_host
         self.db_name = db_name
@@ -72,8 +72,8 @@ class PgSQLGraphDatabase(SQLGraphDataBase):
             nodes_table=nodes_table,
             edges_table=edges_table,
             endpoint_names=endpoint_names,
-            node_attrs=node_attrs,  # type: ignore
-            edge_attrs=edge_attrs,  # type: ignore
+            node_attrs=node_attrs,
+            edge_attrs=edge_attrs,
         )
 
     def close(self):
@@ -98,7 +98,7 @@ class PgSQLGraphDatabase(SQLGraphDataBase):
         self._commit()
 
     def _create_tables(self) -> None:
-        columns = self.node_attrs.keys()
+        columns = list(self.node_attrs.keys())
         types = [self.__sql_type(t) for t in self.node_attrs.values()]
         column_types = [f"{c} {t}" for c, t in zip(columns, types)]
         self.__exec(
@@ -113,14 +113,14 @@ class PgSQLGraphDatabase(SQLGraphDataBase):
             f"{self.nodes_table_name}({self.position_attribute})"
         )
 
-        columns = list(self.edge_attrs.keys())  # type: ignore
+        columns = list(self.edge_attrs.keys())
         types = list([self.__sql_type(t) for t in self.edge_attrs.values()])
         column_types = [f"{c} {t}" for c, t in zip(columns, types)]
         endpoint_names = self.endpoint_names
         assert endpoint_names is not None
         self.__exec(
             f"CREATE TABLE IF NOT EXISTS {self.edges_table_name}("
-            f"{endpoint_names[0]} BIGINT not null, "  # type: ignore
+            f"{endpoint_names[0]} BIGINT not null, "
             f"{endpoint_names[1]} BIGINT not null, "
             f"{' '.join([c + ',' for c in column_types])}"
             f"PRIMARY KEY ({endpoint_names[0]}, {endpoint_names[1]})"

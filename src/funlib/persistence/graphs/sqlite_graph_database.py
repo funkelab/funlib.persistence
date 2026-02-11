@@ -68,7 +68,7 @@ class SQLiteGraphDataBase(SQLGraphDataBase):
             self.con.commit()
 
             if not worker and node_writes:
-                if self.ndims > 1:  # type: ignore
+                if self.ndims > 1:
                     position_columns = self.node_array_columns[self.position_attribute]
                 else:
                     position_columns = [self.position_attribute]
@@ -133,16 +133,16 @@ class SQLiteGraphDataBase(SQLGraphDataBase):
             f"{', '.join(node_columns)}"
             ")"
         )
-        if self.ndims > 1:  # type: ignore
+        if self.ndims > 1:
             position_columns = self.node_array_columns[self.position_attribute]
         else:
-            position_columns = self.position_attribute
+            position_columns = [self.position_attribute]
         self.cur.execute(
             f"CREATE INDEX IF NOT EXISTS pos_index ON {self.nodes_table_name}({','.join(position_columns)})"
         )
         edge_columns = [
-            f"{self.endpoint_names[0]} INTEGER not null",  # type: ignore
-            f"{self.endpoint_names[1]} INTEGER not null",  # type: ignore
+            f"{self.endpoint_names[0]} INTEGER not null",
+            f"{self.endpoint_names[1]} INTEGER not null",
         ]
         for attr in self.edge_attrs.keys():
             if attr in self.edge_array_columns:
@@ -152,7 +152,7 @@ class SQLiteGraphDataBase(SQLGraphDataBase):
         self.cur.execute(
             f"CREATE TABLE IF NOT EXISTS {self.edges_table_name}("
             + f"{', '.join(edge_columns)}"
-            + f", PRIMARY KEY ({self.endpoint_names[0]}, {self.endpoint_names[1]})"  # type: ignore
+            + f", PRIMARY KEY ({self.endpoint_names[0]}, {self.endpoint_names[1]})"
             + ")"
         )
 
@@ -273,17 +273,18 @@ class SQLiteGraphDataBase(SQLGraphDataBase):
                 columns.append(attr)
         return columns
 
-    def _columns_to_node_attrs(self, columns, query_attrs):
-        attrs = {}
-        for attr in query_attrs:
+    def _columns_to_node_attrs(self, columns, attrs):
+        result = {}
+        for attr in attrs:
             if attr in self.node_array_columns:
                 value = tuple(
-                    columns[f"{attr}_{d}"] for d in range(self.node_attrs[attr].size)
+                    columns[f"{attr}_{d}"]
+                    for d in range(len(self.node_array_columns[attr]))
                 )
             else:
                 value = columns[attr]
-            attrs[attr] = value
-        return attrs
+            result[attr] = value
+        return result
 
     def _edge_attrs_to_columns(self, attrs):
         columns = []
@@ -295,14 +296,15 @@ class SQLiteGraphDataBase(SQLGraphDataBase):
                 columns.append(attr)
         return columns
 
-    def _columns_to_edge_attrs(self, columns, query_attrs):
-        attrs = {}
-        for attr in query_attrs:
+    def _columns_to_edge_attrs(self, columns, attrs):
+        result = {}
+        for attr in attrs:
             if attr in self.edge_array_columns:
                 value = tuple(
-                    columns[f"{attr}_{d}"] for d in range(self.edge_attrs[attr].size)
+                    columns[f"{attr}_{d}"]
+                    for d in range(len(self.edge_array_columns[attr]))
                 )
             else:
                 value = columns[attr]
-            attrs[attr] = value
-        return attrs
+            result[attr] = value
+        return result
