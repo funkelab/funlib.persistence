@@ -687,7 +687,8 @@ class SQLGraphDataBase(GraphDataBase):
                 query += " AND "
             if roi.begin[dim] is not None and roi.end[dim] is not None:
                 query += (
-                    f"{pos_attr}[{dim + 1}] BETWEEN {roi.begin[dim]} and {roi.end[dim]}"
+                    f"{pos_attr}[{dim + 1}]>={roi.begin[dim]}"
+                    f" AND {pos_attr}[{dim + 1}]<{roi.end[dim]}"
                 )
             elif roi.begin[dim] is not None:
                 query += f"{pos_attr}[{dim + 1}]>={roi.begin[dim]}"
