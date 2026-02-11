@@ -40,10 +40,10 @@ version = { attr = "funlib.persistence.__version__" }
 [project.optional-dependencies]
 dev = [
     "coverage>=7.7.1",
-    "mypy>=1.15.0",
     "pytest>=8.3.5",
     "pytest-mock>=3.14.0",
     "ruff>=0.11.2",
+    "ty>=0.0.16",
     "types-networkx",
     "types-psycopg2",
     "types-toml",
@@ -56,10 +56,11 @@ lint.select = ["F", "W", "I001"]
 [tool.setuptools.package-data]
 "funlib.persistence" = ["py.typed"]
 
-[tool.mypy]
-explicit_package_bases = true
-
 # # module specific overrides
 [[tool.mypy.overrides]]
 module = ["zarr.*", "iohub.*"]
 ignore_missing_imports = true
+
+[tool.ty.rules]
+# dask and iohub have incomplete type stubs
+possibly-missing-attribute = "warn"
