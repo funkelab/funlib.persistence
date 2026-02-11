@@ -2,10 +2,9 @@ import logging
 from abc import abstractmethod
 from typing import Any, Iterable, Optional
 
+from funlib.geometry import Coordinate, Roi
 from networkx import DiGraph, Graph
 from networkx.classes.reportviews import NodeView, OutEdgeView
-
-from funlib.geometry import Coordinate, Roi
 
 from ..types import Vec, type_to_str
 from .graph_database import AttributeType, GraphDataBase
@@ -214,6 +213,7 @@ class SQLGraphDataBase(GraphDataBase):
         edge_attrs: Optional[list[str]] = None,
         nodes_filter: Optional[dict[str, Any]] = None,
         edges_filter: Optional[dict[str, Any]] = None,
+        fetch_on_v: bool = False,
     ) -> Graph:
         graph: Graph
         if self.directed:
@@ -231,7 +231,11 @@ class SQLGraphDataBase(GraphDataBase):
 
         if read_edges:
             edges = self.read_edges(
-                roi, nodes=nodes, read_attrs=edge_attrs, attr_filter=edges_filter
+                roi,
+                nodes=nodes,
+                read_attrs=edge_attrs,
+                attr_filter=edges_filter,
+                fetch_on_v=fetch_on_v,
             )
             u, v = self.endpoint_names  # type: ignore
             try:
@@ -361,46 +365,100 @@ class SQLGraphDataBase(GraphDataBase):
         nodes: Optional[list[dict[str, Any]]] = None,
         attr_filter: Optional[dict[str, Any]] = None,
         read_attrs: Optional[list[str]] = None,
+        fetch_on_v: bool = False,
     ) -> list[dict[str, Any]]:
-        """Returns a list of edges within roi."""
+        """
+        Returns a list of edges within roi, connected to provided nodes, or all edges.
 
-        if nodes is None:
-            nodes = self.read_nodes(roi)
-
-        if len(nodes) == 0:
-            return []
+        Args:
+            fetch_on_v: If True, also match edges where the v endpoint is in the
+                node list or ROI. If False (default), only match on u.
+        """
 
         endpoint_names = self.endpoint_names
         assert endpoint_names is not None
 
-        node_ids = ", ".join([str(node["id"]) for node in nodes])
-        node_condition = f"{endpoint_names[0]} IN ({node_ids})"  # type: ignore
+        # 1. Determine the base SELECT statement and WHERE clause
 
-        logger.debug("Reading nodes in roi %s" % roi)
-        # TODO: AND vs OR here
-        desired_columns = ", ".join(endpoint_names + list(self.edge_attrs.keys()))  # type: ignore
-        select_statement = (
-            f"SELECT {desired_columns} FROM {self.edges_table_name} WHERE "
-            + node_condition
-            + (
-                " AND " + self.__attr_query(attr_filter)
-                if attr_filter is not None and len(attr_filter) > 0
-                else ""
+        # Columns to select from the edge table (T1)
+        edge_table_cols = endpoint_names + list(self.edge_attrs.keys())
+        desired_columns = ", ".join(edge_table_cols)
+
+        # Base query starts with selecting all columns from the edges table
+        select_statement = f"SELECT {desired_columns} FROM {self.edges_table_name}"
+        where_clauses = []
+        using_join = False
+
+        if nodes is not None:
+            # Case 1: Filter by explicit list of nodes
+            if len(nodes) == 0:
+                return []
+
+            node_ids = ", ".join([str(node["id"]) for node in nodes])
+            if fetch_on_v:
+                where_clauses.append(
+                    f"({endpoint_names[0]} IN ({node_ids})"
+                    f" OR {endpoint_names[1]} IN ({node_ids}))"
+                )
+            else:
+                where_clauses.append(f"{endpoint_names[0]} IN ({node_ids})")
+
+        elif roi is not None:
+            # Case 2: Filter by ROI using INNER JOIN
+            using_join = True
+            node_id_column = "id"
+
+            edge_cols = ", ".join([f"T1.{col}" for col in edge_table_cols])
+            roi_condition = self.__roi_query(roi).replace("WHERE ", "")
+
+            join_condition = f"T1.{endpoint_names[0]} = T2.{node_id_column}"
+            if fetch_on_v:
+                join_condition += (
+                    f" OR T1.{endpoint_names[1]} = T2.{node_id_column}"
+                )
+
+            select_statement = (
+                f"SELECT DISTINCT {edge_cols} "
+                f"FROM {self.edges_table_name} AS T1 "
+                f"INNER JOIN {self.nodes_table_name} AS T2 "
+                f"ON {join_condition} "
             )
-        )
+            where_clauses.append(roi_condition)
 
-        edge_attrs = endpoint_names + (  # type: ignore
+        # Case 3: Both nodes and roi are None — fetch all edges
+
+        # 2. Add Attribute Filter to WHERE clauses
+        if attr_filter is not None and len(attr_filter) > 0:
+            if using_join:
+                # Qualify each attribute with T1 for the JOIN case
+                parts = [
+                    f"T1.{k}={self.__convert_to_sql(v)}"
+                    for k, v in attr_filter.items()
+                ]
+                where_clauses.append(" AND ".join(parts))
+            else:
+                where_clauses.append(self.__attr_query(attr_filter))
+
+        # 3. Finalize the SELECT statement
+        if len(where_clauses) > 0:
+            select_statement += " WHERE " + " AND ".join(where_clauses)
+
+        logger.debug(f"Reading edges with query: {select_statement}")
+
+        # 4. Execute Query and Process Results
+
+        # Define the keys for the result dictionaries
+        all_edge_keys = endpoint_names + list(self.edge_attrs.keys())
+
+        # Define which keys to keep based on read_attrs
+        final_edge_keys = endpoint_names + (
             list(self.edge_attrs.keys()) if read_attrs is None else read_attrs
         )
-
         edges = [
             {
                 key: val
-                for key, val in zip(
-                    endpoint_names + list(self.edge_attrs.keys()),
-                    values,  # type: ignore
-                )
-                if key in edge_attrs
+                for key, val in zip(all_edge_keys, values)
+                if key in final_edge_keys
             }
             for values in self._select_query(select_statement)
         ]
@@ -692,3 +750,6 @@ class SQLGraphDataBase(GraphDataBase):
             else:
                 query = query[:-5]
         return query
+
+    def print_summary(self):
+        raise ValueError("Not implemented for base SQLGraphDataBase")
