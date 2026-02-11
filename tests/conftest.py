@@ -1,4 +1,5 @@
 import os
+from contextlib import contextmanager
 from pathlib import Path
 
 import psycopg2
@@ -52,17 +53,13 @@ psql_param = (
     )
 )
 def provider_factory(request, tmpdir):
-    # provides a factory function to generate graph provider
-    # can provide either mongodb graph provider or file graph provider
-    # if file graph provider, will generate graph in a temporary directory
-    # to avoid artifacts
-
     tmpdir = Path(tmpdir)
 
+    @contextmanager
     def sqlite_provider_factory(
         mode, directed=None, total_roi=None, node_attrs=None, edge_attrs=None
     ):
-        return SQLiteGraphDataBase(
+        provider = SQLiteGraphDataBase(
             tmpdir / "test_sqlite_graph.db",
             position_attribute="position",
             mode=mode,
@@ -71,9 +68,12 @@ def provider_factory(request, tmpdir):
             node_attrs=node_attrs,
             edge_attrs=edge_attrs,
         )
+        try:
+            yield provider
+        finally:
+            provider.close()
 
-    providers = []
-
+    @contextmanager
     def psql_provider_factory(
         mode, directed=None, total_roi=None, node_attrs=None, edge_attrs=None
     ):
@@ -91,8 +91,10 @@ def provider_factory(request, tmpdir):
             node_attrs=node_attrs,
             edge_attrs=edge_attrs,
         )
-        providers.append(provider)
-        return provider
+        try:
+            yield provider
+        finally:
+            provider.close()
 
     if request.param == "sqlite":
         yield sqlite_provider_factory
@@ -100,11 +102,6 @@ def provider_factory(request, tmpdir):
         yield psql_provider_factory
     else:
         raise ValueError()
-
-    # Close all psql connections to avoid stale transactions
-    for provider in providers:
-        if hasattr(provider, "connection"):
-            provider.connection.close()
 
 
 @pytest.fixture(params=["standard", "bulk"])

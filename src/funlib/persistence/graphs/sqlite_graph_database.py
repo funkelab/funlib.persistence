@@ -47,6 +47,9 @@ class SQLiteGraphDataBase(SQLGraphDataBase):
             edge_attrs=edge_attrs,
         )
 
+    def close(self):
+        self.con.close()
+
     @property
     def node_array_columns(self):
         if not self._node_array_columns:

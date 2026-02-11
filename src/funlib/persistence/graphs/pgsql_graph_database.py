@@ -76,6 +76,10 @@ class PgSQLGraphDatabase(SQLGraphDataBase):
             edge_attrs=edge_attrs,  # type: ignore
         )
 
+    def close(self):
+        if not self.connection.closed:
+            self.connection.close()
+
     def _drop_edges(self) -> None:
         logger.info("dropping edges table %s", self.edges_table_name)
         self.__exec(f"DROP TABLE IF EXISTS {self.edges_table_name}")
