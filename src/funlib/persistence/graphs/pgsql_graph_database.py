@@ -205,7 +205,7 @@ class PgSQLGraphDatabase(SQLGraphDataBase):
         if isinstance(type, Vec):
             return self.__sql_type(type.dtype) + f"[{type.size}]"
         try:
-            return {bool: "BOOLEAN", int: "INTEGER", str: "VARCHAR", float: "REAL"}[
+            return {bool: "BOOLEAN", int: "BIGINT", str: "VARCHAR", float: "REAL"}[
                 type
             ]
         except ValueError:
