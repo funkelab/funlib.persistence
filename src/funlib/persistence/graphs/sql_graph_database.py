@@ -230,12 +230,31 @@ class SQLGraphDataBase(GraphDataBase):
         graph.add_nodes_from(node_list)
 
         if read_edges:
-            edges = self.read_edges(
-                nodes=nodes,
-                read_attrs=edge_attrs,
-                attr_filter=edges_filter,
-                fetch_on_v=fetch_on_v,
-            )
+            # When a nodes_filter is used, the filtered node set is narrower
+            # than the ROI. Fall back to the nodes path so edges only connect
+            # nodes that passed the filter. Otherwise use the faster ROI path.
+            if nodes_filter:
+                edges = self.read_edges(
+                    nodes=nodes,
+                    read_attrs=edge_attrs,
+                    attr_filter=edges_filter,
+                    fetch_on_v=fetch_on_v,
+                )
+            else:
+                # We use ROI to query edges ro avoid serializing a list of
+                # node IDs into the SQL query.
+
+                # A fully unbounded ROI (all None in shape) provides no
+                # filtering, so treat it as None to fetch all edges.
+                effective_roi = roi
+                if roi is not None and all(s is None for s in roi.shape):
+                    effective_roi = None
+                edges = self.read_edges(
+                    roi=effective_roi,
+                    read_attrs=edge_attrs,
+                    attr_filter=edges_filter,
+                    fetch_on_v=fetch_on_v,
+                )
             u, v = self.endpoint_names  # type: ignore
             try:
                 edge_list = [(e[u], e[v], self.__remove_keys(e, [u, v])) for e in edges]
