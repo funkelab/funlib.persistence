@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 
 import psycopg2
@@ -7,12 +8,27 @@ from psycopg2 import OperationalError
 from funlib.persistence.graphs import PgSQLGraphDatabase, SQLiteGraphDataBase
 
 
-# Attempt to connect to the default database
+def _psql_connect_kwargs():
+    """Build psycopg2 connection kwargs from environment variables."""
+    kwargs = {"dbname": "pytest"}
+    if os.environ.get("PGHOST"):
+        kwargs["host"] = os.environ["PGHOST"]
+    if os.environ.get("PGUSER"):
+        kwargs["user"] = os.environ["PGUSER"]
+    if os.environ.get("PGPASSWORD"):
+        kwargs["password"] = os.environ["PGPASSWORD"]
+    if os.environ.get("PGPORT"):
+        kwargs["port"] = int(os.environ["PGPORT"])
+    return kwargs
+
+
+# Attempt to connect to the server (using the default 'postgres' database
+# which always exists, since the test database may not exist yet).
 def can_connect_to_psql():
     try:
-        conn = psycopg2.connect(
-            dbname="pytest",
-        )
+        kwargs = _psql_connect_kwargs()
+        kwargs["dbname"] = "postgres"
+        conn = psycopg2.connect(**kwargs)
         conn.close()
         return True
     except OperationalError:
@@ -59,9 +75,14 @@ def provider_factory(request, tmpdir):
     def psql_provider_factory(
         mode, directed=None, total_roi=None, node_attrs=None, edge_attrs=None
     ):
+        connect_kwargs = _psql_connect_kwargs()
         return PgSQLGraphDatabase(
             position_attribute="position",
             db_name="pytest",
+            db_host=connect_kwargs.get("host", "localhost"),
+            db_user=connect_kwargs.get("user"),
+            db_password=connect_kwargs.get("password"),
+            db_port=connect_kwargs.get("port"),
             mode=mode,
             directed=directed,
             total_roi=total_roi,
