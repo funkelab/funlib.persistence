@@ -343,18 +343,21 @@ class Array(Freezable):
         else:
             return self.data[key].compute()
 
-    def __setitem__(self, key, value: np.ndarray):
-        """Set the data of this array within the given ROI.
+    def __setitem__(self, key: Roi | slice | tuple, value: np.ndarray | float | int):
+        """Set the data of this array.
 
         Args:
 
-            key (`class:Roi`):
+            key (`class:Roi` or any numpy compatible key):
 
-                The ROI to write to.
+                The region to write to. Can be a `Roi` for world-unit indexing,
+                or any numpy-compatible key (e.g. ``np.s_[:]``, a slice, a tuple
+                of slices).
 
-            value (``ndarray``):
+            value (``ndarray`` or scalar):
 
-                The value to write.
+                The value to write. Can be a numpy array or a scalar that will
+                be broadcast.
         """
 
         if self.is_writeable:
@@ -473,7 +476,7 @@ class Array(Freezable):
         elif isinstance(lazy_op, list) and all([isinstance(a, int) for a in lazy_op]):
             return True
         elif isinstance(lazy_op, tuple) and all(
-            [self._is_slice(a, writeable) for a in lazy_op]
+            [self._is_slice(a, writeable) for a in lazy_op]  # type: ignore[arg-type]  # ty can't narrow parameterized tuple iteration
         ):
             return True
         elif (
@@ -507,7 +510,7 @@ class Array(Freezable):
             )
 
     def to_pixel_space(
-        self, world_loc: Roi | Coordinate | Sequence[int | float]
+        self, world_loc: Roi | Coordinate | Sequence[int | float] | np.ndarray
     ) -> Roi | Coordinate | np.ndarray:
         """Convert a point or roi in world space into the pixel space of this array.
         Works on sequences of floats by returning a numpy array that is not guaranteed
@@ -538,7 +541,7 @@ class Array(Freezable):
             )
 
     def to_world_space(
-        self, pixel_loc: Roi | Coordinate | Sequence[int | float]
+        self, pixel_loc: Roi | Coordinate | Sequence[int | float] | np.ndarray
     ) -> Roi | Coordinate:
         """Convert a point or roi from pixel space in this array to the world
         coordinate system defined by this array's roi and voxel size.

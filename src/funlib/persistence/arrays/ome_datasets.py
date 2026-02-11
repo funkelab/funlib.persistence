@@ -1,6 +1,7 @@
 import logging
 from collections.abc import Sequence
 from pathlib import Path
+from typing import Literal
 
 from funlib.geometry import Coordinate
 from iohub.ngff import TransformationMeta, open_ome_zarr
@@ -16,7 +17,7 @@ logger = logging.getLogger(__name__)
 def open_ome_ds(
     store: Path,
     name: str,
-    mode: str = "r",
+    mode: Literal["r", "r+", "a", "w", "w-"] = "r",
     **kwargs,
 ) -> Array:
     """
@@ -62,8 +63,8 @@ def open_ome_ds(
 
     metadata = MetaData(
         shape=dataset.shape,
-        offset=offset,
-        voxel_size=scale,
+        offset=offset,  # type: ignore[arg-type]
+        voxel_size=scale,  # type: ignore[arg-type]
         axis_names=axis_names,
         units=units,
         types=types,
@@ -170,7 +171,7 @@ def prepare_ome_ds(
     )
 
     axis_metadata = [
-        AxisMeta(name=n, type=t, unit=u)
+        AxisMeta(name=n, type=t, unit=u)  # type: ignore[misc]
         for n, t, u in zip(metadata.axis_names, metadata.types, metadata.ome_units)
     ]
 
@@ -179,8 +180,8 @@ def prepare_ome_ds(
         store, mode="w", layout="fov", axes=axis_metadata, channel_names=channel_names
     ) as ds:
         transforms = [
-            TransformationMeta(type="scale", scale=metadata.ome_scale),
-            TransformationMeta(type="translation", translation=metadata.ome_translate),
+            TransformationMeta(type="scale", scale=list(metadata.ome_scale)),
+            TransformationMeta(type="translation", translation=list(metadata.ome_translate)),
         ]
 
         ds.create_zeros(

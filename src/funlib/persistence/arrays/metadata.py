@@ -5,6 +5,7 @@ from typing import Any, Optional
 
 import toml
 import zarr
+import zarr.attrs
 from funlib.geometry import Coordinate
 from pydantic import BaseModel
 
@@ -330,45 +331,49 @@ class MetaDataFormat(BaseModel):
                 return recurse(data[current_key], keys)
 
         result = recurse(data, keys)
-        assert isinstance(result, Sequence) or result is None, result
+        assert (isinstance(result, Sequence) and not isinstance(result, (str, int))) or result is None, result
         return result
 
     def parse(
         self,
-        shape,
+        shape: Sequence[int],
         data: dict[str | int, Any],
-        offset=None,
-        voxel_size=None,
-        axis_names=None,
-        units=None,
-        types=None,
-        strict=False,
+        offset: Optional[Sequence[int]] = None,
+        voxel_size: Optional[Sequence[int]] = None,
+        axis_names: Optional[Sequence[str]] = None,
+        units: Optional[Sequence[str]] = None,
+        types: Optional[Sequence[str]] = None,
+        strict: bool = False,
     ) -> MetaData:
-        offset = offset if offset is not None else self.fetch(data, self.offset_attr)
-        voxel_size = (
+        fetched_offset = offset if offset is not None else self.fetch(data, self.offset_attr)
+        fetched_voxel_size = (
             voxel_size
             if voxel_size is not None
             else self.fetch(data, self.voxel_size_attr)
         )
-        axis_names = (
+        fetched_axis_names = (
             axis_names
             if axis_names is not None
             else self.fetch(data, self.axis_names_attr)
         )
-        units = units if units is not None else self.fetch(data, self.units_attr)
-        types = types if types is not None else self.fetch(data, self.types_attr)
-        if types is None and axis_names is not None:
-            types = [
-                "channel" if name.endswith("^") else "space" for name in axis_names
+        fetched_units = units if units is not None else self.fetch(data, self.units_attr)
+        fetched_types = types if types is not None else self.fetch(data, self.types_attr)
+        if fetched_types is None and fetched_axis_names is not None:
+            fetched_types = [
+                "channel" if str(name).endswith("^") else "space"
+                for name in fetched_axis_names
             ]
 
+        # fetch() returns Sequence[str | int | None] | None from untyped metadata.
+        # Some OME-Zarr metadata may have holes (None elements), so we pass
+        # the fetched values through as-is; MetaData.validate() checks at runtime.
         metadata = MetaData(
             shape=shape,
-            offset=offset,
-            voxel_size=voxel_size,
-            axis_names=axis_names,
-            units=units,
-            types=types,
+            offset=fetched_offset,  # type: ignore[arg-type]
+            voxel_size=fetched_voxel_size,  # type: ignore[arg-type]
+            axis_names=fetched_axis_names,  # type: ignore[arg-type]
+            units=fetched_units,  # type: ignore[arg-type]
+            types=fetched_types,  # type: ignore[arg-type]
             strict=strict,
         )
 
