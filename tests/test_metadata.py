@@ -3,8 +3,8 @@ from pathlib import Path
 
 import pytest
 import zarr
-
 from funlib.geometry import Coordinate
+
 from funlib.persistence.arrays.datasets import prepare_ds
 from funlib.persistence.arrays.metadata import (
     MetaDataFormat,

@@ -6,9 +6,8 @@ from typing import Any, Optional, Union
 import dask.array as da
 import numpy as np
 from dask.array.optimization import fuse_slice
-from zarr import Array as ZarrArray
-
 from funlib.geometry import Coordinate, Roi
+from zarr import Array as ZarrArray
 
 from .freezable import Freezable
 from .lazy_ops import LazyOp

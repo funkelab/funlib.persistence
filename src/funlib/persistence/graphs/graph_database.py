@@ -2,9 +2,8 @@ import logging
 from abc import ABC, abstractmethod
 from typing import Optional
 
-from networkx import Graph
-
 from funlib.geometry import Roi
+from networkx import Graph
 
 from ..types import Vec
 

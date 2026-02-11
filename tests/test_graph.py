@@ -1,7 +1,7 @@
 import networkx as nx
 import pytest
-
 from funlib.geometry import Roi
+
 from funlib.persistence.types import Vec
 
 

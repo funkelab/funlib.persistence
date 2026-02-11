@@ -4,9 +4,8 @@ from typing import Any, Optional, Union
 
 import numpy as np
 import zarr
-from numpy.typing import DTypeLike
-
 from funlib.geometry import Coordinate
+from numpy.typing import DTypeLike
 
 from .array import Array
 from .metadata import MetaDataFormat, get_default_metadata_format

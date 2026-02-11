@@ -2,11 +2,10 @@ import logging
 from collections.abc import Sequence
 from pathlib import Path
 
+from funlib.geometry import Coordinate
 from iohub.ngff import TransformationMeta, open_ome_zarr
 from iohub.ngff.models import AxisMeta
 from numpy.typing import DTypeLike
-
-from funlib.geometry import Coordinate
 
 from .array import Array
 from .metadata import MetaData
