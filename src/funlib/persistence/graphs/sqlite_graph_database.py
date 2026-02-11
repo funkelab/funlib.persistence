@@ -69,9 +69,7 @@ class SQLiteGraphDataBase(SQLGraphDataBase):
 
             if not worker and node_writes:
                 if self.ndims > 1:  # type: ignore
-                    position_columns = self.node_array_columns[
-                        self.position_attribute
-                    ]
+                    position_columns = self.node_array_columns[self.position_attribute]
                 else:
                     position_columns = [self.position_attribute]
                 self.cur.execute(

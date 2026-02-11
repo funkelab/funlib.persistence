@@ -205,9 +205,7 @@ class PgSQLGraphDatabase(SQLGraphDataBase):
         if isinstance(type, Vec):
             return self.__sql_type(type.dtype) + f"[{type.size}]"
         try:
-            return {bool: "BOOLEAN", int: "BIGINT", str: "VARCHAR", float: "REAL"}[
-                type
-            ]
+            return {bool: "BOOLEAN", int: "BIGINT", str: "VARCHAR", float: "REAL"}[type]
         except ValueError:
             raise NotImplementedError(
                 f"attributes of type {type} are not yet supported"

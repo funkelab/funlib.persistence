@@ -359,9 +359,7 @@ class SQLGraphDataBase(GraphDataBase):
             raise RuntimeError("Trying to write to read-only DB")
 
         u_name, v_name = self.endpoint_names
-        attrs = (
-            attributes if attributes is not None else list(self.edge_attrs.keys())
-        )
+        attrs = attributes if attributes is not None else list(self.edge_attrs.keys())
         columns = [u_name, v_name] + list(attrs)
 
         def rows():
@@ -505,9 +503,7 @@ class SQLGraphDataBase(GraphDataBase):
 
             join_condition = f"T1.{endpoint_names[0]} = T2.{node_id_column}"
             if fetch_on_v:
-                join_condition += (
-                    f" OR T1.{endpoint_names[1]} = T2.{node_id_column}"
-                )
+                join_condition += f" OR T1.{endpoint_names[1]} = T2.{node_id_column}"
 
             select_statement = (
                 f"SELECT DISTINCT {edge_cols} "
@@ -524,8 +520,7 @@ class SQLGraphDataBase(GraphDataBase):
             if using_join:
                 # Qualify each attribute with T1 for the JOIN case
                 parts = [
-                    f"T1.{k}={self.__convert_to_sql(v)}"
-                    for k, v in attr_filter.items()
+                    f"T1.{k}={self.__convert_to_sql(v)}" for k, v in attr_filter.items()
                 ]
                 where_clauses.append(" AND ".join(parts))
             else:

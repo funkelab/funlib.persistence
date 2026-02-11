@@ -181,7 +181,6 @@ def test_graph_read_and_update_specific_attrs(provider_factory):
 
 
 def test_graph_read_unbounded_roi(provider_factory, write_method):
-    roi = Roi((0, 0, 0), (10, 10, 10))
     unbounded_roi = Roi((None, None, None), (None, None, None))
     graph = nx.Graph()
     graph.add_node(2, position=(2, 2, 2), selected=True, test="test")
@@ -217,9 +216,7 @@ def test_graph_read_unbounded_roi(provider_factory, write_method):
 
 def test_graph_read_meta_values(provider_factory):
     roi = Roi((0, 0, 0), (10, 10, 10))
-    with provider_factory(
-        "w", True, roi, node_attrs={"position": Vec(float, 3)}
-    ):
+    with provider_factory("w", True, roi, node_attrs={"position": Vec(float, 3)}):
         pass
     with provider_factory("r", None, None) as graph_provider:
         assert True == graph_provider.directed
@@ -549,8 +546,8 @@ def test_read_edges_join_vs_in_clause(provider_factory, write_method):
     avg_join = sum(times_join) / n_repeats
 
     print(f"\n--- read_edges benchmark (roi covers {30**3:,} of {size**3:,} nodes) ---")
-    print(f"IN clause (2 queries):  {avg_in*1000:.1f} ms avg")
-    print(f"JOIN      (1 query):    {avg_join*1000:.1f} ms avg")
+    print(f"IN clause (2 queries):  {avg_in * 1000:.1f} ms avg")
+    print(f"JOIN      (1 query):    {avg_join * 1000:.1f} ms avg")
     print(f"Speedup: {avg_in / avg_join:.2f}x")
 
     # Both should return edges — just verify they're non-empty and reasonable
@@ -770,6 +767,6 @@ def test_bulk_write_benchmark(provider_factory):
         assert result.number_of_edges() == n_edges
 
     print(f"\n--- write benchmark ({n_nodes:,} nodes, {n_edges:,} edges) ---")
-    print(f"Standard: {t_standard*1000:.1f} ms")
-    print(f"Bulk:     {t_bulk*1000:.1f} ms")
+    print(f"Standard: {t_standard * 1000:.1f} ms")
+    print(f"Bulk:     {t_bulk * 1000:.1f} ms")
     print(f"Speedup:  {t_standard / t_bulk:.2f}x")
