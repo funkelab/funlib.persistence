@@ -172,3 +172,36 @@ class GraphDataBase(ABC):
         ``delete``.
         """
         pass
+
+    @abstractmethod
+    def bulk_write_mode(
+        self,
+        worker: bool = False,
+        node_writes: bool = True,
+        edge_writes: bool = True,
+    ):
+        """Context manager that optimizes the database for bulk writes.
+
+        Drops indexes and adjusts database settings for maximum write
+        throughput, then restores them on exit.
+
+        Arguments:
+
+            worker (``bool``):
+
+                If ``False`` (default), drops and rebuilds indexes around the
+                block. Set to ``True`` for parallel workers whose orchestrator
+                manages indexes separately — only session-level performance
+                settings will be adjusted.
+
+            node_writes (``bool``):
+
+                If ``True`` (default), drop/rebuild node primary key and
+                position indexes. Ignored when ``worker=True``.
+
+            edge_writes (``bool``):
+
+                If ``True`` (default), drop/rebuild edge primary key index.
+                Ignored when ``worker=True``.
+        """
+        pass

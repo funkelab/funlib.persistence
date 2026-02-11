@@ -2,6 +2,7 @@ import json
 import logging
 import re
 import sqlite3
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Optional
 
@@ -49,6 +50,38 @@ class SQLiteGraphDataBase(SQLGraphDataBase):
 
     def close(self):
         self.con.close()
+
+    @contextmanager
+    def bulk_write_mode(self, worker=False, node_writes=True, edge_writes=True):
+        prev_sync = self.cur.execute("PRAGMA synchronous").fetchone()[0]
+        self.cur.execute("PRAGMA synchronous=OFF")
+        self.cur.execute("PRAGMA journal_mode=WAL")
+        self.con.commit()
+
+        if not worker and node_writes:
+            self.cur.execute("DROP INDEX IF EXISTS pos_index")
+            self.con.commit()
+
+        try:
+            yield
+        finally:
+            self.con.commit()
+
+            if not worker and node_writes:
+                if self.ndims > 1:  # type: ignore
+                    position_columns = self.node_array_columns[
+                        self.position_attribute
+                    ]
+                else:
+                    position_columns = [self.position_attribute]
+                self.cur.execute(
+                    f"CREATE INDEX IF NOT EXISTS pos_index ON "
+                    f"{self.nodes_table_name}({','.join(position_columns)})"
+                )
+                self.con.commit()
+
+            self.cur.execute(f"PRAGMA synchronous={prev_sync}")
+            self.con.commit()
 
     @property
     def node_array_columns(self):

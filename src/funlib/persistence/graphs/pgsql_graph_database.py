@@ -269,61 +269,51 @@ class PgSQLGraphDatabase(SQLGraphDataBase):
         print(f"Tables shown: {len(rows)} (schema={schema!r})")
 
     @contextmanager
-    def drop_indexes(self):
-        """
-        Context manager for the orchestrator to use around bulk ingestion.
-        Drops all indexes and primary key constraints before yielding, then
-        recreates them after. This is a global (DDL) operation — call it
-        once from the main process, not from individual workers.
-        """
+    def bulk_write_mode(self, worker=False, node_writes=True, edge_writes=True):
         nodes = self.nodes_table_name
         edges = self.edges_table_name
         endpoint_names = self.endpoint_names
         assert endpoint_names is not None
 
-        # Drop position index and primary key constraints
-        self.__exec("DROP INDEX IF EXISTS pos_index")
-        self.__exec(
-            f"ALTER TABLE {nodes} DROP CONSTRAINT IF EXISTS {nodes}_pkey"
-        )
-        self.__exec(
-            f"ALTER TABLE {edges} DROP CONSTRAINT IF EXISTS {edges}_pkey"
-        )
-        self._commit()
-
-        try:
-            yield
-        finally:
-            self._commit()
-            logger.info("Re-creating indexes and constraints...")
-            self.__exec(
-                f"ALTER TABLE {nodes} "
-                f"ADD CONSTRAINT {nodes}_pkey PRIMARY KEY (id)"
-            )
-            self.__exec(
-                f"CREATE INDEX IF NOT EXISTS pos_index ON "
-                f"{nodes}({self.position_attribute})"
-            )
-            self.__exec(
-                f"ALTER TABLE {edges} "
-                f"ADD CONSTRAINT {edges}_pkey "
-                f"PRIMARY KEY ({endpoint_names[0]}, {endpoint_names[1]})"
-            )
+        if not worker:
+            if node_writes:
+                self.__exec("DROP INDEX IF EXISTS pos_index")
+                self.__exec(
+                    f"ALTER TABLE {nodes} DROP CONSTRAINT IF EXISTS {nodes}_pkey"
+                )
+            if edge_writes:
+                self.__exec(
+                    f"ALTER TABLE {edges} DROP CONSTRAINT IF EXISTS {edges}_pkey"
+                )
             self._commit()
 
-    @contextmanager
-    def fast_session(self):
-        """
-        Per-connection context manager for workers to use during bulk ingestion.
-        Disables synchronous commit for the duration of the session.
-        """
         self.__exec("SET synchronous_commit TO OFF")
         self._commit()
+
         try:
             yield
         finally:
             self.__exec("SET synchronous_commit TO ON")
             self._commit()
+
+            if not worker:
+                logger.info("Re-creating indexes and constraints...")
+                if node_writes:
+                    self.__exec(
+                        f"ALTER TABLE {nodes} "
+                        f"ADD CONSTRAINT {nodes}_pkey PRIMARY KEY (id)"
+                    )
+                    self.__exec(
+                        f"CREATE INDEX IF NOT EXISTS pos_index ON "
+                        f"{nodes}({self.position_attribute})"
+                    )
+                if edge_writes:
+                    self.__exec(
+                        f"ALTER TABLE {edges} "
+                        f"ADD CONSTRAINT {edges}_pkey "
+                        f"PRIMARY KEY ({endpoint_names[0]}, {endpoint_names[1]})"
+                    )
+                self._commit()
 
     def _bulk_insert(self, table, columns, rows) -> None:
         def format_gen():

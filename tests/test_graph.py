@@ -694,14 +694,15 @@ def test_bulk_write_benchmark(provider_factory):
         assert result.number_of_nodes() == n_nodes
         assert result.number_of_edges() == n_edges
 
-    # --- Bulk write (recreate tables) ---
+    # --- Bulk write (recreate tables, with bulk_write_mode) ---
     with provider_factory(
         "w",
         node_attrs={"position": Vec(float, 3)},
     ) as graph_provider:
-        t0 = time.perf_counter()
-        graph_provider.bulk_write_graph(graph)
-        t_bulk = time.perf_counter() - t0
+        with graph_provider.bulk_write_mode():
+            t0 = time.perf_counter()
+            graph_provider.bulk_write_graph(graph)
+            t_bulk = time.perf_counter() - t0
 
     # Verify bulk write
     with provider_factory("r") as graph_reader:
