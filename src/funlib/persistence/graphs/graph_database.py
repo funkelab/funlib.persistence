@@ -58,6 +58,7 @@ class GraphDataBase(ABC):
         read_edges: bool = True,
         node_attrs: Optional[list[str]] = None,
         edge_attrs: Optional[list[str]] = None,
+        fetch_on_v: bool = False,
     ) -> Graph:
         """
         Read a graph from the database for a given roi.
@@ -79,6 +80,12 @@ class GraphDataBase(ABC):
             edge_attrs (``list[str]`` or ``None``):
 
                 If not ``None``, only read the given edge attributes.
+
+            fetch_on_v (``bool``):
+
+                If ``True``, also fetch edges where the ``v`` endpoint matches
+                (i.e., either endpoint is in the ROI or node list). If ``False``
+                (default), only fetch edges where ``u`` matches.
 
         """
         pass
