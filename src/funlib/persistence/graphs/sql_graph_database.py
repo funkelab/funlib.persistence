@@ -231,7 +231,6 @@ class SQLGraphDataBase(GraphDataBase):
 
         if read_edges:
             edges = self.read_edges(
-                roi,
                 nodes=nodes,
                 read_attrs=edge_attrs,
                 attr_filter=edges_filter,
@@ -373,7 +372,16 @@ class SQLGraphDataBase(GraphDataBase):
         Args:
             fetch_on_v: If True, also match edges where the v endpoint is in the
                 node list or ROI. If False (default), only match on u.
+
+        Raises:
+            ValueError: If both roi and nodes are provided.
         """
+
+        if roi is not None and nodes is not None:
+            raise ValueError(
+                "read_edges does not support both roi and nodes at the same time. "
+                "Pass one or the other."
+            )
 
         endpoint_names = self.endpoint_names
         assert endpoint_names is not None
