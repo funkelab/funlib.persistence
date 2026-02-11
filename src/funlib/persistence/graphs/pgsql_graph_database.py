@@ -321,98 +321,20 @@ class PgSQLGraphDatabase(SQLGraphDataBase):
             self.__exec("SET synchronous_commit TO ON")
             self._commit()
 
-    def bulk_write_graph(
-        self,
-        graph,
-        roi=None,
-        write_nodes=True,
-        write_edges=True,
-        node_attrs=None,
-        edge_attrs=None,
-    ):
-        """
-        Fast bulk ingest of a graph using COPY. Mirrors write_graph but
-        uses _stream_copy for speed. Does not support fail_if_exists or
-        delete — use inside drop_indexes() where constraints are removed.
-        """
-        if write_nodes:
-            self.bulk_write_nodes(graph.nodes, roi=roi, attributes=node_attrs)
-        if write_edges:
-            self.bulk_write_edges(
-                graph.nodes, graph.edges, roi=roi, attributes=edge_attrs
-            )
-
-    def bulk_write_nodes(self, nodes, roi=None, attributes=None):
-        """
-        Fast bulk ingest of nodes using COPY. Mirrors write_nodes.
-        """
-        if self.mode == "r":
-            raise RuntimeError("Trying to write to read-only DB")
-
-        attrs = attributes if attributes is not None else list(self.node_attrs.keys())
-        columns = ["id"] + list(attrs)
-        pos_attr = self.position_attribute
-
-        def node_gen():
-            for node_id, data in nodes.items():
-                pos = data.get(pos_attr)
-                if roi is not None:
-                    if pos is None or not roi.contains(pos):
-                        continue
-
-                row = [str(node_id)]
-                for attr in attrs:
-                    val = data.get(attr)
+    def _bulk_insert(self, table, columns, rows) -> None:
+        def format_gen():
+            for row in rows:
+                formatted = []
+                for val in row:
                     if val is None:
-                        row.append(r"\N")
+                        formatted.append(r"\N")
                     elif isinstance(val, (list, tuple)):
-                        row.append(f"{{{','.join(map(str, val))}}}")
+                        formatted.append(f"{{{','.join(map(str, val))}}}")
                     else:
-                        row.append(str(val))
-                yield "\t".join(row) + "\n"
+                        formatted.append(str(val))
+                yield "\t".join(formatted) + "\n"
 
-        self._stream_copy(self.nodes_table_name, columns, node_gen())
-        self._commit()
-
-    def bulk_write_edges(self, nodes, edges, roi=None, attributes=None):
-        """
-        Fast bulk ingest of edges using COPY. Mirrors write_edges.
-        Only writes edges where the u endpoint is in the ROI.
-        """
-        if self.mode == "r":
-            raise RuntimeError("Trying to write to read-only DB")
-
-        u_name, v_name = self.endpoint_names
-        attrs = (
-            attributes
-            if attributes is not None
-            else list(self.edge_attrs.keys())
-        )
-        columns = [u_name, v_name] + list(attrs)
-        pos_attr = self.position_attribute
-
-        def edge_gen():
-            for (u, v), data in edges.items():
-                if not self.directed:
-                    u, v = min(u, v), max(u, v)
-
-                if roi is not None:
-                    pos_u = nodes[u].get(pos_attr)
-                    if pos_u is None or not roi.contains(pos_u):
-                        continue
-
-                row = [str(u), str(v)]
-                for attr in attrs:
-                    val = data.get(attr)
-                    if val is None:
-                        row.append(r"\N")
-                    elif isinstance(val, (list, tuple)):
-                        row.append(f"{{{','.join(map(str, val))}}}")
-                    else:
-                        row.append(str(val))
-                yield "\t".join(row) + "\n"
-
-        self._stream_copy(self.edges_table_name, columns, edge_gen())
+        self._stream_copy(table, columns, format_gen())
         self._commit()
 
     def _stream_copy(self, table_name, columns, data_generator):

@@ -181,6 +181,42 @@ class SQLiteGraphDataBase(SQLGraphDataBase):
         if commit:
             self.con.commit()
 
+    def _bulk_insert(self, table, columns, rows) -> None:
+        # Explode array columns for SQLite (same logic as _insert_query)
+        array_columns = (
+            self.node_array_columns
+            if table == self.nodes_table_name
+            else self.edge_array_columns
+        )
+
+        exploded_columns = None
+        exploded_rows = []
+        for row in rows:
+            exploded_cols = []
+            exploded_vals = []
+            for column, value in zip(columns, row):
+                if column in array_columns:
+                    for c, v in zip(array_columns[column], value):
+                        exploded_cols.append(c)
+                        exploded_vals.append(v)
+                else:
+                    exploded_cols.append(column)
+                    exploded_vals.append(value)
+            if exploded_columns is None:
+                exploded_columns = exploded_cols
+            exploded_rows.append(exploded_vals)
+
+        if not exploded_rows:
+            return
+
+        insert_statement = (
+            f"INSERT OR IGNORE INTO {table} "
+            f"({', '.join(exploded_columns)}) "
+            f"VALUES ({', '.join(['?'] * len(exploded_columns))})"
+        )
+        self.cur.executemany(insert_statement, exploded_rows)
+        self.con.commit()
+
     def _update_query(self, query, commit=True):
         try:
             self.cur.execute(query)

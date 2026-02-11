@@ -189,6 +189,17 @@ class SQLGraphDataBase(GraphDataBase):
     def _commit(self) -> None:
         pass
 
+    @abstractmethod
+    def _bulk_insert(self, table, columns, rows) -> None:
+        """Insert rows using a backend-optimized bulk method.
+
+        Args:
+            table: Table name.
+            columns: Column names.
+            rows: Iterable of row lists (Python values, not formatted strings).
+        """
+        pass
+
     def _node_attrs_to_columns(self, attrs):
         # default: each attribute maps to its own column
         return attrs
@@ -310,6 +321,60 @@ class SQLGraphDataBase(GraphDataBase):
                 fail_if_exists=fail_if_exists,
                 delete=delete,
             )
+
+    def bulk_write_graph(
+        self,
+        graph: Graph,
+        roi: Optional[Roi] = None,
+        write_nodes: bool = True,
+        write_edges: bool = True,
+        node_attrs: Optional[list[str]] = None,
+        edge_attrs: Optional[list[str]] = None,
+    ) -> None:
+        if write_nodes:
+            self.bulk_write_nodes(graph.nodes, roi=roi, attributes=node_attrs)
+        if write_edges:
+            self.bulk_write_edges(
+                graph.nodes, graph.edges, roi=roi, attributes=edge_attrs
+            )
+
+    def bulk_write_nodes(self, nodes, roi=None, attributes=None):
+        if self.mode == "r":
+            raise RuntimeError("Trying to write to read-only DB")
+
+        attrs = attributes if attributes is not None else list(self.node_attrs.keys())
+        columns = ["id"] + list(attrs)
+
+        def rows():
+            for node_id, data in nodes.items():
+                pos = self.__get_node_pos(data)
+                if roi is not None and not roi.contains(pos):
+                    continue
+                yield [node_id] + [data.get(attr, None) for attr in attrs]
+
+        self._bulk_insert(self.nodes_table_name, columns, rows())
+
+    def bulk_write_edges(self, nodes, edges, roi=None, attributes=None):
+        if self.mode == "r":
+            raise RuntimeError("Trying to write to read-only DB")
+
+        u_name, v_name = self.endpoint_names
+        attrs = (
+            attributes if attributes is not None else list(self.edge_attrs.keys())
+        )
+        columns = [u_name, v_name] + list(attrs)
+
+        def rows():
+            for (u, v), data in edges.items():
+                if not self.directed:
+                    u, v = min(u, v), max(u, v)
+                if roi is not None:
+                    pos_u = self.__get_node_pos(nodes[u])
+                    if pos_u is None or not roi.contains(pos_u):
+                        continue
+                yield [u, v] + [data.get(attr, None) for attr in attrs]
+
+        self._bulk_insert(self.edges_table_name, columns, rows())
 
     @property
     def node_attrs(self) -> dict[str, AttributeType]:

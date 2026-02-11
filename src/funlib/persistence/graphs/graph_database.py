@@ -155,3 +155,20 @@ class GraphDataBase(ABC):
         Alias call to write_graph with write_nodes and write_edges set to False.
         """
         pass
+
+    @abstractmethod
+    def bulk_write_graph(
+        self,
+        graph: Graph,
+        roi: Optional[Roi] = None,
+        write_nodes: bool = True,
+        write_edges: bool = True,
+        node_attrs: Optional[list[str]] = None,
+        edge_attrs: Optional[list[str]] = None,
+    ) -> None:
+        """
+        Fast bulk write of a graph. Mirrors ``write_graph`` but optimized
+        for large batch inserts. Does not support ``fail_if_exists`` or
+        ``delete``.
+        """
+        pass

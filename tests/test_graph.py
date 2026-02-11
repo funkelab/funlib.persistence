@@ -6,11 +6,6 @@ from funlib.persistence.graphs import PgSQLGraphDatabase
 from funlib.persistence.types import Vec
 
 
-def _skip_if_bulk_unsupported(provider, write_method):
-    if write_method == "bulk" and not isinstance(provider, PgSQLGraphDatabase):
-        pytest.skip("Bulk write only supported on PostgreSQL")
-
-
 def _write_nodes(provider, nodes, write_method, **kwargs):
     if write_method == "bulk":
         provider.bulk_write_nodes(nodes, **kwargs)
@@ -40,7 +35,7 @@ def test_graph_filtering(provider_factory, write_method):
         node_attrs={"position": Vec(float, 3), "selected": bool},
         edge_attrs={"selected": bool},
     )
-    _skip_if_bulk_unsupported(graph_writer, write_method)
+
     roi = Roi((0, 0, 0), (10, 10, 10))
     graph = graph_writer[roi]
 
@@ -89,7 +84,7 @@ def test_graph_filtering_complex(provider_factory, write_method):
         node_attrs={"position": Vec(float, 3), "selected": bool, "test": str},
         edge_attrs={"selected": bool, "a": int, "b": int},
     )
-    _skip_if_bulk_unsupported(graph_provider, write_method)
+
     roi = Roi((0, 0, 0), (10, 10, 10))
     graph = graph_provider[roi]
 
@@ -191,7 +186,7 @@ def test_graph_read_unbounded_roi(provider_factory, write_method):
         node_attrs={"position": Vec(float, 3), "selected": bool, "test": str},
         edge_attrs={"selected": bool, "a": int, "b": int},
     )
-    _skip_if_bulk_unsupported(graph_provider, write_method)
+
     roi = Roi((0, 0, 0), (10, 10, 10))
     unbounded_roi = Roi((None, None, None), (None, None, None))
 
@@ -256,7 +251,7 @@ def test_graph_io(provider_factory, write_method):
             "zap": str,
         },
     )
-    _skip_if_bulk_unsupported(graph_provider, write_method)
+
 
     graph = graph_provider[Roi((0, 0, 0), (10, 10, 10))]
 
@@ -383,7 +378,7 @@ def test_graph_write_attributes(provider_factory, write_method):
             "zap": str,
         },
     )
-    _skip_if_bulk_unsupported(graph_provider, write_method)
+
     graph = graph_provider[Roi((0, 0, 0), (10, 10, 10))]
 
     graph.add_node(2, position=[0, 0, 0])
@@ -438,7 +433,7 @@ def test_graph_write_roi(provider_factory, write_method):
             "zap": str,
         },
     )
-    _skip_if_bulk_unsupported(graph_provider, write_method)
+
     graph = graph_provider[Roi((0, 0, 0), (10, 10, 10))]
 
     graph.add_node(2, position=(0, 0, 0))
@@ -516,7 +511,7 @@ def test_graph_has_edge(provider_factory, write_method):
             "zap": str,
         },
     )
-    _skip_if_bulk_unsupported(graph_provider, write_method)
+
 
     roi = Roi((0, 0, 0), (10, 10, 10))
     graph = graph_provider[roi]
@@ -549,7 +544,7 @@ def test_read_edges_join_vs_in_clause(provider_factory, write_method):
         "w",
         node_attrs={"position": Vec(float, 3)},
     )
-    _skip_if_bulk_unsupported(graph_provider, write_method)
+
 
     # Build a 3D grid graph
     graph = nx.Graph()
@@ -636,7 +631,7 @@ def test_read_edges_fetch_on_v(provider_factory, write_method):
         "w",
         node_attrs={"position": Vec(float, 3)},
     )
-    _skip_if_bulk_unsupported(graph_provider, write_method)
+
     roi = Roi((0, 0, 0), (6, 6, 6))
 
     graph = nx.Graph()
@@ -700,26 +695,10 @@ def test_read_edges_fetch_on_v(provider_factory, write_method):
     assert graph_edges_u_and_v == {(0, 5), (1, 5), (2, 8), (5, 8)}
 
 
-def test_bulk_write_benchmark(provider_factory):
-    """Benchmark: standard write_graph vs bulk_write_graph (COPY).
-
-    Only runs on PostgreSQL since bulk write uses COPY.
-    Uses blockwise writes for the standard path to avoid building a single
-    massive INSERT statement that blocks on remote connections.
-    """
-    import time
+def _build_grid_graph(size):
+    """Build a 3D grid graph with size^3 nodes and ~3*size^2*(size-1) edges."""
     from itertools import product
 
-    size = 30  # 30^3 = 27,000 nodes
-    block_size = 10
-    graph_provider = provider_factory(
-        "w",
-        node_attrs={"position": Vec(float, 3)},
-    )
-    if not isinstance(graph_provider, PgSQLGraphDatabase):
-        pytest.skip("Bulk write only supported on PostgreSQL")
-
-    # Build a 3D grid graph
     graph = nx.Graph()
     for x, y, z in product(range(size), repeat=3):
         node_id = x * size * size + y * size + z
@@ -730,16 +709,29 @@ def test_bulk_write_benchmark(provider_factory):
             graph.add_edge(node_id, x * size * size + (y - 1) * size + z)
         if z > 0:
             graph.add_edge(node_id, x * size * size + y * size + (z - 1))
+    return graph
 
+
+def test_bulk_write_benchmark(provider_factory):
+    """Benchmark: standard write_graph vs bulk_write_graph."""
+    import time
+
+    graph_provider = provider_factory(
+        "w",
+        node_attrs={"position": Vec(float, 3)},
+    )
+
+    size = 30  # 30^3 = 27,000 nodes
+    graph = _build_grid_graph(size)
     n_nodes = graph.number_of_nodes()
     n_edges = graph.number_of_edges()
 
-    # --- Standard write (blockwise to avoid giant INSERT statements) ---
+    # --- Standard write ---
     t0 = time.perf_counter()
     graph_provider.write_graph(graph)
     t_standard = time.perf_counter() - t0
 
-    # Verify standard write then close connection to release locks
+    # Verify then close connection to release locks
     graph_reader = provider_factory("r")
     result = graph_reader.read_graph()
     assert result.number_of_nodes() == n_nodes
@@ -762,6 +754,6 @@ def test_bulk_write_benchmark(provider_factory):
     assert result.number_of_edges() == n_edges
 
     print(f"\n--- write benchmark ({n_nodes:,} nodes, {n_edges:,} edges) ---")
-    print(f"Standard (blockwise): {t_standard*1000:.1f} ms")
-    print(f"Bulk (COPY):          {t_bulk*1000:.1f} ms")
-    print(f"Speedup:              {t_standard / t_bulk:.2f}x")
+    print(f"Standard: {t_standard*1000:.1f} ms")
+    print(f"Bulk:     {t_bulk*1000:.1f} ms")
+    print(f"Speedup:  {t_standard / t_bulk:.2f}x")
