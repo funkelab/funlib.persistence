@@ -72,11 +72,13 @@ def provider_factory(request, tmpdir):
             edge_attrs=edge_attrs,
         )
 
+    providers = []
+
     def psql_provider_factory(
         mode, directed=None, total_roi=None, node_attrs=None, edge_attrs=None
     ):
         connect_kwargs = _psql_connect_kwargs()
-        return PgSQLGraphDatabase(
+        provider = PgSQLGraphDatabase(
             position_attribute="position",
             db_name="pytest",
             db_host=connect_kwargs.get("host", "localhost"),
@@ -89,6 +91,8 @@ def provider_factory(request, tmpdir):
             node_attrs=node_attrs,
             edge_attrs=edge_attrs,
         )
+        providers.append(provider)
+        return provider
 
     if request.param == "sqlite":
         yield sqlite_provider_factory
@@ -96,3 +100,13 @@ def provider_factory(request, tmpdir):
         yield psql_provider_factory
     else:
         raise ValueError()
+
+    # Close all psql connections to avoid stale transactions
+    for provider in providers:
+        if hasattr(provider, "connection"):
+            provider.connection.close()
+
+
+@pytest.fixture(params=["standard", "bulk"])
+def write_method(request):
+    return request.param

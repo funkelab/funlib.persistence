@@ -2,15 +2,45 @@ import networkx as nx
 import pytest
 from funlib.geometry import Roi
 
+from funlib.persistence.graphs import PgSQLGraphDatabase
 from funlib.persistence.types import Vec
 
 
-def test_graph_filtering(provider_factory):
+def _skip_if_bulk_unsupported(provider, write_method):
+    if write_method == "bulk" and not isinstance(provider, PgSQLGraphDatabase):
+        pytest.skip("Bulk write only supported on PostgreSQL")
+
+
+def _write_nodes(provider, nodes, write_method, **kwargs):
+    if write_method == "bulk":
+        provider.bulk_write_nodes(nodes, **kwargs)
+    else:
+        provider.write_nodes(nodes, **kwargs)
+
+
+def _write_edges(provider, nodes, edges, write_method, **kwargs):
+    if write_method == "bulk":
+        provider.bulk_write_edges(nodes, edges, **kwargs)
+    else:
+        provider.write_edges(nodes, edges, **kwargs)
+
+
+def _write_graph(provider, graph, write_method, **kwargs):
+    if write_method == "bulk":
+        kwargs.pop("fail_if_exists", None)
+        kwargs.pop("delete", None)
+        provider.bulk_write_graph(graph, **kwargs)
+    else:
+        provider.write_graph(graph, **kwargs)
+
+
+def test_graph_filtering(provider_factory, write_method):
     graph_writer = provider_factory(
         "w",
         node_attrs={"position": Vec(float, 3), "selected": bool},
         edge_attrs={"selected": bool},
     )
+    _skip_if_bulk_unsupported(graph_writer, write_method)
     roi = Roi((0, 0, 0), (10, 10, 10))
     graph = graph_writer[roi]
 
@@ -22,8 +52,8 @@ def test_graph_filtering(provider_factory):
     graph.add_edge(57, 23, selected=True)
     graph.add_edge(2, 42, selected=True)
 
-    graph_writer.write_nodes(graph.nodes())
-    graph_writer.write_edges(graph.nodes(), graph.edges())
+    _write_nodes(graph_writer, graph.nodes(), write_method)
+    _write_edges(graph_writer, graph.nodes(), graph.edges(), write_method)
 
     graph_reader = provider_factory("r")
 
@@ -53,12 +83,13 @@ def test_graph_filtering(provider_factory):
         ) in filtered_subgraph.edges()
 
 
-def test_graph_filtering_complex(provider_factory):
+def test_graph_filtering_complex(provider_factory, write_method):
     graph_provider = provider_factory(
         "w",
         node_attrs={"position": Vec(float, 3), "selected": bool, "test": str},
         edge_attrs={"selected": bool, "a": int, "b": int},
     )
+    _skip_if_bulk_unsupported(graph_provider, write_method)
     roi = Roi((0, 0, 0), (10, 10, 10))
     graph = graph_provider[roi]
 
@@ -71,8 +102,8 @@ def test_graph_filtering_complex(provider_factory):
     graph.add_edge(57, 23, selected=True, a=100, b=2)
     graph.add_edge(2, 42, selected=True, a=101, b=3)
 
-    graph_provider.write_nodes(graph.nodes())
-    graph_provider.write_edges(graph.nodes(), graph.edges())
+    _write_nodes(graph_provider, graph.nodes(), write_method)
+    _write_edges(graph_provider, graph.nodes(), graph.edges(), write_method)
 
     graph_provider = provider_factory("r")
 
@@ -154,12 +185,13 @@ def test_graph_read_and_update_specific_attrs(provider_factory):
         assert data["c"] == 5
 
 
-def test_graph_read_unbounded_roi(provider_factory):
+def test_graph_read_unbounded_roi(provider_factory, write_method):
     graph_provider = provider_factory(
         "w",
         node_attrs={"position": Vec(float, 3), "selected": bool, "test": str},
         edge_attrs={"selected": bool, "a": int, "b": int},
     )
+    _skip_if_bulk_unsupported(graph_provider, write_method)
     roi = Roi((0, 0, 0), (10, 10, 10))
     unbounded_roi = Roi((None, None, None), (None, None, None))
 
@@ -174,13 +206,8 @@ def test_graph_read_unbounded_roi(provider_factory):
     graph.add_edge(57, 23, selected=True, a=100, b=2)
     graph.add_edge(2, 42, selected=True, a=101, b=3)
 
-    graph_provider.write_nodes(
-        graph.nodes(),
-    )
-    graph_provider.write_edges(
-        graph.nodes(),
-        graph.edges(),
-    )
+    _write_nodes(graph_provider, graph.nodes(), write_method)
+    _write_edges(graph_provider, graph.nodes(), graph.edges(), write_method)
 
     graph_provider = provider_factory("r+")
     limited_graph = graph_provider.read_graph(
@@ -220,7 +247,7 @@ def test_graph_default_meta_values(provider_factory):
     )
 
 
-def test_graph_io(provider_factory):
+def test_graph_io(provider_factory, write_method):
     graph_provider = provider_factory(
         "w",
         node_attrs={
@@ -229,6 +256,7 @@ def test_graph_io(provider_factory):
             "zap": str,
         },
     )
+    _skip_if_bulk_unsupported(graph_provider, write_method)
 
     graph = graph_provider[Roi((0, 0, 0), (10, 10, 10))]
 
@@ -240,13 +268,8 @@ def test_graph_io(provider_factory):
     graph.add_edge(57, 23)
     graph.add_edge(2, 42)
 
-    graph_provider.write_nodes(
-        graph.nodes(),
-    )
-    graph_provider.write_edges(
-        graph.nodes(),
-        graph.edges(),
-    )
+    _write_nodes(graph_provider, graph.nodes(), write_method)
+    _write_edges(graph_provider, graph.nodes(), graph.edges(), write_method)
 
     graph_provider = provider_factory("r")
     compare_graph = graph_provider[Roi((1, 1, 1), (9, 9, 9))]
@@ -351,7 +374,7 @@ def test_graph_fail_if_not_exists(provider_factory):
         )
 
 
-def test_graph_write_attributes(provider_factory):
+def test_graph_write_attributes(provider_factory, write_method):
     graph_provider = provider_factory(
         "w",
         node_attrs={
@@ -360,6 +383,7 @@ def test_graph_write_attributes(provider_factory):
             "zap": str,
         },
     )
+    _skip_if_bulk_unsupported(graph_provider, write_method)
     graph = graph_provider[Roi((0, 0, 0), (10, 10, 10))]
 
     graph.add_node(2, position=[0, 0, 0])
@@ -370,14 +394,12 @@ def test_graph_write_attributes(provider_factory):
     graph.add_edge(57, 23)
     graph.add_edge(2, 42)
 
-    graph_provider.write_graph(
-        graph, write_nodes=True, write_edges=False, node_attrs=["position", "swip"]
+    _write_graph(
+        graph_provider, graph, write_method,
+        write_nodes=True, write_edges=False, node_attrs=["position", "swip"],
     )
 
-    graph_provider.write_edges(
-        graph.nodes(),
-        graph.edges(),
-    )
+    _write_edges(graph_provider, graph.nodes(), graph.edges(), write_method)
 
     graph_provider = provider_factory("r")
     compare_graph = graph_provider[Roi((1, 1, 1), (10, 10, 10))]
@@ -407,7 +429,7 @@ def test_graph_write_attributes(provider_factory):
                 assert v1 == v2
 
 
-def test_graph_write_roi(provider_factory):
+def test_graph_write_roi(provider_factory, write_method):
     graph_provider = provider_factory(
         "w",
         node_attrs={
@@ -416,6 +438,7 @@ def test_graph_write_roi(provider_factory):
             "zap": str,
         },
     )
+    _skip_if_bulk_unsupported(graph_provider, write_method)
     graph = graph_provider[Roi((0, 0, 0), (10, 10, 10))]
 
     graph.add_node(2, position=(0, 0, 0))
@@ -427,7 +450,7 @@ def test_graph_write_roi(provider_factory):
     graph.add_edge(2, 42)
 
     write_roi = Roi((0, 0, 0), (6, 6, 6))
-    graph_provider.write_graph(graph, write_roi)
+    _write_graph(graph_provider, graph, write_method, roi=write_roi)
 
     graph_provider = provider_factory("r")
     compare_graph = graph_provider[Roi((1, 1, 1), (9, 9, 9))]
@@ -484,7 +507,7 @@ def test_graph_connected_components(provider_factory):
     assert n2 == compare_n2
 
 
-def test_graph_has_edge(provider_factory):
+def test_graph_has_edge(provider_factory, write_method):
     graph_provider = provider_factory(
         "w",
         node_attrs={
@@ -493,6 +516,7 @@ def test_graph_has_edge(provider_factory):
             "zap": str,
         },
     )
+    _skip_if_bulk_unsupported(graph_provider, write_method)
 
     roi = Roi((0, 0, 0), (10, 10, 10))
     graph = graph_provider[roi]
@@ -505,13 +529,13 @@ def test_graph_has_edge(provider_factory):
     graph.add_edge(57, 23)
 
     write_roi = Roi((0, 0, 0), (6, 6, 6))
-    graph_provider.write_nodes(graph.nodes(), roi=write_roi)
-    graph_provider.write_edges(graph.nodes(), graph.edges(), roi=write_roi)
+    _write_nodes(graph_provider, graph.nodes(), write_method, roi=write_roi)
+    _write_edges(graph_provider, graph.nodes(), graph.edges(), write_method, roi=write_roi)
 
     assert graph_provider.has_edges(roi)
 
 
-def test_read_edges_join_vs_in_clause(provider_factory):
+def test_read_edges_join_vs_in_clause(provider_factory, write_method):
     """Benchmark: read_edges with JOIN (roi-only) vs IN clause (nodes list).
 
     Demonstrates that the JOIN path avoids serializing a large node ID list
@@ -525,6 +549,7 @@ def test_read_edges_join_vs_in_clause(provider_factory):
         "w",
         node_attrs={"position": Vec(float, 3)},
     )
+    _skip_if_bulk_unsupported(graph_provider, write_method)
 
     # Build a 3D grid graph
     graph = nx.Graph()
@@ -539,7 +564,7 @@ def test_read_edges_join_vs_in_clause(provider_factory):
         if z > 0:
             graph.add_edge(node_id, x * size * size + y * size + (z - 1))
 
-    graph_provider.write_graph(graph, fail_if_exists=False)
+    _write_graph(graph_provider, graph, write_method)
 
     # Re-open in read mode
     graph_provider = provider_factory("r")
@@ -579,7 +604,7 @@ def test_read_edges_join_vs_in_clause(provider_factory):
     assert len(edges_via_join) == len(edges_via_in)
 
 
-def test_read_edges_fetch_on_v(provider_factory):
+def test_read_edges_fetch_on_v(provider_factory, write_method):
     """Test that fetch_on_v controls whether edges are matched on u only or both endpoints.
 
     Graph layout (1D for clarity, stored as 3D positions):
@@ -611,6 +636,7 @@ def test_read_edges_fetch_on_v(provider_factory):
         "w",
         node_attrs={"position": Vec(float, 3)},
     )
+    _skip_if_bulk_unsupported(graph_provider, write_method)
     roi = Roi((0, 0, 0), (6, 6, 6))
 
     graph = nx.Graph()
@@ -631,7 +657,7 @@ def test_read_edges_fetch_on_v(provider_factory):
     graph.add_edge(8, 9)  # both outside ROI
     graph.add_edge(0, 5)  # u=0 OUTSIDE ROI, v=5 INSIDE ROI (key test edge)
 
-    graph_provider.write_graph(graph, fail_if_exists=False)
+    _write_graph(graph_provider, graph, write_method)
 
     graph_provider = provider_factory("r")
 
@@ -672,3 +698,70 @@ def test_read_edges_fetch_on_v(provider_factory):
 
     assert graph_edges_u_only == {(1, 5), (2, 8), (5, 8)}
     assert graph_edges_u_and_v == {(0, 5), (1, 5), (2, 8), (5, 8)}
+
+
+def test_bulk_write_benchmark(provider_factory):
+    """Benchmark: standard write_graph vs bulk_write_graph (COPY).
+
+    Only runs on PostgreSQL since bulk write uses COPY.
+    Uses blockwise writes for the standard path to avoid building a single
+    massive INSERT statement that blocks on remote connections.
+    """
+    import time
+    from itertools import product
+
+    size = 30  # 30^3 = 27,000 nodes
+    block_size = 10
+    graph_provider = provider_factory(
+        "w",
+        node_attrs={"position": Vec(float, 3)},
+    )
+    if not isinstance(graph_provider, PgSQLGraphDatabase):
+        pytest.skip("Bulk write only supported on PostgreSQL")
+
+    # Build a 3D grid graph
+    graph = nx.Graph()
+    for x, y, z in product(range(size), repeat=3):
+        node_id = x * size * size + y * size + z
+        graph.add_node(node_id, position=(x + 0.5, y + 0.5, z + 0.5))
+        if x > 0:
+            graph.add_edge(node_id, (x - 1) * size * size + y * size + z)
+        if y > 0:
+            graph.add_edge(node_id, x * size * size + (y - 1) * size + z)
+        if z > 0:
+            graph.add_edge(node_id, x * size * size + y * size + (z - 1))
+
+    n_nodes = graph.number_of_nodes()
+    n_edges = graph.number_of_edges()
+
+    # --- Standard write (blockwise to avoid giant INSERT statements) ---
+    t0 = time.perf_counter()
+    graph_provider.write_graph(graph)
+    t_standard = time.perf_counter() - t0
+
+    # Verify standard write then close connection to release locks
+    graph_reader = provider_factory("r")
+    result = graph_reader.read_graph()
+    assert result.number_of_nodes() == n_nodes
+    assert result.number_of_edges() == n_edges
+    graph_reader.connection.close()
+
+    # --- Bulk write (recreate tables) ---
+    graph_provider = provider_factory(
+        "w",
+        node_attrs={"position": Vec(float, 3)},
+    )
+    t0 = time.perf_counter()
+    graph_provider.bulk_write_graph(graph)
+    t_bulk = time.perf_counter() - t0
+
+    # Verify bulk write
+    graph_reader = provider_factory("r")
+    result = graph_reader.read_graph()
+    assert result.number_of_nodes() == n_nodes
+    assert result.number_of_edges() == n_edges
+
+    print(f"\n--- write benchmark ({n_nodes:,} nodes, {n_edges:,} edges) ---")
+    print(f"Standard (blockwise): {t_standard*1000:.1f} ms")
+    print(f"Bulk (COPY):          {t_bulk*1000:.1f} ms")
+    print(f"Speedup:              {t_standard / t_bulk:.2f}x")

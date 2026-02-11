@@ -1,11 +1,13 @@
+import io
 import json
 import logging
 from collections.abc import Iterable
+from contextlib import contextmanager
 from typing import Any, Optional
 
 import psycopg2
-
 from funlib.geometry import Roi
+from psycopg2 import sql
 
 from ..types import Vec
 from .sql_graph_database import SQLGraphDataBase
@@ -52,6 +54,7 @@ class PgSQLGraphDatabase(SQLGraphDataBase):
             # DB already exists, moving on...
             connection.rollback()
             pass
+        connection.close()
         self.connection = psycopg2.connect(
             host=db_host,
             database=db_name,
@@ -59,8 +62,6 @@ class PgSQLGraphDatabase(SQLGraphDataBase):
             password=db_password,
             port=db_port,
         )
-        # TODO: remove once tests pass:
-        # self.connection.autocommit = True
         self.cur = self.connection.cursor()
 
         super().__init__(
@@ -152,6 +153,9 @@ class PgSQLGraphDatabase(SQLGraphDataBase):
     def _insert_query(
         self, table, columns, values, fail_if_exists=False, commit=True
     ) -> None:
+        if not values:
+            return
+
         values_str = (
             "VALUES ("
             + "), (".join(
@@ -159,9 +163,9 @@ class PgSQLGraphDatabase(SQLGraphDataBase):
             )
             + ")"
         )
-        # TODO: fail_if_exists is the default if UNIQUE was used to create the
-        # table, we need to update if fail_if_exists==False
         insert_statement = f"INSERT INTO {table}({', '.join(columns)}) " + values_str
+        if not fail_if_exists:
+            insert_statement += " ON CONFLICT DO NOTHING"
         self.__exec(insert_statement)
 
         if commit:
@@ -204,3 +208,239 @@ class PgSQLGraphDatabase(SQLGraphDataBase):
             raise NotImplementedError(
                 f"attributes of type {type} are not yet supported"
             )
+
+    def print_summary(self, schema="public", limit=None):
+        self._commit()
+
+        def fmt_bytes(n):
+            for unit in ["B", "KB", "MB", "GB", "TB", "PB"]:
+                if n < 1024 or unit == "PB":
+                    return f"{n:.1f} {unit}" if unit != "B" else f"{int(n)} {unit}"
+                n /= 1024
+
+        # Basic DB info (read-only)
+        self.cur.execute("SELECT current_database(), current_user, version();")
+        db, user, version = self.cur.fetchone()
+        print(f"DB: {db} | User: {user}")
+        print(version.split("\n")[0])
+        print("-" * 80)
+
+        q = sql.SQL(
+            """
+            SELECT
+            c.relname AS table_name,
+            c.relkind,
+            COALESCE(c.reltuples::bigint, 0) AS est_rows,
+            pg_total_relation_size(c.oid) AS total_bytes
+            FROM pg_class c
+            JOIN pg_namespace n ON n.oid = c.relnamespace
+            WHERE n.nspname = %s
+            AND c.relkind IN ('r','p')  -- r=table, p=partitioned table
+            ORDER BY pg_total_relation_size(c.oid) DESC, c.relname
+        """
+        )
+        if limit is not None:
+            q = q + sql.SQL(" LIMIT %s")
+            self.cur.execute(q, (schema, limit))
+        else:
+            self.cur.execute(q, (schema,))
+        rows = self.cur.fetchall()
+        if not rows:
+            print(f"No tables found in schema={schema!r}")
+            return
+
+        # Pretty print
+        name_w = min(max(len(r[0]) for r in rows), 60)
+        header = f"{'table':<{name_w}}  {'kind':<4}  {'est_rows':>12}  {'size':>10}"
+        print(header)
+        print("-" * len(header))
+
+        kind_map = {"r": "tbl", "p": "part"}
+        for name, relkind, est_rows, total_bytes in rows:
+            print(
+                f"{name:<{name_w}}  {kind_map.get(relkind, relkind):<4}  {est_rows:>12,}  {fmt_bytes(total_bytes):>10}"
+            )
+
+        print("-" * 80)
+        print(f"Tables shown: {len(rows)} (schema={schema!r})")
+
+    @contextmanager
+    def drop_indexes(self):
+        """
+        Context manager for the orchestrator to use around bulk ingestion.
+        Drops all indexes and primary key constraints before yielding, then
+        recreates them after. This is a global (DDL) operation — call it
+        once from the main process, not from individual workers.
+        """
+        nodes = self.nodes_table_name
+        edges = self.edges_table_name
+        endpoint_names = self.endpoint_names
+        assert endpoint_names is not None
+
+        # Drop position index and primary key constraints
+        self.__exec("DROP INDEX IF EXISTS pos_index")
+        self.__exec(
+            f"ALTER TABLE {nodes} DROP CONSTRAINT IF EXISTS {nodes}_pkey"
+        )
+        self.__exec(
+            f"ALTER TABLE {edges} DROP CONSTRAINT IF EXISTS {edges}_pkey"
+        )
+        self._commit()
+
+        try:
+            yield
+        finally:
+            self._commit()
+            logger.info("Re-creating indexes and constraints...")
+            self.__exec(
+                f"ALTER TABLE {nodes} "
+                f"ADD CONSTRAINT {nodes}_pkey PRIMARY KEY (id)"
+            )
+            self.__exec(
+                f"CREATE INDEX IF NOT EXISTS pos_index ON "
+                f"{nodes}({self.position_attribute})"
+            )
+            self.__exec(
+                f"ALTER TABLE {edges} "
+                f"ADD CONSTRAINT {edges}_pkey "
+                f"PRIMARY KEY ({endpoint_names[0]}, {endpoint_names[1]})"
+            )
+            self._commit()
+
+    @contextmanager
+    def fast_session(self):
+        """
+        Per-connection context manager for workers to use during bulk ingestion.
+        Disables synchronous commit for the duration of the session.
+        """
+        self.__exec("SET synchronous_commit TO OFF")
+        self._commit()
+        try:
+            yield
+        finally:
+            self.__exec("SET synchronous_commit TO ON")
+            self._commit()
+
+    def bulk_write_graph(
+        self,
+        graph,
+        roi=None,
+        write_nodes=True,
+        write_edges=True,
+        node_attrs=None,
+        edge_attrs=None,
+    ):
+        """
+        Fast bulk ingest of a graph using COPY. Mirrors write_graph but
+        uses _stream_copy for speed. Does not support fail_if_exists or
+        delete — use inside drop_indexes() where constraints are removed.
+        """
+        if write_nodes:
+            self.bulk_write_nodes(graph.nodes, roi=roi, attributes=node_attrs)
+        if write_edges:
+            self.bulk_write_edges(
+                graph.nodes, graph.edges, roi=roi, attributes=edge_attrs
+            )
+
+    def bulk_write_nodes(self, nodes, roi=None, attributes=None):
+        """
+        Fast bulk ingest of nodes using COPY. Mirrors write_nodes.
+        """
+        if self.mode == "r":
+            raise RuntimeError("Trying to write to read-only DB")
+
+        attrs = attributes if attributes is not None else list(self.node_attrs.keys())
+        columns = ["id"] + list(attrs)
+        pos_attr = self.position_attribute
+
+        def node_gen():
+            for node_id, data in nodes.items():
+                pos = data.get(pos_attr)
+                if roi is not None:
+                    if pos is None or not roi.contains(pos):
+                        continue
+
+                row = [str(node_id)]
+                for attr in attrs:
+                    val = data.get(attr)
+                    if val is None:
+                        row.append(r"\N")
+                    elif isinstance(val, (list, tuple)):
+                        row.append(f"{{{','.join(map(str, val))}}}")
+                    else:
+                        row.append(str(val))
+                yield "\t".join(row) + "\n"
+
+        self._stream_copy(self.nodes_table_name, columns, node_gen())
+        self._commit()
+
+    def bulk_write_edges(self, nodes, edges, roi=None, attributes=None):
+        """
+        Fast bulk ingest of edges using COPY. Mirrors write_edges.
+        Only writes edges where the u endpoint is in the ROI.
+        """
+        if self.mode == "r":
+            raise RuntimeError("Trying to write to read-only DB")
+
+        u_name, v_name = self.endpoint_names
+        attrs = (
+            attributes
+            if attributes is not None
+            else list(self.edge_attrs.keys())
+        )
+        columns = [u_name, v_name] + list(attrs)
+        pos_attr = self.position_attribute
+
+        def edge_gen():
+            for (u, v), data in edges.items():
+                if not self.directed:
+                    u, v = min(u, v), max(u, v)
+
+                if roi is not None:
+                    pos_u = nodes[u].get(pos_attr)
+                    if pos_u is None or not roi.contains(pos_u):
+                        continue
+
+                row = [str(u), str(v)]
+                for attr in attrs:
+                    val = data.get(attr)
+                    if val is None:
+                        row.append(r"\N")
+                    elif isinstance(val, (list, tuple)):
+                        row.append(f"{{{','.join(map(str, val))}}}")
+                    else:
+                        row.append(str(val))
+                yield "\t".join(row) + "\n"
+
+        self._stream_copy(self.edges_table_name, columns, edge_gen())
+        self._commit()
+
+    def _stream_copy(self, table_name, columns, data_generator):
+        """
+        Consumes a generator of strings and sends them to Postgres via COPY.
+        Uses a chunked buffer to keep memory usage stable.
+        """
+        # Tune this size (in bytes). 10MB - 50MB is usually a sweet spot.
+        BATCH_SIZE = 50 * 1024 * 1024
+
+        buffer = io.StringIO()
+        current_size = 0
+
+        # Helper to flush buffer to DB
+        def flush():
+            buffer.seek(0)
+            self.cur.copy_from(buffer, table_name, columns=columns, null=r"\N")
+            buffer.truncate(0)
+            buffer.seek(0)
+
+        for line in data_generator:
+            buffer.write(line)
+            current_size += len(line)
+
+            if current_size >= BATCH_SIZE:
+                flush()
+                current_size = 0
+
+        # Flush remaining
+        if current_size > 0:
+            flush()
