@@ -19,10 +19,6 @@ keywords = []
 
 dependencies = [
     "zarr>=3,<4",
-    # ImportError: cannot import name 'cbuffer_sizes' from 'numcodecs.blosc'
-    # We can pin zarr to >2.18.7 but then we have to drop python 3.10
-    # pin numcodecs to avoid breaking change
-    "numcodecs>0.13,<0.16.0",
     "iohub>=0.3.0a5",
     "funlib.geometry>=0.3.0",
     "networkx>=3.0.0",
