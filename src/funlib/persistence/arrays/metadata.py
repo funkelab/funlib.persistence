@@ -1,5 +1,5 @@
 import warnings
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any, Optional
 
@@ -268,7 +268,7 @@ class MetaDataFormat(BaseModel):
         extra = "forbid"
 
     def fetch(
-        self, data: dict[str | int, Any], key: str
+        self, data: Mapping[str, Any], key: str
     ) -> Sequence[str | int | None] | None:
         """
         Given a dictionary of attributes from e.g. zarr.open(...).attrs, fetch the value
@@ -292,7 +292,7 @@ class MetaDataFormat(BaseModel):
         keys = key.split("/")
 
         def recurse(
-            data: dict[str | int, Any] | list[Any], keys: list[str]
+            data: Any, keys: list[str]
         ) -> Sequence[str | int | None] | str | int | None:
             current_key: str | int
             current_key, *keys = keys
@@ -304,7 +304,7 @@ class MetaDataFormat(BaseModel):
             # base case
             if len(keys) == 0:
                 # this key returns the data we want
-                if isinstance(data, (dict, zarr.core.attributes.Attributes)):
+                if isinstance(data, Mapping):
                     return data.get(str(current_key), None)
                 elif isinstance(data, list):
                     assert isinstance(current_key, int), current_key
@@ -336,7 +336,7 @@ class MetaDataFormat(BaseModel):
     def parse(
         self,
         shape: Sequence[int],
-        data: dict[str | int, Any],
+        data: Mapping[str, Any],
         offset: Optional[Sequence[int]] = None,
         voxel_size: Optional[Sequence[int]] = None,
         axis_names: Optional[Sequence[str]] = None,

@@ -63,8 +63,8 @@ def open_ome_ds(
 
     metadata = MetaData(
         shape=dataset.shape,
-        offset=offset,  # type: ignore[arg-type]
-        voxel_size=scale,  # type: ignore[arg-type]
+        offset=offset,
+        voxel_size=scale,
         axis_names=axis_names,
         units=units,
         types=types,

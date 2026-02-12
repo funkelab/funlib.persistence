@@ -1,6 +1,6 @@
 import logging
 from collections.abc import Sequence
-from typing import Any, Optional, Union
+from typing import Any, Literal, Optional, Union
 
 import numpy as np
 import zarr
@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 
 def open_ds(
     store,
-    mode: str = "r",
+    mode: Literal["r", "r+", "a", "w", "w-"] = "r",
     metadata_format: Optional[MetaDataFormat] = None,
     offset: Optional[Sequence[int]] = None,
     voxel_size: Optional[Sequence[int]] = None,
@@ -131,7 +131,7 @@ def prepare_ds(
     types: Optional[Sequence[str]] = None,
     chunk_shape: Optional[Sequence[int]] = None,
     dtype: DTypeLike = np.float32,
-    mode: str = "a",
+    mode: Literal["r", "r+", "a", "w", "w-"] = "a",
     custom_metadata: dict[str, Any] | None = None,
     **kwargs,
 ) -> Array:
