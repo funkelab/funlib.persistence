@@ -57,6 +57,3 @@ lint.select = ["F", "W", "I001"]
 module = ["zarr.*", "iohub.*"]
 ignore_missing_imports = true
 
-[tool.ty.rules]
-# dask and iohub have incomplete type stubs
-possibly-missing-attribute = "warn"
