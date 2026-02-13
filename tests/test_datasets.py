@@ -1,6 +1,7 @@
 import numpy as np
 import pytest
 from funlib.geometry import Coordinate, Roi
+
 from funlib.persistence.arrays.datasets import open_ds, prepare_ds
 from funlib.persistence.arrays.metadata import MetaDataFormat
 

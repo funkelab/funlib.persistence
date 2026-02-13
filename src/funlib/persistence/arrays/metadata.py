@@ -4,7 +4,6 @@ from pathlib import Path
 from typing import Any, Optional
 
 import toml
-import zarr
 from funlib.geometry import Coordinate
 from pydantic import BaseModel
 
