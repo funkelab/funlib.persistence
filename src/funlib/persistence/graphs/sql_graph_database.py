@@ -2,10 +2,9 @@ import logging
 from abc import abstractmethod
 from typing import Any, Iterable, Optional
 
+from funlib.geometry import Coordinate, Roi
 from networkx import DiGraph, Graph
 from networkx.classes.reportviews import NodeView, OutEdgeView
-
-from funlib.geometry import Coordinate, Roi
 
 from ..types import Vec, type_to_str
 from .graph_database import AttributeType, GraphDataBase
@@ -86,20 +85,20 @@ class SQLGraphDataBase(GraphDataBase):
         self.mode = mode
 
         if mode in self.read_modes:
-            self.position_attribute = position_attribute
-            self.directed = directed
-            self.total_roi = total_roi
-            self.nodes_table_name = nodes_table
-            self.edges_table_name = edges_table
-            self.endpoint_names = endpoint_names
-            self._node_attrs = node_attrs
-            self._edge_attrs = edge_attrs
-            self.ndims = None  # to be read from metadata
-
             metadata = self._read_metadata()
             if metadata is None:
                 raise RuntimeError("metadata does not exist, can't open in read mode")
-            self.__load_metadata(metadata)
+            self.__load_metadata(
+                metadata,
+                position_attribute=position_attribute,
+                directed=directed,
+                total_roi=total_roi,
+                nodes_table=nodes_table,
+                edges_table=edges_table,
+                endpoint_names=endpoint_names,
+                node_attrs=node_attrs,
+                edge_attrs=edge_attrs,
+            )
 
         if mode in self.create_modes:
             # this is where we populate default values for the DB creation
@@ -113,7 +112,7 @@ class SQLGraphDataBase(GraphDataBase):
             def get(value, default):
                 return value if value is not None else default
 
-            self.position_attribute = get(position_attribute, "position")
+            self.position_attribute: str = get(position_attribute, "position")
 
             assert self.position_attribute in node_attrs, (
                 "No type information for position attribute "
@@ -122,7 +121,7 @@ class SQLGraphDataBase(GraphDataBase):
 
             position_type = node_attrs[self.position_attribute]
             if isinstance(position_type, Vec):
-                self.ndims = position_type.size
+                self.ndims: int = position_type.size
                 assert self.ndims > 1, (
                     "Don't use Vecs of size 1 for the position, use the "
                     "scalar type directly instead (i.e., 'float' instead of "
@@ -132,13 +131,13 @@ class SQLGraphDataBase(GraphDataBase):
             else:
                 self.ndims = 1
 
-            self.directed = get(directed, False)
-            self.total_roi = get(
+            self.directed: bool = get(directed, False)
+            self.total_roi: Roi = get(
                 total_roi, Roi((None,) * self.ndims, (None,) * self.ndims)
             )
-            self.nodes_table_name = get(nodes_table, "nodes")
-            self.edges_table_name = get(edges_table, "edges")
-            self.endpoint_names = get(endpoint_names, ["u", "v"])
+            self.nodes_table_name: str = get(nodes_table, "nodes")
+            self.edges_table_name: str = get(edges_table, "edges")
+            self.endpoint_names: list[str] = get(endpoint_names, ["u", "v"])
             self._node_attrs = node_attrs  # no default, needs to be given
             self._edge_attrs = get(edge_attrs, {})
 
@@ -190,6 +189,17 @@ class SQLGraphDataBase(GraphDataBase):
     def _commit(self) -> None:
         pass
 
+    @abstractmethod
+    def _bulk_insert(self, table, columns, rows) -> None:
+        """Insert rows using a backend-optimized bulk method.
+
+        Args:
+            table: Table name.
+            columns: Column names.
+            rows: Iterable of row lists (Python values, not formatted strings).
+        """
+        pass
+
     def _node_attrs_to_columns(self, attrs):
         # default: each attribute maps to its own column
         return attrs
@@ -214,6 +224,7 @@ class SQLGraphDataBase(GraphDataBase):
         edge_attrs: Optional[list[str]] = None,
         nodes_filter: Optional[dict[str, Any]] = None,
         edges_filter: Optional[dict[str, Any]] = None,
+        fetch_on_v: bool = False,
     ) -> Graph:
         graph: Graph
         if self.directed:
@@ -230,10 +241,32 @@ class SQLGraphDataBase(GraphDataBase):
         graph.add_nodes_from(node_list)
 
         if read_edges:
-            edges = self.read_edges(
-                roi, nodes=nodes, read_attrs=edge_attrs, attr_filter=edges_filter
-            )
-            u, v = self.endpoint_names  # type: ignore
+            # When a nodes_filter is used, the filtered node set is narrower
+            # than the ROI. Fall back to the nodes path so edges only connect
+            # nodes that passed the filter. Otherwise use the faster ROI path.
+            if nodes_filter:
+                edges = self.read_edges(
+                    nodes=nodes,
+                    read_attrs=edge_attrs,
+                    attr_filter=edges_filter,
+                    fetch_on_v=fetch_on_v,
+                )
+            else:
+                # We use ROI to query edges ro avoid serializing a list of
+                # node IDs into the SQL query.
+
+                # A fully unbounded ROI (all None in shape) provides no
+                # filtering, so treat it as None to fetch all edges.
+                effective_roi = roi
+                if roi is not None and all(s is None for s in roi.shape):
+                    effective_roi = None
+                edges = self.read_edges(
+                    roi=effective_roi,
+                    read_attrs=edge_attrs,
+                    attr_filter=edges_filter,
+                    fetch_on_v=fetch_on_v,
+                )
+            u, v = self.endpoint_names
             try:
                 edge_list = [(e[u], e[v], self.__remove_keys(e, [u, v])) for e in edges]
             except KeyError as e:
@@ -289,6 +322,58 @@ class SQLGraphDataBase(GraphDataBase):
                 delete=delete,
             )
 
+    def bulk_write_graph(
+        self,
+        graph: Graph,
+        roi: Optional[Roi] = None,
+        write_nodes: bool = True,
+        write_edges: bool = True,
+        node_attrs: Optional[list[str]] = None,
+        edge_attrs: Optional[list[str]] = None,
+    ) -> None:
+        if write_nodes:
+            self.bulk_write_nodes(graph.nodes, roi=roi, attributes=node_attrs)
+        if write_edges:
+            self.bulk_write_edges(
+                graph.nodes, graph.edges, roi=roi, attributes=edge_attrs
+            )
+
+    def bulk_write_nodes(self, nodes, roi=None, attributes=None):
+        if self.mode == "r":
+            raise RuntimeError("Trying to write to read-only DB")
+
+        attrs = attributes if attributes is not None else list(self.node_attrs.keys())
+        columns = ["id"] + list(attrs)
+
+        def rows():
+            for node_id, data in nodes.items():
+                pos = self.__get_node_pos(data)
+                if roi is not None and not roi.contains(pos):
+                    continue
+                yield [node_id] + [data.get(attr, None) for attr in attrs]
+
+        self._bulk_insert(self.nodes_table_name, columns, rows())
+
+    def bulk_write_edges(self, nodes, edges, roi=None, attributes=None):
+        if self.mode == "r":
+            raise RuntimeError("Trying to write to read-only DB")
+
+        u_name, v_name = self.endpoint_names
+        attrs = attributes if attributes is not None else list(self.edge_attrs.keys())
+        columns = [u_name, v_name] + list(attrs)
+
+        def rows():
+            for (u, v), data in edges.items():
+                if not self.directed:
+                    u, v = min(u, v), max(u, v)
+                if roi is not None:
+                    pos_u = self.__get_node_pos(nodes[u])
+                    if pos_u is None or not roi.contains(pos_u):
+                        continue
+                yield [u, v] + [data.get(attr, None) for attr in attrs]
+
+        self._bulk_insert(self.edges_table_name, columns, rows())
+
     @property
     def node_attrs(self) -> dict[str, AttributeType]:
         return self._node_attrs if self._node_attrs is not None else {}
@@ -334,10 +419,6 @@ class SQLGraphDataBase(GraphDataBase):
             )
         )
 
-        attr_filter = attr_filter if attr_filter is not None else {}
-        for k, v in attr_filter.items():
-            select_statement += f" AND {k}={self.__convert_to_sql(v)}"
-
         nodes = [
             self._columns_to_node_attrs(
                 {key: val for key, val in zip(read_columns, values)}, read_attrs
@@ -365,49 +446,105 @@ class SQLGraphDataBase(GraphDataBase):
         nodes: Optional[list[dict[str, Any]]] = None,
         attr_filter: Optional[dict[str, Any]] = None,
         read_attrs: Optional[list[str]] = None,
+        fetch_on_v: bool = False,
     ) -> list[dict[str, Any]]:
-        """Returns a list of edges within roi."""
+        """
+        Returns a list of edges within roi, connected to provided nodes, or all edges.
 
-        if nodes is None:
-            nodes = self.read_nodes(roi)
+        Args:
+            fetch_on_v: If True, also match edges where the v endpoint is in the
+                node list or ROI. If False (default), only match on u.
 
-        if len(nodes) == 0:
-            return []
+        Raises:
+            ValueError: If both roi and nodes are provided.
+        """
+
+        if roi is not None and nodes is not None:
+            raise ValueError(
+                "read_edges does not support both roi and nodes at the same time. "
+                "Pass one or the other."
+            )
 
         endpoint_names = self.endpoint_names
-        assert endpoint_names is not None
 
-        node_ids = ", ".join([str(node["id"]) for node in nodes])
-        node_condition = f"{endpoint_names[0]} IN ({node_ids})"  # type: ignore
+        # 1. Determine the base SELECT statement and WHERE clause
 
-        logger.debug("Reading nodes in roi %s" % roi)
-        # TODO: AND vs OR here
-        desired_columns = ", ".join(endpoint_names + list(self.edge_attrs.keys()))  # type: ignore
-        select_statement = (
-            f"SELECT {desired_columns} FROM {self.edges_table_name} WHERE "
-            + node_condition
-            + (
-                " AND " + self.__attr_query(attr_filter)
-                if attr_filter is not None and len(attr_filter) > 0
-                else ""
+        # Columns to select from the edge table (T1)
+        edge_table_cols = endpoint_names + list(self.edge_attrs.keys())
+        desired_columns = ", ".join(edge_table_cols)
+
+        # Base query starts with selecting all columns from the edges table
+        select_statement = f"SELECT {desired_columns} FROM {self.edges_table_name}"
+        where_clauses = []
+        using_join = False
+
+        if nodes is not None:
+            # Case 1: Filter by explicit list of nodes
+            if len(nodes) == 0:
+                return []
+
+            node_ids = ", ".join([str(node["id"]) for node in nodes])
+            if fetch_on_v:
+                where_clauses.append(
+                    f"({endpoint_names[0]} IN ({node_ids})"
+                    f" OR {endpoint_names[1]} IN ({node_ids}))"
+                )
+            else:
+                where_clauses.append(f"{endpoint_names[0]} IN ({node_ids})")
+
+        elif roi is not None:
+            # Case 2: Filter by ROI using INNER JOIN
+            using_join = True
+            node_id_column = "id"
+
+            edge_cols = ", ".join([f"T1.{col}" for col in edge_table_cols])
+            roi_condition = self.__roi_query(roi).replace("WHERE ", "")
+
+            join_condition = f"T1.{endpoint_names[0]} = T2.{node_id_column}"
+            if fetch_on_v:
+                join_condition += f" OR T1.{endpoint_names[1]} = T2.{node_id_column}"
+
+            select_statement = (
+                f"SELECT DISTINCT {edge_cols} "
+                f"FROM {self.edges_table_name} AS T1 "
+                f"INNER JOIN {self.nodes_table_name} AS T2 "
+                f"ON {join_condition} "
             )
-        )
+            where_clauses.append(roi_condition)
 
-        edge_attrs = endpoint_names + (  # type: ignore
+        # Case 3: Both nodes and roi are None — fetch all edges
+
+        # 2. Add Attribute Filter to WHERE clauses
+        if attr_filter is not None and len(attr_filter) > 0:
+            if using_join:
+                # Qualify each attribute with T1 for the JOIN case
+                parts = [
+                    f"T1.{k}={self.__convert_to_sql(v)}" for k, v in attr_filter.items()
+                ]
+                where_clauses.append(" AND ".join(parts))
+            else:
+                where_clauses.append(self.__attr_query(attr_filter))
+
+        # 3. Finalize the SELECT statement
+        if len(where_clauses) > 0:
+            select_statement += " WHERE " + " AND ".join(where_clauses)
+
+        logger.debug(f"Reading edges with query: {select_statement}")
+
+        # 4. Execute Query and Process Results
+
+        # Define the keys for the result dictionaries
+        all_edge_keys = endpoint_names + list(self.edge_attrs.keys())
+
+        # Define which keys to keep based on read_attrs
+        final_edge_keys = endpoint_names + (
             list(self.edge_attrs.keys()) if read_attrs is None else read_attrs
         )
-        attr_filter = attr_filter if attr_filter is not None else {}
-        for k, v in attr_filter.items():
-            select_statement += f" AND {k}={self.__convert_to_sql(v)}"
-
         edges = [
             {
                 key: val
-                for key, val in zip(
-                    endpoint_names + list(self.edge_attrs.keys()),
-                    values,  # type: ignore
-                )
-                if key in edge_attrs
+                for key, val in zip(all_edge_keys, values)
+                if key in final_edge_keys
             }
             for values in self._select_query(select_statement)
         ]
@@ -490,8 +627,8 @@ class SQLGraphDataBase(GraphDataBase):
                 if not roi.contains(pos_u):
                     logger.debug(
                         (
-                            f"Skipping edge with {self.endpoint_names[0]} {{}}, {self.endpoint_names[1]} {{}},"  # type: ignore
-                            + f"and data {{}} because {self.endpoint_names[0]} not in roi {{}}"  # type: ignore
+                            f"Skipping edge with {self.endpoint_names[0]} {{}}, {self.endpoint_names[1]} {{}},"
+                            + f"and data {{}} because {self.endpoint_names[0]} not in roi {{}}"
                         ).format(u, v, data, roi)
                     )
                     continue
@@ -501,7 +638,7 @@ class SQLGraphDataBase(GraphDataBase):
             update_statement = (
                 f"UPDATE {self.edges_table_name} SET "
                 f"{', '.join(setters)} WHERE "
-                f"{self.endpoint_names[0]}={u} AND {self.endpoint_names[1]}={v}"  # type: ignore
+                f"{self.endpoint_names[0]}={u} AND {self.endpoint_names[1]}={v}"
             )
 
             self._update_query(update_statement, commit=False)
@@ -538,7 +675,9 @@ class SQLGraphDataBase(GraphDataBase):
             logger.debug("No nodes to insert in %s", roi)
             return
 
-        self._insert_query(self.nodes_table_name, columns, values, fail_if_exists=True)
+        self._insert_query(
+            self.nodes_table_name, columns, values, fail_if_exists=fail_if_exists
+        )
 
     def update_nodes(
         self,
@@ -581,7 +720,6 @@ class SQLGraphDataBase(GraphDataBase):
 
     def __create_metadata(self):
         """Sets the metadata in the meta collection to the provided values"""
-
         metadata = {
             "position_attribute": self.position_attribute,
             "directed": self.directed,
@@ -597,59 +735,64 @@ class SQLGraphDataBase(GraphDataBase):
 
         return metadata
 
-    def __load_metadata(self, metadata):
+    def __load_metadata(
+        self,
+        metadata,
+        position_attribute: Optional[str] = None,
+        directed: Optional[bool] = None,
+        total_roi: Optional[Roi] = None,
+        nodes_table: Optional[str] = None,
+        edges_table: Optional[str] = None,
+        endpoint_names: Optional[list[str]] = None,
+        node_attrs: Optional[dict[str, AttributeType]] = None,
+        edge_attrs: Optional[dict[str, AttributeType]] = None,
+    ):
         """Load the provided metadata into this object's attributes, check if
-        it is consistent with already populated fields."""
+        user-provided overrides are consistent with stored metadata."""
 
-        # simple attributes
-        for attr_name in [
-            "position_attribute",
-            "directed",
-            "nodes_table_name",
-            "edges_table_name",
-            "endpoint_names",
-            "ndims",
-        ]:
-            if getattr(self, attr_name) is None:
-                setattr(self, attr_name, metadata[attr_name])
-            else:
-                value = getattr(self, attr_name)
-                assert value == metadata[attr_name], (
-                    f"Attribute {attr_name} is already set to {value} for this "
-                    "object, but disagrees with the stored metadata value of "
-                    f"{metadata[attr_name]}"
+        # For each simple attribute, use metadata as the source of truth.
+        # If the user also provided a value, check consistency.
+        overrides: dict[str, Any] = {
+            "position_attribute": position_attribute,
+            "directed": directed,
+            "nodes_table_name": nodes_table,
+            "edges_table_name": edges_table,
+            "endpoint_names": endpoint_names,
+            "ndims": None,  # ndims is never user-provided
+        }
+        for attr_name, override in overrides.items():
+            stored = metadata[attr_name]
+            if override is not None:
+                assert override == stored, (
+                    f"Attribute {attr_name} was given as {override}, but "
+                    f"disagrees with the stored metadata value of {stored}"
                 )
+            setattr(self, attr_name, stored)
 
-        # special attributes
+        # total_roi
+        stored_roi = Roi(metadata["total_roi_offset"], metadata["total_roi_shape"])
+        if total_roi is not None:
+            assert total_roi == stored_roi, (
+                f"Attribute total_roi was given as {total_roi}, but "
+                f"disagrees with the stored metadata value of {stored_roi}"
+            )
+        self.total_roi = stored_roi
 
-        total_roi = Roi(metadata["total_roi_offset"], metadata["total_roi_shape"])
-        if self.total_roi is None:
-            self.total_roi = total_roi
-        else:
-            assert self.total_roi == total_roi, (
-                f"Attribute total_roi is already set to {self.total_roi} for "
-                "this object, but disagrees with the stored metadata value of "
-                f"{total_roi}"
+        # node_attrs / edge_attrs
+        stored_node_attrs = {k: eval(v) for k, v in metadata["node_attrs"].items()}
+        stored_edge_attrs = {k: eval(v) for k, v in metadata["edge_attrs"].items()}
+        if node_attrs is not None:
+            assert node_attrs == stored_node_attrs, (
+                f"Attribute node_attrs was given as {node_attrs}, but "
+                f"disagrees with the stored metadata value of {stored_node_attrs}"
             )
-
-        node_attrs = {k: eval(v) for k, v in metadata["node_attrs"].items()}
-        edge_attrs = {k: eval(v) for k, v in metadata["edge_attrs"].items()}
-        if self._node_attrs is None:
-            self.node_attrs = node_attrs
-        else:
-            assert self.node_attrs == node_attrs, (
-                f"Attribute node_attrs is already set to {self.node_attrs} for "
-                "this object, but disagrees with the stored metadata value of "
-                f"{node_attrs}"
+        self._node_attrs = stored_node_attrs
+        if edge_attrs is not None:
+            assert edge_attrs == stored_edge_attrs, (
+                f"Attribute edge_attrs was given as {edge_attrs}, but "
+                f"disagrees with the stored metadata value of {stored_edge_attrs}"
             )
-        if self._edge_attrs is None:
-            self.edge_attrs = edge_attrs
-        else:
-            assert self.edge_attrs == edge_attrs, (
-                f"Attribute edge_attrs is already set to {self.edge_attrs} for "
-                "this object, but disagrees with the stored metadata value of "
-                f"{edge_attrs}"
-            )
+        self._edge_attrs = stored_edge_attrs
 
     def __remove_keys(self, dictionary, keys):
         """Removes given keys from dictionary."""
@@ -658,7 +801,7 @@ class SQLGraphDataBase(GraphDataBase):
 
     def __get_node_pos(self, n: dict[str, Any]) -> Optional[Coordinate]:
         try:
-            return Coordinate(n[self.position_attribute])  # type: ignore
+            return Coordinate(n[self.position_attribute])
         except KeyError:
             return None
 
@@ -682,17 +825,21 @@ class SQLGraphDataBase(GraphDataBase):
     def __roi_query(self, roi: Roi) -> str:
         query = "WHERE "
         pos_attr = self.position_attribute
-        for dim in range(self.ndims):  # type: ignore
+        for dim in range(self.ndims):
             if dim > 0:
                 query += " AND "
             if roi.begin[dim] is not None and roi.end[dim] is not None:
                 query += (
-                    f"{pos_attr}[{dim + 1}] BETWEEN {roi.begin[dim]} and {roi.end[dim]}"
+                    f"{pos_attr}[{dim + 1}]>={roi.begin[dim]}"
+                    f" AND {pos_attr}[{dim + 1}]<{roi.end[dim]}"
                 )
             elif roi.begin[dim] is not None:
                 query += f"{pos_attr}[{dim + 1}]>={roi.begin[dim]}"
-            elif roi.begin[dim] is not None:
+            elif roi.end[dim] is not None:
                 query += f"{pos_attr}[{dim + 1}]<{roi.end[dim]}"
             else:
                 query = query[:-5]
         return query
+
+    def print_summary(self):
+        raise ValueError("Not implemented for base SQLGraphDataBase")

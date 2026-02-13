@@ -13,17 +13,13 @@ authors = [
 ]
 dynamic = ['version']
 
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 classifiers = ["Programming Language :: Python :: 3"]
 keywords = []
 
 dependencies = [
-    "zarr>=2,<3",
-    # ImportError: cannot import name 'cbuffer_sizes' from 'numcodecs.blosc'
-    # We can pin zarr to >2.18.7 but then we have to drop python 3.10
-    # pin numcodecs to avoid breaking change
-    "numcodecs>0.13,<0.16.0",
-    "iohub>=0.2.0b0",
+    "zarr>=3,<4",
+    "iohub>=0.3.0a5",
     "funlib.geometry>=0.3.0",
     "networkx>=3.0.0",
     "pymongo>=4.0.0",
@@ -31,7 +27,7 @@ dependencies = [
     "pydantic>=2.0.0",
     "dask>=2024.0.0",
     "toml>=0.10.0",
-    "psycopg2-binary>=2.9.5",
+    "psycopg2-binary>=2.9.11",
 ]
 
 [tool.setuptools.dynamic]
@@ -40,10 +36,10 @@ version = { attr = "funlib.persistence.__version__" }
 [project.optional-dependencies]
 dev = [
     "coverage>=7.7.1",
-    "mypy>=1.15.0",
     "pytest>=8.3.5",
     "pytest-mock>=3.14.0",
     "ruff>=0.11.2",
+    "ty>=0.0.16",
     "types-networkx",
     "types-psycopg2",
     "types-toml",
@@ -56,10 +52,8 @@ lint.select = ["F", "W", "I001"]
 [tool.setuptools.package-data]
 "funlib.persistence" = ["py.typed"]
 
-[tool.mypy]
-explicit_package_bases = true
-
 # # module specific overrides
 [[tool.mypy.overrides]]
 module = ["zarr.*", "iohub.*"]
 ignore_missing_imports = true
+

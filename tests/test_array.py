@@ -1,8 +1,8 @@
 import dask.array as da
 import numpy as np
 import pytest
-
 from funlib.geometry import Coordinate, Roi
+
 from funlib.persistence.arrays import Array
 
 
@@ -422,6 +422,7 @@ def test_writeable():
     assert a.shape == (2, 2)
     assert a.axis_names == ["d0", "d1"]
     assert not a.is_writeable
+
 
 def test_to_pixel_world_space_coordinate():
     offset = Coordinate(1, -1, 2)

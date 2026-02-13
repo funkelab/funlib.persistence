@@ -2,6 +2,7 @@ import json
 import logging
 import re
 import sqlite3
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Optional
 
@@ -46,6 +47,39 @@ class SQLiteGraphDataBase(SQLGraphDataBase):
             node_attrs=node_attrs,
             edge_attrs=edge_attrs,
         )
+
+    def close(self):
+        self.con.close()
+
+    @contextmanager
+    def bulk_write_mode(self, worker=False, node_writes=True, edge_writes=True):
+        prev_sync = self.cur.execute("PRAGMA synchronous").fetchone()[0]
+        self.cur.execute("PRAGMA synchronous=OFF")
+        self.cur.execute("PRAGMA journal_mode=WAL")
+        self.con.commit()
+
+        if not worker and node_writes:
+            self.cur.execute("DROP INDEX IF EXISTS pos_index")
+            self.con.commit()
+
+        try:
+            yield
+        finally:
+            self.con.commit()
+
+            if not worker and node_writes:
+                if self.ndims > 1:
+                    position_columns = self.node_array_columns[self.position_attribute]
+                else:
+                    position_columns = [self.position_attribute]
+                self.cur.execute(
+                    f"CREATE INDEX IF NOT EXISTS pos_index ON "
+                    f"{self.nodes_table_name}({','.join(position_columns)})"
+                )
+                self.con.commit()
+
+            self.cur.execute(f"PRAGMA synchronous={prev_sync}")
+            self.con.commit()
 
     @property
     def node_array_columns(self):
@@ -99,16 +133,16 @@ class SQLiteGraphDataBase(SQLGraphDataBase):
             f"{', '.join(node_columns)}"
             ")"
         )
-        if self.ndims > 1:  # type: ignore
+        if self.ndims > 1:
             position_columns = self.node_array_columns[self.position_attribute]
         else:
-            position_columns = self.position_attribute
+            position_columns = [self.position_attribute]
         self.cur.execute(
             f"CREATE INDEX IF NOT EXISTS pos_index ON {self.nodes_table_name}({','.join(position_columns)})"
         )
         edge_columns = [
-            f"{self.endpoint_names[0]} INTEGER not null",  # type: ignore
-            f"{self.endpoint_names[1]} INTEGER not null",  # type: ignore
+            f"{self.endpoint_names[0]} INTEGER not null",
+            f"{self.endpoint_names[1]} INTEGER not null",
         ]
         for attr in self.edge_attrs.keys():
             if attr in self.edge_array_columns:
@@ -118,7 +152,7 @@ class SQLiteGraphDataBase(SQLGraphDataBase):
         self.cur.execute(
             f"CREATE TABLE IF NOT EXISTS {self.edges_table_name}("
             + f"{', '.join(edge_columns)}"
-            + f", PRIMARY KEY ({self.endpoint_names[0]}, {self.endpoint_names[1]})"  # type: ignore
+            + f", PRIMARY KEY ({self.endpoint_names[0]}, {self.endpoint_names[1]})"
             + ")"
         )
 
@@ -181,6 +215,42 @@ class SQLiteGraphDataBase(SQLGraphDataBase):
         if commit:
             self.con.commit()
 
+    def _bulk_insert(self, table, columns, rows) -> None:
+        # Explode array columns for SQLite (same logic as _insert_query)
+        array_columns = (
+            self.node_array_columns
+            if table == self.nodes_table_name
+            else self.edge_array_columns
+        )
+
+        exploded_columns: list[str] = []
+        exploded_rows = []
+        for row in rows:
+            exploded_cols = []
+            exploded_vals = []
+            for column, value in zip(columns, row):
+                if column in array_columns:
+                    for c, v in zip(array_columns[column], value):
+                        exploded_cols.append(c)
+                        exploded_vals.append(v)
+                else:
+                    exploded_cols.append(column)
+                    exploded_vals.append(value)
+            if not exploded_columns:
+                exploded_columns = exploded_cols
+            exploded_rows.append(exploded_vals)
+
+        if not exploded_rows:
+            return
+
+        insert_statement = (
+            f"INSERT OR IGNORE INTO {table} "
+            f"({', '.join(exploded_columns)}) "
+            f"VALUES ({', '.join(['?'] * len(exploded_columns))})"
+        )
+        self.cur.executemany(insert_statement, exploded_rows)
+        self.con.commit()
+
     def _update_query(self, query, commit=True):
         try:
             self.cur.execute(query)
@@ -203,17 +273,18 @@ class SQLiteGraphDataBase(SQLGraphDataBase):
                 columns.append(attr)
         return columns
 
-    def _columns_to_node_attrs(self, columns, query_attrs):
-        attrs = {}
-        for attr in query_attrs:
+    def _columns_to_node_attrs(self, columns, attrs):
+        result = {}
+        for attr in attrs:
             if attr in self.node_array_columns:
                 value = tuple(
-                    columns[f"{attr}_{d}"] for d in range(self.node_attrs[attr].size)
+                    columns[f"{attr}_{d}"]
+                    for d in range(len(self.node_array_columns[attr]))
                 )
             else:
                 value = columns[attr]
-            attrs[attr] = value
-        return attrs
+            result[attr] = value
+        return result
 
     def _edge_attrs_to_columns(self, attrs):
         columns = []
@@ -225,14 +296,15 @@ class SQLiteGraphDataBase(SQLGraphDataBase):
                 columns.append(attr)
         return columns
 
-    def _columns_to_edge_attrs(self, columns, query_attrs):
-        attrs = {}
-        for attr in query_attrs:
+    def _columns_to_edge_attrs(self, columns, attrs):
+        result = {}
+        for attr in attrs:
             if attr in self.edge_array_columns:
                 value = tuple(
-                    columns[f"{attr}_{d}"] for d in range(self.edge_attrs[attr].size)
+                    columns[f"{attr}_{d}"]
+                    for d in range(len(self.edge_array_columns[attr]))
                 )
             else:
                 value = columns[attr]
-            attrs[attr] = value
-        return attrs
+            result[attr] = value
+        return result

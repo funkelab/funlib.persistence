@@ -1,30 +1,20 @@
 import logging
 from collections.abc import Sequence
-from typing import Any, Optional, Union
+from typing import Any, Literal, Optional, Union
 
 import numpy as np
 import zarr
-from numpy.typing import DTypeLike
-
 from funlib.geometry import Coordinate
+from numpy.typing import DTypeLike
 
 from .array import Array
 from .metadata import MetaDataFormat, get_default_metadata_format
 
 logger = logging.getLogger(__name__)
 
-
-class ArrayNotFoundError(Exception):
-    """Exception raised when an array is not found in the dataset."""
-
-    def __init__(self, message: str = "Array not found in the dataset"):
-        self.message = message
-        super().__init__(self.message)
-
-
 def open_ds(
     store,
-    mode: str = "r",
+    mode: Literal["r", "r+", "a", "w", "w-"] = "r",
     metadata_format: Optional[MetaDataFormat] = None,
     offset: Optional[Sequence[int]] = None,
     voxel_size: Optional[Sequence[int]] = None,
@@ -107,10 +97,9 @@ def open_ds(
         else get_default_metadata_format()
     )
 
-    try:
-        data = zarr.open(store, mode=mode, **kwargs)
-    except zarr.errors.PathNotFoundError:
-        raise ArrayNotFoundError(f"Nothing found at path {store}")
+    data = zarr.open(store, mode=mode, **kwargs)
+    if not isinstance(data, zarr.Array):
+        raise TypeError(f"Expected a zarr Array at {store}, got {type(data).__name__}")
 
     metadata = metadata_format.parse(
         data.shape,
@@ -144,7 +133,7 @@ def prepare_ds(
     types: Optional[Sequence[str]] = None,
     chunk_shape: Optional[Sequence[int]] = None,
     dtype: DTypeLike = np.float32,
-    mode: str = "a",
+    mode: Literal["r", "r+", "a", "w", "w-"] = "a",
     custom_metadata: dict[str, Any] | None = None,
     **kwargs,
 ) -> Array:
@@ -239,7 +228,7 @@ def prepare_ds(
 
     try:
         existing_array = open_ds(store, mode="r", **kwargs)
-    except ArrayNotFoundError:
+    except FileNotFoundError:
         existing_array = None
 
     if existing_array is not None:
@@ -328,6 +317,10 @@ def prepare_ds(
                 )
             else:
                 ds = zarr.open(store, mode=mode, **kwargs)
+                if not isinstance(ds, zarr.Array):
+                    raise TypeError(
+                        f"Expected a zarr Array at {store}, got {type(ds).__name__}"
+                    )
                 return Array(
                     ds,
                     existing_metadata.offset,
@@ -349,18 +342,14 @@ def prepare_ds(
     )
 
     # create the dataset
-    try:
-        ds = zarr.open_array(
-            store=store,
-            shape=shape,
-            chunks=chunk_shape,
-            dtype=dtype,
-            dimension_separator="/",
-            mode=mode,
-            **kwargs,
-        )
-    except zarr.errors.ArrayNotFoundError:
-        raise ArrayNotFoundError(f"Nothing found at path {store}")
+    ds = zarr.open_array(
+        store=store,
+        shape=shape,
+        chunks=chunk_shape,
+        dtype=dtype,
+        mode=mode,
+        **kwargs,
+    )
 
     default_metadata_format = get_default_metadata_format()
     our_metadata = {

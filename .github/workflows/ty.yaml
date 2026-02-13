@@ -1,15 +1,15 @@
-name: mypy
+name: ty
 
 on: [push, pull_request]
 
 jobs:
   static-analysis:
-    name: Python mypy
+    name: Python ty
     runs-on: ubuntu-latest
     steps:
       - name: Setup checkout
         uses: actions/checkout@master
       - name: Install uv
         uses: astral-sh/setup-uv@main
-      - name: mypy
-        run: uv run --extra dev mypy funlib/persistence tests
+      - name: ty
+        run: uv run --extra dev ty check src tests

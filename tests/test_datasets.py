@@ -1,8 +1,8 @@
 import numpy as np
 import pytest
-
 from funlib.geometry import Coordinate, Roi
-from funlib.persistence.arrays.datasets import ArrayNotFoundError, open_ds, prepare_ds
+
+from funlib.persistence.arrays.datasets import open_ds, prepare_ds
 from funlib.persistence.arrays.metadata import MetaDataFormat
 
 stores = {
@@ -16,8 +16,8 @@ stores = {
 
 
 @pytest.mark.parametrize("store", stores.keys())
-def test_metadata(tmpdir, store):
-    store = tmpdir / store
+def test_metadata(tmp_path, store):
+    store = tmp_path / store
 
     # test prepare_ds creates array if it does not exist and mode is write
     array = prepare_ds(
@@ -34,10 +34,10 @@ def test_metadata(tmpdir, store):
 
 @pytest.mark.parametrize("store", stores.keys())
 @pytest.mark.parametrize("dtype", [np.float32, np.uint8, np.uint64])
-def test_helpers(tmpdir, store, dtype):
+def test_helpers(tmp_path, store, dtype):
     shape = Coordinate(1, 1, 10, 20, 30)
     chunk_shape = Coordinate(2, 3, 10, 10, 10)
-    store = tmpdir / store
+    store = tmp_path / store
     metadata = MetaDataFormat().parse(
         shape,
         {
@@ -50,7 +50,7 @@ def test_helpers(tmpdir, store, dtype):
     )
 
     # test prepare_ds fails if array does not exist and mode is read
-    with pytest.raises(ArrayNotFoundError):
+    with pytest.raises(FileNotFoundError):
         prepare_ds(
             store,
             shape,
@@ -218,9 +218,9 @@ def test_helpers(tmpdir, store, dtype):
 
 @pytest.mark.parametrize("store", stores.keys())
 @pytest.mark.parametrize("dtype", [np.float32, np.uint8, np.uint64])
-def test_open_ds(tmpdir, store, dtype):
+def test_open_ds(tmp_path, store, dtype):
     shape = Coordinate(1, 1, 10, 20, 30)
-    store = tmpdir / store
+    store = tmp_path / store
     metadata = MetaDataFormat().parse(
         shape,
         {
@@ -233,7 +233,7 @@ def test_open_ds(tmpdir, store, dtype):
     )
 
     # test open_ds fails if array does not exist and mode is read
-    with pytest.raises(ArrayNotFoundError):
+    with pytest.raises(FileNotFoundError):
         open_ds(
             store,
             offset=metadata.offset,

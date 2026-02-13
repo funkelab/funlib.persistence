@@ -1,10 +1,9 @@
 import logging
 from abc import ABC, abstractmethod
-from typing import Optional
-
-from networkx import Graph
+from typing import Any, Optional
 
 from funlib.geometry import Roi
+from networkx import Graph
 
 from ..types import Vec
 
@@ -59,6 +58,9 @@ class GraphDataBase(ABC):
         read_edges: bool = True,
         node_attrs: Optional[list[str]] = None,
         edge_attrs: Optional[list[str]] = None,
+        nodes_filter: Optional[dict[str, Any]] = None,
+        edges_filter: Optional[dict[str, Any]] = None,
+        fetch_on_v: bool = False,
     ) -> Graph:
         """
         Read a graph from the database for a given roi.
@@ -80,6 +82,20 @@ class GraphDataBase(ABC):
             edge_attrs (``list[str]`` or ``None``):
 
                 If not ``None``, only read the given edge attributes.
+
+            nodes_filter (``dict[str, Any]`` or ``None``):
+
+                If not ``None``, only read nodes matching these attribute values.
+
+            edges_filter (``dict[str, Any]`` or ``None``):
+
+                If not ``None``, only read edges matching these attribute values.
+
+            fetch_on_v (``bool``):
+
+                If ``True``, also fetch edges where the ``v`` endpoint matches
+                (i.e., either endpoint is in the ROI or node list). If ``False``
+                (default), only fetch edges where ``u`` matches.
 
         """
         pass
@@ -147,5 +163,55 @@ class GraphDataBase(ABC):
     ) -> None:
         """
         Alias call to write_graph with write_nodes and write_edges set to False.
+        """
+        pass
+
+    @abstractmethod
+    def bulk_write_graph(
+        self,
+        graph: Graph,
+        roi: Optional[Roi] = None,
+        write_nodes: bool = True,
+        write_edges: bool = True,
+        node_attrs: Optional[list[str]] = None,
+        edge_attrs: Optional[list[str]] = None,
+    ) -> None:
+        """
+        Fast bulk write of a graph. Mirrors ``write_graph`` but optimized
+        for large batch inserts. Does not support ``fail_if_exists`` or
+        ``delete``.
+        """
+        pass
+
+    @abstractmethod
+    def bulk_write_mode(
+        self,
+        worker: bool = False,
+        node_writes: bool = True,
+        edge_writes: bool = True,
+    ):
+        """Context manager that optimizes the database for bulk writes.
+
+        Drops indexes and adjusts database settings for maximum write
+        throughput, then restores them on exit.
+
+        Arguments:
+
+            worker (``bool``):
+
+                If ``False`` (default), drops and rebuilds indexes around the
+                block. Set to ``True`` for parallel workers whose orchestrator
+                manages indexes separately — only session-level performance
+                settings will be adjusted.
+
+            node_writes (``bool``):
+
+                If ``True`` (default), drop/rebuild node primary key and
+                position indexes. Ignored when ``worker=True``.
+
+            edge_writes (``bool``):
+
+                If ``True`` (default), drop/rebuild edge primary key index.
+                Ignored when ``worker=True``.
         """
         pass
