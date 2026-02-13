@@ -333,7 +333,7 @@ def prepare_ds(
         else:
             if mode == "w":
                 logger.info(
-                    "Existing dataset is compatible, but mode is 'w' and thus the existing dataset will be deleted.
+                    "Existing dataset is compatible, but mode is 'w' and thus the existing dataset will be deleted."
                 )
             else:
                 ds = zarr.open(store, mode=mode, **kwargs)
