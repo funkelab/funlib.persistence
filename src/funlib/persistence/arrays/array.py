@@ -134,7 +134,7 @@ class Array(Freezable):
 
     @property
     def chunk_shape(self) -> Coordinate:
-        return Coordinate(self.data.chunksize)
+        return Coordinate(self.data.chunksize)  # ty: ignore[unresolved-attribute]
 
     def uncollapsed_dims(self, physical: bool = False) -> list[bool]:
         """

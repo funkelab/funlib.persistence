@@ -98,6 +98,8 @@ def open_ds(
     )
 
     data = zarr.open(store, mode=mode, **kwargs)
+    if not isinstance(data, zarr.Array):
+        raise TypeError(f"Expected a zarr Array at {store}, got {type(data).__name__}")
 
     metadata = metadata_format.parse(
         data.shape,
@@ -315,6 +317,10 @@ def prepare_ds(
                 )
             else:
                 ds = zarr.open(store, mode=mode, **kwargs)
+                if not isinstance(ds, zarr.Array):
+                    raise TypeError(
+                        f"Expected a zarr Array at {store}, got {type(ds).__name__}"
+                    )
                 return Array(
                     ds,
                     existing_metadata.offset,
