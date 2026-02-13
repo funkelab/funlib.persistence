@@ -27,7 +27,7 @@ dependencies = [
     "pydantic>=2.0.0",
     "dask>=2024.0.0",
     "toml>=0.10.0",
-    "psycopg2-binary>=2.9.5",
+    "psycopg2-binary>=2.9.11",
 ]
 
 [tool.setuptools.dynamic]
