@@ -704,10 +704,24 @@ class SQLGraphDataBase(GraphDataBase):
                     )
                     continue
 
-            values = [data.get(attr) for attr in attrs]
-            setters = [
-                f"{k} = {self.__convert_to_sql(v)}" for k, v in zip(attrs, values)
-            ]
+            setters = []
+            for attr in attrs:
+                value = data.get(attr)
+                columns = self._node_attrs_to_columns([attr])
+                if len(columns) == 1:
+                    setters.append(f"{columns[0]} = {self.__convert_to_sql(value)}")
+                else:
+                    # attr is stored across multiple columns (e.g. a Vec in the
+                    # SQLite backend -> attr_0, attr_1, ...); expand the value to
+                    # one assignment per column instead of writing the whole
+                    # sequence into a single column (which produced invalid SQL).
+                    components = (
+                        [None] * len(columns) if value is None else list(value)
+                    )
+                    setters.extend(
+                        f"{col} = {self.__convert_to_sql(component)}"
+                        for col, component in zip(columns, components)
+                    )
             update_statement = (
                 f"UPDATE {self.nodes_table_name} SET "
                 f"{', '.join(setters)} WHERE "
@@ -806,12 +820,19 @@ class SQLGraphDataBase(GraphDataBase):
             return None
 
     def __convert_to_sql(self, x: Any) -> str:
+        if hasattr(x, "tolist") and not isinstance(x, (str, bytes)):
+            # normalize numpy scalars/arrays to native python
+            x = x.tolist()
         if isinstance(x, str):
             return f"'{x}'"
         elif x is None:
             return "null"
         elif isinstance(x, bool):
             return f"{x}".lower()
+        elif isinstance(x, (list, tuple)):
+            # a native array column (e.g. a Vec stored as a single array column
+            # in the PostgreSQL backend) -> array literal '{v0,v1,...}'
+            return "'{" + ",".join(map(str, x)) + "}'"
         else:
             return str(x)
 
