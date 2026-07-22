@@ -1,4 +1,5 @@
 import networkx as nx
+import numpy as np
 import pytest
 from funlib.geometry import Roi
 
@@ -188,24 +189,34 @@ def test_graph_update_vector_node_attr(provider_factory):
     # per-dimension columns (embedding_0, embedding_1, ...).
     roi = Roi((0, 0, 0), (10, 10, 10))
     graph = nx.Graph()
-    graph.add_node(7, position=(5, 5, 5), embedding=[0.0, 0.0, 0.0])
+    graph.add_node(7, position=(5, 5, 5), embedding=[0.0, 0.0, 0.0], score=0.0)
 
     with provider_factory(
-        "w", node_attrs={"position": Vec(float, 3), "embedding": Vec(float, 3)}
+        "w",
+        node_attrs={
+            "position": Vec(float, 3),
+            "embedding": Vec(float, 3),
+            "score": float,
+        },
     ) as gp:
         gp.write_graph(graph)
 
     with provider_factory("r+") as gp:
         g = gp.read_graph(roi)
-        g.nodes[7]["embedding"] = [1.0, 2.0, 3.0]
+        # numpy values (the typical case, e.g. embeddings computed with numpy)
+        # must be normalized to native python on their way into the SQL
+        # statement, for arrays and scalars alike
+        g.nodes[7]["embedding"] = np.array([1.0, 2.0, 3.0])
+        g.nodes[7]["score"] = np.float64(0.5)
         try:
-            gp.update_nodes(g.nodes, roi=roi, attributes=["embedding"])
+            gp.update_nodes(g.nodes, roi=roi, attributes=["embedding", "score"])
         except NotImplementedError:
             pytest.xfail()
 
     with provider_factory("r") as gp:
         updated = gp.read_graph(roi)
         assert list(updated.nodes[7]["embedding"]) == [1.0, 2.0, 3.0]
+        assert updated.nodes[7]["score"] == 0.5
 
 
 def test_graph_read_unbounded_roi(provider_factory, write_method):

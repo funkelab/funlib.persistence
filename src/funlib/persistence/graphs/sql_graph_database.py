@@ -2,6 +2,7 @@ import logging
 from abc import abstractmethod
 from typing import Any, Iterable, Optional
 
+import numpy as np
 from funlib.geometry import Coordinate, Roi
 from networkx import DiGraph, Graph
 from networkx.classes.reportviews import NodeView, OutEdgeView
@@ -715,9 +716,7 @@ class SQLGraphDataBase(GraphDataBase):
                     # SQLite backend -> attr_0, attr_1, ...); expand the value to
                     # one assignment per column instead of writing the whole
                     # sequence into a single column (which produced invalid SQL).
-                    components = (
-                        [None] * len(columns) if value is None else list(value)
-                    )
+                    components = [None] * len(columns) if value is None else list(value)
                     setters.extend(
                         f"{col} = {self.__convert_to_sql(component)}"
                         for col, component in zip(columns, components)
@@ -820,9 +819,12 @@ class SQLGraphDataBase(GraphDataBase):
             return None
 
     def __convert_to_sql(self, x: Any) -> str:
-        if hasattr(x, "tolist") and not isinstance(x, (str, bytes)):
-            # normalize numpy scalars/arrays to native python
+        # normalize numpy values to their native python equivalents; all
+        # other types pass through untouched
+        if isinstance(x, np.ndarray):
             x = x.tolist()
+        elif isinstance(x, np.generic):
+            x = x.item()
         if isinstance(x, str):
             return f"'{x}'"
         elif x is None:
