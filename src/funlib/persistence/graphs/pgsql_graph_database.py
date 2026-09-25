@@ -126,8 +126,19 @@ class PgSQLGraphDatabase(SQLGraphDataBase):
             f"PRIMARY KEY ({endpoint_names[0]}, {endpoint_names[1]})"
             ")"
         )
+        # the primary key only serves lookups on the first endpoint; reads
+        # with fetch_on_v=True also match on the second one
+        self.__exec(
+            f"CREATE INDEX IF NOT EXISTS {self._edges_v_index} ON "
+            f"{self.edges_table_name}({endpoint_names[1]})"
+        )
 
         self._commit()
+
+    @property
+    def _edges_v_index(self) -> str:
+        assert self.endpoint_names is not None
+        return f"{self.edges_table_name}_{self.endpoint_names[1]}_index"
 
     def _store_metadata(self, metadata) -> None:
         self.__exec("DROP TABLE IF EXISTS metadata")
@@ -283,6 +294,7 @@ class PgSQLGraphDatabase(SQLGraphDataBase):
                 self.__exec(
                     f"ALTER TABLE {edges} DROP CONSTRAINT IF EXISTS {edges}_pkey"
                 )
+                self.__exec(f"DROP INDEX IF EXISTS {self._edges_v_index}")
             self._commit()
 
         self.__exec("SET synchronous_commit TO OFF")
@@ -310,6 +322,10 @@ class PgSQLGraphDatabase(SQLGraphDataBase):
                         f"ALTER TABLE {edges} "
                         f"ADD CONSTRAINT {edges}_pkey "
                         f"PRIMARY KEY ({endpoint_names[0]}, {endpoint_names[1]})"
+                    )
+                    self.__exec(
+                        f"CREATE INDEX IF NOT EXISTS {self._edges_v_index} ON "
+                        f"{edges}({endpoint_names[1]})"
                     )
                 self._commit()
 
