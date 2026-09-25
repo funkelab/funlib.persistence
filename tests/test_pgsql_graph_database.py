@@ -1,4 +1,4 @@
-"""PostgreSQL-specific tests for opening graph databases."""
+"""PostgreSQL-specific tests for opening (and not creating) graph databases."""
 
 import uuid
 
@@ -36,6 +36,24 @@ def _open(db_name, mode, **kwargs):
         node_attrs={"position": Vec(float, 3)} if mode == "w" else None,
         **kwargs,
     )
+
+
+def _db_exists(cur, db_name):
+    cur.execute("SELECT 1 FROM pg_database WHERE datname = %s", (db_name,))
+    return cur.fetchone() is not None
+
+
+@pytest.mark.parametrize("mode", ["r", "r+"])
+def test_open_missing_db_in_read_mode_does_not_create_it(mode):
+    db_name = f"pytest_missing_{uuid.uuid4().hex[:8]}"
+    connection, cur = _admin_cursor()
+    try:
+        with pytest.raises(RuntimeError, match="metadata does not exist"):
+            _open(db_name, mode)
+        assert not _db_exists(cur, db_name)
+    finally:
+        cur.execute(f"DROP DATABASE IF EXISTS {db_name}")
+        connection.close()
 
 
 def test_open_existing_db_without_createdb_privilege():

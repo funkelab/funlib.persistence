@@ -54,6 +54,14 @@ class PgSQLGraphDatabase(SQLGraphDataBase):
         # even when the database is already there.
         cur.execute("SELECT 1 FROM pg_database WHERE datname = %s", (db_name,))
         db_exists = cur.fetchone() is not None
+        if not db_exists and mode not in self.create_modes:
+            connection.close()
+            # same message as a database without metadata, which is what
+            # opening a missing database in a read mode raised before
+            raise RuntimeError(
+                "metadata does not exist, can't open in read mode "
+                f"(database {db_name!r} does not exist)"
+            )
         if not db_exists:
             try:
                 cur.execute(f"CREATE DATABASE {db_name}")
