@@ -5,6 +5,7 @@ from typing import Any, Literal, Optional, Union
 
 import numpy as np
 import zarr
+import zarr.storage
 from funlib.geometry import Coordinate
 from numpy.typing import DTypeLike
 
@@ -14,12 +15,8 @@ from .metadata import MetaDataFormat, get_default_metadata_format
 logger = logging.getLogger(__name__)
 
 def _location_kwargs(kwargs: dict) -> dict:
-    """The kwargs that say WHERE an array is, as `zarr.open` takes them; `name`
-    (`zarr.create_array`'s spelling of `path`) is translated."""
-    out = {k: kwargs[k] for k in ("path", "storage_options", "zarr_format") if k in kwargs}
-    if "name" in kwargs and "path" not in kwargs:
-        out["path"] = kwargs["name"]
-    return out
+    """The kwargs that say WHERE an array is, as `zarr.open` takes them."""
+    return {k: kwargs[k] for k in ("path", "storage_options", "zarr_format") if k in kwargs}
 
 
 def open_ds(
@@ -257,6 +254,17 @@ def prepare_ds(
         types=types,
     )
 
+    # `zarr.create_array` calls the sub-location `name`, every legacy call `path`:
+    # accept either, carry it as `path` from here on (the open/relabel calls take
+    # that spelling) and hand it to `create_array` as `name` where that is called
+    if "name" in kwargs:
+        name = kwargs.pop("name")
+        if kwargs.get("path", name) != name:
+            raise ValueError(
+                f"path={kwargs['path']!r} and name={name!r} name different sub-locations"
+            )
+        kwargs["path"] = name
+
     try:
         # only what LOCATES the array: creation kwargs (`compressors`, ...) are not
         # `zarr.open`'s, and on a location that exists without an array it would
@@ -420,18 +428,33 @@ def prepare_ds(
             )
         # a sharded array is a zarr v3 array whatever the configured default format
         kwargs.setdefault("zarr_format", 3)
-        # `zarr.create_array` names the sub-location `name`, the legacy calls `path`;
-        # accept either, and reject anything else BEFORE touching the store so a
-        # rejected kwarg cannot leave a placeholder behind
         create_kwargs = dict(kwargs)
         sub_path = create_kwargs.pop("path", None)
-        name = create_kwargs.pop("name", None)
-        if sub_path is not None and name is not None and sub_path != name:
-            raise ValueError(
-                f"path={sub_path!r} and name={name!r} name different sub-locations"
+        reserved = sorted(
+            set(create_kwargs)
+            & {"store", "name", "shape", "dtype", "chunks", "shards", "overwrite", "data"}
+        )
+        if reserved:
+            raise TypeError(
+                f"prepare_ds sets {', '.join(reserved)} itself; pass shape, dtype, "
+                "chunk_shape and shard_shape through its own parameters"
             )
-        sub_path = name if name is not None else sub_path
+        # Rejected BEFORE anything touches the store: a kwarg `zarr.create_array`
+        # does not take, and anything it would refuse once it looks at the values
+        # (an indivisible chunk, a codec of the wrong kind, a bad fill_value), both
+        # found by making the same call against an in-memory store. Finding them
+        # after the "w-" placeholder below exists would leave that placeholder
+        # behind, and the probe above then meets a group and refuses every retry.
         inspect.signature(zarr.create_array).bind_partial(**create_kwargs)
+        zarr.create_array(
+            store=zarr.storage.MemoryStore(),
+            name=sub_path,
+            shape=tuple(shape),
+            chunks=tuple(chunk_shape),
+            shards=tuple(shard_shape),
+            dtype=dtype,
+            **{k: v for k, v in create_kwargs.items() if k != "storage_options"},
+        )
         if mode == "w-":
             # "w-" means "create only where there is nothing": not an array, and
             # not stray files either (orphaned shards would come back as data).

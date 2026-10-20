@@ -657,6 +657,51 @@ def test_sharded_w_minus_at_a_sub_location_and_a_rejected_kwarg_leaves_nothing(
     )
     with pytest.raises(ValueError, match="different sub-locations"):
         prepare_ds(nested, (2, 64, 64), mode="w", path="a", name="b", **layout)
+    # `name=` on a store whose root is already a group, and on the reuse / relabel paths
+    axes = dict(voxel_size=(1, 1), axis_names=["c^", "y", "x"])
+    another = prepare_ds(
+        nested, (2, 64, 64), mode="w-", name="another", **axes, **layout
+    )
+    assert another.shard_shape == Coordinate(2, 64, 32)
+    reused = prepare_ds(nested, (2, 64, 64), mode="a", name="another", **axes, **layout)
+    assert reused.roi == another.roi
+    relabeled = prepare_ds(
+        nested,
+        (2, 64, 64),
+        mode="a",
+        name="another",
+        voxel_size=(4, 8),
+        axis_names=["c^", "y", "x"],
+        **layout,
+    )
+    assert relabeled.voxel_size == Coordinate(4, 8)
+    assert open_ds(nested / "another").shard_shape == Coordinate(2, 64, 32)
+
+
+def test_sharded_w_minus_leaves_nothing_behind_a_create_zarr_refuses(tmp_path):
+    """A create zarr refuses on its VALUES (an indivisible chunk, a codec of the wrong kind) or
+    a kwarg prepare_ds owns is found before the location is touched; the corrected retry then
+    goes through under every creating mode, instead of meeting a leftover placeholder."""
+    from zarr.codecs import ZstdCodec
+
+    store = tmp_path / stores["zarr"]
+    good = dict(chunk_shape=(2, 16, 16), shard_shape=(2, 64, 32), dtype=np.uint8)
+    for bad in [
+        dict(good, chunk_shape=(3, 16, 16)),  # does not divide the shard
+        dict(good, compressors=ZstdCodec),  # the class, not an instance
+        dict(good, chunks=(2, 16, 16)),  # prepare_ds's own parameter
+        dict(good, overwrite=True),
+    ]:
+        with pytest.raises((ValueError, TypeError)):
+            prepare_ds(store, (2, 64, 64), mode="w-", **bad)
+        assert not store.exists(), f"{bad} left something at the location"
+    for mode in ("w-", "w", "a"):
+        array = prepare_ds(store, (2, 64, 64), mode=mode, **good)
+        assert array.shard_shape == Coordinate(2, 64, 32), mode
+        if mode == "w-":
+            # the second "w-" meets the array it just made
+            with pytest.raises(FileExistsError):
+                prepare_ds(store, (2, 64, 64), mode="w-", **good)
 
 
 def test_creation_kwargs_do_not_break_the_existence_probe(tmp_path):
