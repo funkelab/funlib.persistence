@@ -276,7 +276,11 @@ def prepare_ds(
             `DEFAULT_INNER_CHUNK` (64) per axis, or the whole axis where the shard is
             smaller than that; a shard axis larger than 64 that 64 does not divide needs
             an explicit value. Reported by `Array.inner_chunk_shape`; given against an
-            existing sharded dataset it is compared to its inner chunk.
+            existing dataset it is compared to its chunk (the inner chunk of a sharded
+            one, the only chunk of a plain one), so asking for a read unit the array
+            does not have is a data incompatibility. Without `sharding` it may only
+            restate `chunk_shape`, which lets `inner_chunk_shape=a.inner_chunk_shape`
+            copy a plain array's layout as well as a sharded one's.
 
         kwargs:
 
@@ -303,8 +307,23 @@ def prepare_ds(
         types=types,
     )
 
+    if "shard_shape" in kwargs:
+        raise TypeError(
+            "prepare_ds has no shard_shape: pass the shard as chunk_shape with "
+            "sharding=True, and the chunk inside it as inner_chunk_shape"
+        )
+    if inner_chunk_shape is not None and any(int(c) <= 0 for c in inner_chunk_shape):
+        raise ValueError(
+            f"inner_chunk_shape {tuple(inner_chunk_shape)} must be positive per axis"
+        )
     if inner_chunk_shape is not None and not sharding:
-        raise ValueError("inner_chunk_shape only applies with sharding=True")
+        # unsharded, the chunk IS the inner chunk: the layout-copy idiom
+        # (`inner_chunk_shape=a.inner_chunk_shape`) passes it for a plain array
+        if chunk_shape is None or tuple(inner_chunk_shape) != tuple(chunk_shape):
+            raise ValueError(
+                "inner_chunk_shape only applies with sharding=True (unsharded, it may "
+                "only restate chunk_shape)"
+            )
     inner: Optional[tuple[int, ...]] = None
     if sharding:
         if chunk_shape is None:

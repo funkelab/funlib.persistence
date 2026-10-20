@@ -543,10 +543,10 @@ def test_shard_shape_follows_collapsed_dims_and_stays_under_a_roi(tmp_path):
     assert array.shard_shape is None
 
 
-def test_copying_a_layout(tmp_path):
-    a = _sharded(tmp_path / stores["zarr"])
-    b = prepare_ds(
-        tmp_path / "copy.zarr",
+def _copy_layout(a, store):
+    """The documented recipe, for a sharded and an unsharded source alike."""
+    return prepare_ds(
+        store,
         a.shape,
         chunk_shape=a.chunk_shape,
         sharding=a.shard_shape is not None,
@@ -554,7 +554,73 @@ def test_copying_a_layout(tmp_path):
         dtype=a.dtype,
         mode="w",
     )
-    assert (b.chunk_shape, b.inner_chunk_shape) == (SHARD, INNER)
+
+
+def test_copying_a_layout(tmp_path):
+    b = _copy_layout(_sharded(tmp_path / stores["zarr"]), tmp_path / "copy.zarr")
+    assert (b.chunk_shape, b.shard_shape, b.inner_chunk_shape) == (SHARD, SHARD, INNER)
+
+    plain = prepare_ds(
+        tmp_path / "plain.zarr", (128, 128), chunk_shape=(64, 64), mode="w"
+    )
+    c = _copy_layout(plain, tmp_path / "plain_copy.zarr")
+    assert (c.chunk_shape, c.shard_shape, c.inner_chunk_shape) == (
+        (64, 64),
+        None,
+        (64, 64),
+    )
+    with pytest.raises(ValueError, match="only restate chunk_shape"):
+        prepare_ds(
+            tmp_path / "x.zarr",
+            (128, 128),
+            chunk_shape=(64, 64),
+            inner_chunk_shape=(32, 32),
+            mode="w",
+        )
+    with pytest.raises(ValueError, match="positive per axis"):
+        prepare_ds(
+            tmp_path / "x.zarr",
+            (128, 128),
+            chunk_shape=(64, 64),
+            sharding=True,
+            inner_chunk_shape=(0, 64),
+            mode="w",
+        )
+    with pytest.raises(TypeError, match="has no shard_shape"):
+        prepare_ds(
+            tmp_path / "x.zarr",
+            (128, 128),
+            chunk_shape=(64, 64),
+            shard_shape=(64, 64),
+            mode="w",
+        )
+
+
+@pytest.mark.parametrize("mode", ["a", "r+"])
+def test_a_sharding_caller_relabels_a_plain_array_in_place(tmp_path, mode):
+    """`sharding` is a creation option: against an existing PLAIN array with the same write unit
+    and other metadata, the array is reopened and relabelled, not recreated and not refused."""
+    store = tmp_path / stores["zarr"]
+    plain = prepare_ds(
+        store,
+        (2, 64, 64),
+        chunk_shape=SHARD,
+        voxel_size=(1, 1),
+        axis_names=["c^", "y", "x"],
+        dtype=np.uint8,
+        mode="w",
+    )
+    plain[:] = 6
+    # no explicit inner chunk: one that the plain array does not have is a data incompatibility
+    relabeled = _sharded(store, mode=mode, voxel_size=(4, 8), inner_chunk_shape=None)
+    assert relabeled.voxel_size == Coordinate(4, 8)
+    assert relabeled.shard_shape is None, "reused as it is"
+    with pytest.raises(PermissionError):
+        _sharded(
+            store, mode=mode, voxel_size=(4, 8)
+        )  # asks for inner chunks it has not got
+    assert relabeled.chunk_shape == SHARD
+    np.testing.assert_array_equal(relabeled[relabeled.roi], 6)
 
 
 def test_sharded_w_minus_creates_on_an_empty_location_with_creation_kwargs(tmp_path):
