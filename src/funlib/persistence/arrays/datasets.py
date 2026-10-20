@@ -230,8 +230,11 @@ def prepare_ds(
             and one loses its data silently. Concurrent (e.g. blockwise) writers must
             each write regions aligned to, and a multiple of, `shard_shape`.
 
-            `chunk_shape` keeps meaning the inner chunk, which is also what
-            `Array.chunk_shape` reports; `Array.shard_shape` reports the shard.
+            `chunk_shape` keeps meaning the inner chunk here, as an ARGUMENT. On the
+            Array, `chunk_shape` is the parallel-safe write unit, the shard; the inner
+            chunk is `Array.inner_chunk_shape`. To create another array with an
+            existing one's layout, pass `chunk_shape=a.inner_chunk_shape,
+            shard_shape=a.shard_shape`, not `a.chunk_shape`.
             With a `shard_shape`, the array is created by `zarr.create_array` rather
             than `zarr.open_array`, so creation-time `kwargs` must be ones it accepts
             (`compressors`, `filters`, `serializer`, ...); opening and relabelling an

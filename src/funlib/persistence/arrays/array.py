@@ -136,14 +136,22 @@ class Array(Freezable):
     def chunk_shape(self) -> Coordinate:
         """The unit of this array that can be WRITTEN on its own, in voxels.
 
-        This is the contract blockwise writers rely on: a write covering whole
-        ``chunk_shape`` units never reads back and rewrites anything another
-        writer may be writing. For an unsharded array it is the dask chunking
-        (the stored chunk, unless ``chunks=`` overrode it when the array was
-        opened). For a sharded zarr v3 array it is the SHARD, the one stored
-        object, because writing part of a shard is a read-modify-write of the
-        whole object; see :attr:`inner_chunk_shape` for the smaller unit that
-        can be read on its own, and :attr:`shard_shape`, which this equals.
+        This is the contract blockwise writers rely on: on a view aligned to the
+        stored grid, a write covering whole ``chunk_shape`` units never reads
+        back and rewrites anything another writer may be writing. For an
+        unsharded array it is the dask chunking (the stored chunk, unless
+        ``chunks=`` overrode it when the array was opened). For a sharded zarr
+        v3 array it is the SHARD, the one stored object, because writing part
+        of a shard is a read-modify-write of the whole object; it then equals
+        :attr:`shard_shape` and ignores a ``chunks=`` override. See
+        :attr:`inner_chunk_shape` for the smaller unit a reader can fetch on
+        its own.
+
+        A view that cannot be written (a callable lazy op, a boolean mask) has
+        no write unit and reports its read chunking, :attr:`inner_chunk_shape`,
+        like an unsharded array. A view that is offset from the stored grid (an
+        offset or stepped lazy slice) still reports the stored unit, in source
+        voxels, which its own blocks do not tile.
         """
         shards = self.shard_shape
         if shards is not None:
@@ -154,9 +162,12 @@ class Array(Freezable):
     def inner_chunk_shape(self) -> Coordinate:
         """The unit of this array that can be READ on its own, in voxels: the
         dask chunking, which is the stored chunk (for a sharded zarr v3 array,
-        the chunk inside each shard). Equals :attr:`chunk_shape` for an
-        unsharded array. Reads need no alignment to it; writes must align to
-        :attr:`chunk_shape`."""
+        the chunk inside each shard) unless ``chunks=`` overrode it when the
+        array was opened. Equals :attr:`chunk_shape` for an unsharded array.
+        Reads need no alignment to it; writes must align to
+        :attr:`chunk_shape`. To create another array with this one's layout,
+        pass this as ``prepare_ds``'s ``chunk_shape`` and :attr:`shard_shape`
+        as its ``shard_shape``."""
         return Coordinate(self.data.chunksize)  # ty: ignore[unresolved-attribute]
 
     @property
@@ -166,14 +177,15 @@ class Array(Freezable):
 
         Only a zarr v3 array created with the sharding codec has one. A shard
         is a single object in the store (one file, one S3 key) holding
-        :attr:`chunk_shape`-sized chunks, so it is the smallest region that
-        can be written without reading the rest of the shard back first.
+        :attr:`inner_chunk_shape`-sized chunks, so it is the smallest region
+        that can be written without reading the rest of the shard back first.
         Concurrent writers that each cover whole shards are safe; two writers
-        that touch the same shard race, and one of them loses its data.
+        that touch the same shard race, and one of them loses its data. On a
+        sharded array :attr:`chunk_shape` is this value.
 
         It describes the stored array, not this view: collapsed dimensions are
-        dropped, but a stepped or offset lazy slice leaves it in source voxels
-        while :attr:`chunk_shape` follows the view. A view that cannot be
+        dropped, but a stepped or offset lazy slice leaves it in source voxels,
+        a grid the view's own blocks do not tile. A view that cannot be
         written (a callable lazy op, a boolean mask) has no shard to align a
         write to and reports ``None``.
         """

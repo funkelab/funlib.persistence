@@ -331,7 +331,9 @@ def test_sharded(tmp_path, store):
     # the shard is the stored object and the unit a writer must cover; the inner
     # chunk is what a reader can fetch on its own
     assert array.shard_shape == shard_shape
-    assert array.chunk_shape == shard_shape, "chunk_shape is the parallel-safe WRITE unit"
+    assert array.chunk_shape == shard_shape, (
+        "chunk_shape is the parallel-safe WRITE unit"
+    )
     assert array.inner_chunk_shape == chunk_shape
     codecs = array._source_data.metadata.to_dict()["codecs"]
     assert codecs[0]["name"] == "sharding_indexed"
@@ -604,7 +606,9 @@ def test_shard_shape_follows_collapsed_dims_and_stays_under_a_roi(tmp_path):
         assert array.shard_shape == Coordinate(*shard), key
         assert array.chunk_shape == Coordinate(*shard), key
         assert array.inner_chunk_shape == Coordinate(*chunk), key
-        assert array.shard_shape.dims == array.inner_chunk_shape.dims == len(array.shape)
+        assert (
+            array.shard_shape.dims == array.inner_chunk_shape.dims == len(array.shape)
+        )
 
     array = open_ds(store)
     array.lazy_op(Roi((0, 0), (32, 32)))
@@ -615,6 +619,34 @@ def test_shard_shape_follows_collapsed_dims_and_stays_under_a_roi(tmp_path):
     array.lazy_op(np.array([True, False]))  # ty: ignore[invalid-argument-type]
     assert not array.is_writeable
     assert array.shard_shape is None
+    # no write unit: chunk_shape falls back to the read chunking, as documented
+    assert array.chunk_shape == array.inner_chunk_shape == Coordinate(1, 16, 16)
+
+
+def test_copying_a_layout_uses_inner_chunk_shape(tmp_path):
+    """`chunk_shape` on a sharded Array is the shard; the idiom for copying a layout is
+    `inner_chunk_shape` + `shard_shape`, and the docstrings say so."""
+    src = tmp_path / stores["zarr"]
+    a = prepare_ds(
+        src,
+        (2, 64, 64),
+        chunk_shape=(2, 16, 16),
+        shard_shape=(2, 64, 32),
+        dtype=np.uint8,
+        mode="w",
+    )
+    b = prepare_ds(
+        tmp_path / "copy.zarr",
+        a.shape,
+        chunk_shape=a.inner_chunk_shape,
+        shard_shape=a.shard_shape,
+        dtype=a.dtype,
+        mode="w",
+    )
+    assert (b.inner_chunk_shape, b.shard_shape) == (
+        Coordinate(2, 16, 16),
+        Coordinate(2, 64, 32),
+    )
 
 
 def test_sharded_w_minus_creates_on_an_empty_location_with_creation_kwargs(tmp_path):
