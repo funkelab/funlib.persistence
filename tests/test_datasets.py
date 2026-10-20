@@ -1,3 +1,5 @@
+from typing import Any
+
 import numpy as np
 import pytest
 from funlib.geometry import Coordinate, Roi
@@ -413,7 +415,9 @@ def test_sharded_relabel_reopens_instead_of_recreating(tmp_path, mode):
     of the existing array in the unsharded path; the sharded path must do the same rather
     than hand the existing node to `zarr.create_array`, which refuses it."""
     store = tmp_path / stores["zarr"]
-    layout = dict(chunk_shape=(2, 16, 16), shard_shape=(2, 64, 32), dtype=np.uint8)
+    layout: dict[str, Any] = dict(
+        chunk_shape=(2, 16, 16), shard_shape=(2, 64, 32), dtype=np.uint8
+    )
     array = prepare_ds(
         store,
         (2, 64, 64),
@@ -478,7 +482,9 @@ def test_sharded_w_minus_refuses_an_existing_array_and_keeps_its_data(tmp_path):
     """ "w-" never recreates: a sharded call on an existing array refuses, like the
     unsharded path does, and the data is still there afterwards."""
     store = tmp_path / stores["zarr"]
-    layout = dict(chunk_shape=(2, 16, 16), shard_shape=(2, 64, 32), dtype=np.uint8)
+    layout: dict[str, Any] = dict(
+        chunk_shape=(2, 16, 16), shard_shape=(2, 64, 32), dtype=np.uint8
+    )
     array = prepare_ds(
         store,
         (2, 64, 64),
@@ -539,7 +545,9 @@ def test_sharded_a_creates_beside_other_files_and_w_minus_refuses_them(tmp_path)
     store = tmp_path / stores["zarr"]
     store.mkdir()
     (store / "README").write_text("not an array")
-    layout = dict(chunk_shape=(2, 16, 16), shard_shape=(2, 64, 32), dtype=np.uint8)
+    layout: dict[str, Any] = dict(
+        chunk_shape=(2, 16, 16), shard_shape=(2, 64, 32), dtype=np.uint8
+    )
     with pytest.raises(FileExistsError):
         prepare_ds(store, (2, 64, 64), mode="w-", **layout)
     assert (store / "README").exists() and not (store / "zarr.json").exists()
@@ -597,7 +605,7 @@ def test_shard_shape_follows_collapsed_dims_and_stays_under_a_roi(tmp_path):
     assert array.is_writeable
 
     array = open_ds(store)
-    array.lazy_op(np.array([True, False]))
+    array.lazy_op(np.array([True, False]))  # ty: ignore[invalid-argument-type]
     assert not array.is_writeable
     assert array.shard_shape is None
 
@@ -636,7 +644,9 @@ def test_sharded_w_minus_at_a_sub_location_and_a_rejected_kwarg_leaves_nothing(
     array; "w-" checks emptiness at THAT location; a kwarg create_array rejects is refused
     before anything is written, so a corrected retry is not met by a stray placeholder."""
     store = tmp_path / stores["zarr"]
-    layout = dict(chunk_shape=(2, 16, 16), shard_shape=(2, 64, 32), dtype=np.uint8)
+    layout: dict[str, Any] = dict(
+        chunk_shape=(2, 16, 16), shard_shape=(2, 64, 32), dtype=np.uint8
+    )
 
     with pytest.raises(TypeError):
         prepare_ds(store, (2, 64, 64), mode="w-", bogus=1, **layout)
@@ -658,7 +668,7 @@ def test_sharded_w_minus_at_a_sub_location_and_a_rejected_kwarg_leaves_nothing(
     with pytest.raises(ValueError, match="different sub-locations"):
         prepare_ds(nested, (2, 64, 64), mode="w", path="a", name="b", **layout)
     # `name=` on a store whose root is already a group, and on the reuse / relabel paths
-    axes = dict(voxel_size=(1, 1), axis_names=["c^", "y", "x"])
+    axes: dict[str, Any] = dict(voxel_size=(1, 1), axis_names=["c^", "y", "x"])
     another = prepare_ds(
         nested, (2, 64, 64), mode="w-", name="another", **axes, **layout
     )
@@ -685,13 +695,16 @@ def test_sharded_w_minus_leaves_nothing_behind_a_create_zarr_refuses(tmp_path):
     from zarr.codecs import ZstdCodec
 
     store = tmp_path / stores["zarr"]
-    good = dict(chunk_shape=(2, 16, 16), shard_shape=(2, 64, 32), dtype=np.uint8)
-    for bad in [
+    good: dict[str, Any] = dict(
+        chunk_shape=(2, 16, 16), shard_shape=(2, 64, 32), dtype=np.uint8
+    )
+    cases: list[dict[str, Any]] = [
         dict(good, chunk_shape=(3, 16, 16)),  # does not divide the shard
         dict(good, compressors=ZstdCodec),  # the class, not an instance
         dict(good, chunks=(2, 16, 16)),  # prepare_ds's own parameter
         dict(good, overwrite=True),
-    ]:
+    ]
+    for bad in cases:
         with pytest.raises((ValueError, TypeError)):
             prepare_ds(store, (2, 64, 64), mode="w-", **bad)
         assert not store.exists(), f"{bad} left something at the location"
@@ -709,7 +722,9 @@ def test_creation_kwargs_do_not_break_the_existence_probe(tmp_path):
     "no array here" and the create must proceed, in every creating mode."""
     from zarr.codecs import ZstdCodec
 
-    layout = dict(chunk_shape=(2, 16, 16), shard_shape=(2, 64, 32), dtype=np.uint8)
+    layout: dict[str, Any] = dict(
+        chunk_shape=(2, 16, 16), shard_shape=(2, 64, 32), dtype=np.uint8
+    )
     for mode in ("w-", "w", "a"):
         store = tmp_path / f"{mode.replace('-', 'minus')}.zarr"
         store.mkdir()
@@ -727,7 +742,9 @@ def test_a_stray_placeholder_group_does_not_block_a_sharded_create(tmp_path, mod
     import zarr
 
     store = tmp_path / stores["zarr"]
-    layout = dict(chunk_shape=(2, 16, 16), shard_shape=(2, 64, 32), dtype=np.uint8)
+    layout: dict[str, Any] = dict(
+        chunk_shape=(2, 16, 16), shard_shape=(2, 64, 32), dtype=np.uint8
+    )
     zarr.open_group(str(store), mode="w-", zarr_format=3)  # the stray placeholder
     array = prepare_ds(store, (2, 64, 64), mode=mode, **layout)
     assert array.shard_shape == Coordinate(2, 64, 32)

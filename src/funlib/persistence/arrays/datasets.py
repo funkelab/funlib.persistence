@@ -6,7 +6,6 @@ from typing import Any, Literal, Optional, Union
 import numpy as np
 import zarr
 import zarr.storage
-from funlib.geometry import Coordinate
 from numpy.typing import DTypeLike
 
 from .array import Array
@@ -142,8 +141,8 @@ def open_ds(
 def prepare_ds(
     store,
     shape: Sequence[int],
-    offset: Optional[Coordinate] = None,
-    voxel_size: Optional[Coordinate] = None,
+    offset: Optional[Sequence[int]] = None,
+    voxel_size: Optional[Sequence[int]] = None,
     axis_names: Optional[Sequence[str]] = None,
     units: Optional[Sequence[str]] = None,
     types: Optional[Sequence[str]] = None,
