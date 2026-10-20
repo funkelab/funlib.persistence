@@ -398,18 +398,38 @@ def prepare_ds(
                 f"No array at {store} to open in mode '{mode}', and a "
                 f"shard_shape can only be applied when creating one."
             )
-        if mode == "w-" and existing_array is not None:
-            # as the legacy path: an existing array is never recreated under "w-"
-            raise FileExistsError(f"An array already exists at {store} (mode 'w-').")
+        if chunk_shape is None:
+            # zarr guesses "auto" chunks from the array shape alone, ignoring the
+            # shards, and then refuses them as not dividing the shard
+            raise ValueError(
+                f"shard_shape={tuple(shard_shape)} needs a chunk_shape, the chunk "
+                "inside each shard."
+            )
         # a sharded array is a zarr v3 array whatever the configured default format
         kwargs.setdefault("zarr_format", 3)
+        if mode == "w-":
+            # "w-" means "create only where there is nothing": not an array, and
+            # not stray files either (orphaned shards would come back as data).
+            # `zarr.create_array` only refuses an existing NODE, so the emptiness
+            # check is borrowed from the legacy path, which creates a placeholder
+            # under zarr's own "w-" and raises FileExistsError on anything there.
+            zarr.open_array(
+                store=store,
+                mode="w-",
+                shape=tuple(shape),
+                chunks=tuple(chunk_shape),
+                dtype=dtype,
+                **kwargs,
+            )
         ds = zarr.create_array(
             store=store,
             shape=tuple(shape),
-            chunks=tuple(chunk_shape) if chunk_shape is not None else "auto",
+            chunks=tuple(chunk_shape),
             shards=tuple(shard_shape),
             dtype=dtype,
-            overwrite=mode == "w",
+            # "w" and the placeholder just written under "w-" are replaced; "a"
+            # creates beside whatever else the location holds, as the legacy path
+            overwrite=mode in ("w", "w-"),
             **kwargs,
         )
 

@@ -517,3 +517,86 @@ def test_shard_shape_is_none_after_a_callable_lazy_op(tmp_path):
     assert array.shard_shape == Coordinate(2, 64, 32)
     array.lazy_op(lambda d: d.sum(axis=0))
     assert array.shard_shape is None, "the shape changed in a way no shard describes"
+
+
+def test_sharded_default_mode_creates_where_nothing_is(tmp_path):
+    """The default mode, "a", on an empty location creates the sharded array."""
+    store = tmp_path / stores["zarr"]
+    array = prepare_ds(
+        store,
+        (2, 64, 64),
+        chunk_shape=(2, 16, 16),
+        shard_shape=(2, 64, 32),
+        dtype=np.uint8,
+    )
+    assert array.shard_shape == Coordinate(2, 64, 32)
+    assert open_ds(store).shard_shape == Coordinate(2, 64, 32)
+
+
+def test_sharded_a_creates_beside_other_files_and_w_minus_refuses_them(tmp_path):
+    """ "a" leaves whatever else the location holds (as the legacy path); "w-" refuses a
+    non-empty location outright, stray files and orphaned shards included."""
+    store = tmp_path / stores["zarr"]
+    store.mkdir()
+    (store / "README").write_text("not an array")
+    layout = dict(chunk_shape=(2, 16, 16), shard_shape=(2, 64, 32), dtype=np.uint8)
+    with pytest.raises(FileExistsError):
+        prepare_ds(store, (2, 64, 64), mode="w-", **layout)
+    assert (store / "README").exists() and not (store / "zarr.json").exists()
+
+    prepare_ds(store, (2, 64, 64), mode="a", **layout)
+    assert (store / "README").exists(), "mode 'a' must not wipe the location"
+    assert open_ds(store).shard_shape == Coordinate(2, 64, 32)
+
+    # orphaned shards: an array whose zarr.json is gone must not come back as data under "w-"
+    array = open_ds(store, mode="r+")
+    array[:] = 7
+    (store / "zarr.json").unlink()
+    with pytest.raises(FileExistsError):
+        prepare_ds(store, (2, 64, 64), mode="w-", **layout)
+    recreated = prepare_ds(store, (2, 64, 64), mode="w", **layout)
+    assert not np.any(recreated[recreated.roi]), "mode 'w' starts from nothing"
+
+
+def test_a_shard_needs_a_chunk_shape(tmp_path):
+    with pytest.raises(ValueError, match="needs a chunk_shape"):
+        prepare_ds(
+            tmp_path / stores["zarr"], (2, 64, 64), shard_shape=(2, 64, 32), mode="w"
+        )
+
+
+def test_shard_shape_follows_collapsed_dims_and_stays_under_a_roi(tmp_path):
+    """A tuple with two or more ints collapses the right dimensions (it did not: the
+    in-place walk re-counted after each collapse), a Roi keeps the shard, a boolean
+    mask (not writeable) drops it."""
+    store = tmp_path / stores["zarr"]
+    prepare_ds(
+        store,
+        (2, 64, 64),
+        chunk_shape=(2, 16, 16),
+        shard_shape=(2, 64, 32),
+        voxel_size=(1, 1),
+        axis_names=["c^", "y", "x"],
+        dtype=np.uint8,
+        mode="w",
+    )
+    for key, shard, chunk in [
+        (np.s_[0, 3], (32,), (16,)),
+        (np.s_[0, :, 3], (64,), (16,)),
+        (np.s_[:, 3, 5], (2,), (2,)),
+    ]:
+        array = open_ds(store)
+        array.lazy_op(key)
+        assert array.shard_shape == Coordinate(*shard), key
+        assert array.chunk_shape == Coordinate(*chunk), key
+        assert array.shard_shape.dims == array.chunk_shape.dims == len(array.shape)
+
+    array = open_ds(store)
+    array.lazy_op(Roi((0, 0), (32, 32)))
+    assert array.shard_shape == Coordinate(2, 64, 32)
+    assert array.is_writeable
+
+    array = open_ds(store)
+    array.lazy_op(np.array([True, False]))
+    assert not array.is_writeable
+    assert array.shard_shape is None

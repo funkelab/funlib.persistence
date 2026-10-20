@@ -145,7 +145,8 @@ class Array(Freezable):
 
     @property
     def shard_shape(self) -> Optional[Coordinate]:
-        """The shard shape in voxels, or ``None`` if the array is not sharded.
+        """The shard shape in SOURCE voxels, or ``None`` if the array is not
+        sharded or this view is not writeable.
 
         Only a zarr v3 array created with the sharding codec has one. A shard
         is a single object in the store (one file, one S3 key) holding
@@ -153,16 +154,15 @@ class Array(Freezable):
         can be written without reading the rest of the shard back first.
         Concurrent writers that each cover whole shards are safe; two writers
         that touch the same shard race, and one of them loses its data.
+
+        It describes the stored array, not this view: collapsed dimensions are
+        dropped, but a stepped or offset lazy slice leaves it in source voxels
+        while :attr:`chunk_shape` follows the view. A view that cannot be
+        written (a callable lazy op, a boolean mask) has no shard to align a
+        write to and reports ``None``.
         """
         shards = getattr(self._source_data, "shards", None)
-        if shards is None:
-            return None
-        if any(
-            not (self._is_slice(op) or isinstance(op, Roi)) for op in self.lazy_ops
-        ):
-            # a callable lazy op may change the shape in ways `_uncollapsed_dims`
-            # does not track; the view is not writeable either, so there is no
-            # shard to align a write to
+        if shards is None or not self.is_writeable:
             return None
         return Coordinate(
             s for s, uncollapsed in zip(shards, self._uncollapsed_dims) if uncollapsed
@@ -288,14 +288,13 @@ class Array(Freezable):
         if self._is_slice(lazy_op):
             if not isinstance(lazy_op, tuple):
                 lazy_op = (lazy_op,)
-            for ii, a in enumerate(lazy_op):
+            # Pair each entry with the dimension it indexes BEFORE collapsing any: the
+            # previous in-place walk re-counted uncollapsed dims after each collapse,
+            # so a tuple with two or more ints collapsed the wrong dimensions.
+            dims = [i for i, uc in enumerate(self._uncollapsed_dims) if uc]
+            for a, i in zip(lazy_op, dims):
                 if isinstance(a, int):
-                    for i, uc in enumerate(self._uncollapsed_dims):
-                        if uc:
-                            if ii == 0:
-                                self._uncollapsed_dims[i] = False
-                                break
-                            ii -= 1
+                    self._uncollapsed_dims[i] = False
             self.data = self.data[lazy_op]
         elif isinstance(lazy_op, Roi):
             assert all(self.uncollapsed_dims(physical=True)), (
