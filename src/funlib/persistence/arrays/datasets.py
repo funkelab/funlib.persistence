@@ -413,13 +413,19 @@ def prepare_ds(
             # `zarr.create_array` only refuses an existing NODE, so the emptiness
             # check is borrowed from the legacy path, which creates a placeholder
             # under zarr's own "w-" and raises FileExistsError on anything there.
+            # Only the kwargs that locate the store go along: creation kwargs such
+            # as `compressors` are `create_array`'s and the legacy call rejects them.
             zarr.open_array(
                 store=store,
                 mode="w-",
                 shape=tuple(shape),
                 chunks=tuple(chunk_shape),
                 dtype=dtype,
-                **kwargs,
+                **{
+                    k: kwargs[k]
+                    for k in ("path", "storage_options", "zarr_format")
+                    if k in kwargs
+                },
             )
         ds = zarr.create_array(
             store=store,

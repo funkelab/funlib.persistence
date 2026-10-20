@@ -600,3 +600,28 @@ def test_shard_shape_follows_collapsed_dims_and_stays_under_a_roi(tmp_path):
     array.lazy_op(np.array([True, False]))
     assert not array.is_writeable
     assert array.shard_shape is None
+
+
+def test_sharded_w_minus_creates_on_an_empty_location_with_creation_kwargs(tmp_path):
+    """"w-" on an empty location CREATES (the placeholder it uses for zarr's emptiness check
+    is replaced, not tripped over), and creation kwargs that only `zarr.create_array` takes
+    reach it."""
+    from zarr.codecs import ZstdCodec
+
+    store = tmp_path / stores["zarr"]
+    array = prepare_ds(
+        store,
+        (2, 64, 64),
+        chunk_shape=(2, 16, 16),
+        shard_shape=(2, 64, 32),
+        dtype=np.uint8,
+        mode="w-",
+        compressors=[ZstdCodec(level=3)],
+    )
+    assert array.shard_shape == Coordinate(2, 64, 32)
+    array[:] = 4
+    reopened = open_ds(store)
+    assert reopened.shard_shape == Coordinate(2, 64, 32)
+    np.testing.assert_array_equal(reopened[reopened.roi], 4)
+    inner = reopened._source_data.metadata.to_dict()["codecs"][0]["configuration"]["codecs"]
+    assert any(c["name"] == "zstd" for c in inner), inner
