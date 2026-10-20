@@ -407,6 +407,28 @@ def test_sharded(tmp_path, store):
     assert recreated.chunk_shape == Coordinate(16, 16)
 
 
+@pytest.mark.parametrize("mode", ["a", "r+"])
+def test_sharded_relabel_reopens_instead_of_recreating(tmp_path, mode):
+    """Data-compatible but metadata-incompatible (a different voxel_size, say) is a RELABEL
+    of the existing array in the unsharded path; the sharded path must do the same rather
+    than hand the existing node to `zarr.create_array`, which refuses it."""
+    store = tmp_path / stores["zarr"]
+    layout = dict(chunk_shape=(2, 16, 16), shard_shape=(2, 64, 32), dtype=np.uint8)
+    array = prepare_ds(
+        store, (2, 64, 64), voxel_size=(1, 1), axis_names=["c^", "y", "x"], mode="w", **layout
+    )
+    array[:] = 9
+
+    relabeled = prepare_ds(
+        store, (2, 64, 64), voxel_size=(4, 8), axis_names=["c^", "y", "x"], mode=mode, **layout
+    )
+    assert relabeled.voxel_size == Coordinate(4, 8)
+    assert relabeled.shard_shape == Coordinate(2, 64, 32)
+    assert relabeled.chunk_shape == Coordinate(2, 16, 16)
+    np.testing.assert_array_equal(relabeled[relabeled.roi], 9)
+    assert open_ds(store).voxel_size == Coordinate(4, 8)
+
+
 @pytest.mark.parametrize("store", ["zarr", "zarr_ds"])
 def test_sharded_refusals(tmp_path, store):
     store = tmp_path / stores[store]

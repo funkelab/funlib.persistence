@@ -381,6 +381,11 @@ def prepare_ds(
             mode=mode,
             **kwargs,
         )
+    elif existing_array is not None and mode in ("a", "r+"):
+        # Data-compatible but metadata-incompatible: the legacy path reopens the
+        # array and rewrites its attrs below. `zarr.create_array` would refuse the
+        # existing node, so reopen the same way.
+        ds = zarr.open_array(store=store, mode=mode, **kwargs)
     else:
         # The legacy `zarr.open_array` cannot build a sharding codec, so a
         # sharded array goes through `zarr.create_array`, which takes `overwrite`
