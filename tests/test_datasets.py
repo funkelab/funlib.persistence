@@ -569,6 +569,16 @@ def test_copying_a_layout(tmp_path):
         None,
         (64, 64),
     )
+    # the recipe against the plain source ITSELF reuses it (the restated inner chunk matches)
+    plain[:] = 2
+    again = prepare_ds(
+        tmp_path / "plain.zarr",
+        (128, 128),
+        chunk_shape=plain.chunk_shape,
+        inner_chunk_shape=plain.inner_chunk_shape,
+        mode="a",
+    )
+    np.testing.assert_array_equal(again[again.roi], 2)
     with pytest.raises(ValueError, match="only restate chunk_shape"):
         prepare_ds(
             tmp_path / "x.zarr",

@@ -261,9 +261,10 @@ def prepare_ds(
             `chunk_shape` as today, the largest block a worker writes comfortably, and
             let sharding keep the objects few and the reads small.
 
-            A creation option only: against an existing dataset only the write unit is
-            compared, so a sharded dataset is reused by a caller that does not ask for
-            sharding and vice versa, as long as `chunk_shape` matches. With `sharding`,
+            A creation option only: against an existing dataset only the write unit (and
+            a given `inner_chunk_shape`) is compared, so a sharded dataset is reused by a
+            caller that does not ask for sharding and vice versa, as long as `chunk_shape`
+            matches. With `sharding`,
             the array is created by `zarr.create_array` rather than `zarr.open_array`,
             so creation-time `kwargs` must be ones it accepts (`compressors`, `filters`,
             `serializer`, ...); opening and relabelling an existing array still go
@@ -400,10 +401,9 @@ def prepare_ds(
             )
             data_compatible = False
 
-        if (
-            inner_chunk_shape is not None
-            and inner != tuple(existing_array._source_data.chunks)
-        ):
+        if inner_chunk_shape is not None and tuple(
+            int(c) for c in inner_chunk_shape
+        ) != tuple(existing_array._source_data.chunks):
             logger.info(
                 "Inner chunk shapes differ: given (%s) vs parsed (%s)",
                 inner,
