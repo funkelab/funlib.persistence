@@ -290,3 +290,153 @@ def test_open_ds(tmp_path, store, dtype):
         axis_names=None,
         units=None,
     )
+
+
+@pytest.mark.parametrize("store", ["zarr", "zarr_ds", "zipped_zarr"])
+def test_sharded(tmp_path, store):
+    store = tmp_path / stores[store]
+    shape = Coordinate(2, 64, 64)
+    chunk_shape = Coordinate(1, 16, 16)
+    shard_shape = Coordinate(2, 64, 32)
+    axis_names = ["c^", "y", "x"]
+    voxel_size = Coordinate(4, 4)
+
+    # nothing to open yet: a shard_shape cannot be applied to an array that
+    # does not exist, so the read modes fail the same way they do unsharded
+    for mode in ("r", "r+"):
+        with pytest.raises(FileNotFoundError):
+            prepare_ds(
+                store,
+                shape,
+                voxel_size=voxel_size,
+                axis_names=axis_names,
+                chunk_shape=chunk_shape,
+                shard_shape=shard_shape,
+                dtype=np.uint8,
+                mode=mode,
+            )
+
+    array = prepare_ds(
+        store,
+        shape,
+        voxel_size=voxel_size,
+        axis_names=axis_names,
+        chunk_shape=chunk_shape,
+        shard_shape=shard_shape,
+        dtype=np.uint8,
+        mode="w",
+    )
+    # the shard is the stored object; the chunk stays the inner chunk
+    assert array.shard_shape == shard_shape
+    assert array.chunk_shape == chunk_shape
+    codecs = array._source_data.metadata.to_dict()["codecs"]
+    assert codecs[0]["name"] == "sharding_indexed"
+    assert tuple(codecs[0]["configuration"]["chunk_shape"]) == tuple(chunk_shape)
+    assert array._source_data.metadata.to_dict()["chunk_grid"]["configuration"][
+        "chunk_shape"
+    ] == tuple(shard_shape)
+
+    # funlib's metadata lands on the sharded array like on any other
+    assert array.voxel_size == voxel_size
+    assert array.axis_names == axis_names
+
+    # data written through funlib comes back through funlib
+    data = np.arange(np.prod(shape), dtype=np.uint8).reshape(shape)
+    array[array.roi] = data
+    reopened = open_ds(store)
+    assert reopened.shard_shape == shard_shape
+    assert reopened.chunk_shape == chunk_shape
+    np.testing.assert_array_equal(reopened[reopened.roi], data)
+
+    # a matching shard_shape reuses the array instead of recreating it
+    same = prepare_ds(
+        store,
+        shape,
+        voxel_size=voxel_size,
+        axis_names=axis_names,
+        chunk_shape=chunk_shape,
+        shard_shape=shard_shape,
+        dtype=np.uint8,
+        mode="a",
+    )
+    np.testing.assert_array_equal(same[same.roi], data)
+
+    # shard_shape=None means "don't care", like chunk_shape=None
+    unspecified = prepare_ds(
+        store,
+        shape,
+        voxel_size=voxel_size,
+        axis_names=axis_names,
+        dtype=np.uint8,
+        mode="a",
+    )
+    assert unspecified.shard_shape == shard_shape
+    np.testing.assert_array_equal(unspecified[unspecified.roi], data)
+
+    # a different shard_shape is a data incompatibility: refused unless mode is "w"
+    for mode in ("r", "r+", "a"):
+        with pytest.raises(PermissionError):
+            prepare_ds(
+                store,
+                shape,
+                voxel_size=voxel_size,
+                axis_names=axis_names,
+                chunk_shape=chunk_shape,
+                shard_shape=Coordinate(2, 32, 32),
+                dtype=np.uint8,
+                mode=mode,
+            )
+    np.testing.assert_array_equal(open_ds(store)[array.roi], data)
+
+    recreated = prepare_ds(
+        store,
+        shape,
+        voxel_size=voxel_size,
+        axis_names=axis_names,
+        chunk_shape=chunk_shape,
+        shard_shape=Coordinate(2, 32, 32),
+        dtype=np.uint8,
+        mode="w",
+    )
+    assert recreated.shard_shape == Coordinate(2, 32, 32)
+    assert not np.any(recreated[recreated.roi])
+
+    # a collapsed dimension drops out of the shard shape as it does the chunk shape
+    recreated.lazy_op(np.s_[0, :, :])
+    assert recreated.shard_shape == Coordinate(32, 32)
+    assert recreated.chunk_shape == Coordinate(16, 16)
+
+
+@pytest.mark.parametrize("store", ["zarr", "zarr_ds"])
+def test_sharded_refusals(tmp_path, store):
+    store = tmp_path / stores[store]
+
+    # an unsharded array has no shard shape, so nothing sizes blocks off a phantom
+    plain = prepare_ds(store, (8, 8), chunk_shape=(4, 4), mode="w")
+    assert plain.shard_shape is None
+    assert prepare_ds(store, (8, 8), shard_shape=None, mode="a").shard_shape is None
+
+    # the created array reports the chunks as stored, like open_ds and the reuse
+    # path do, not whatever dask would pick for an in-memory array
+    assert plain.chunk_shape == Coordinate(4, 4)
+    assert open_ds(store).chunk_shape == Coordinate(4, 4)
+    assert prepare_ds(store, (8, 8), mode="a").chunk_shape == Coordinate(4, 4)
+
+    # asking an unsharded array for a shard shape is a data incompatibility
+    with pytest.raises(PermissionError):
+        prepare_ds(store, (8, 8), chunk_shape=(4, 4), shard_shape=(8, 8), mode="a")
+
+    # a shard must hold whole chunks
+    with pytest.raises(ValueError):
+        prepare_ds(store, (8, 8), chunk_shape=(3, 3), shard_shape=(8, 8), mode="w")
+
+    # sharding is zarr v3 only
+    with pytest.raises(ValueError):
+        prepare_ds(
+            store,
+            (8, 8),
+            chunk_shape=(4, 4),
+            shard_shape=(8, 8),
+            mode="w",
+            zarr_format=2,
+        )

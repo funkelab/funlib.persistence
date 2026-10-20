@@ -134,7 +134,31 @@ class Array(Freezable):
 
     @property
     def chunk_shape(self) -> Coordinate:
+        """The chunk shape in voxels.
+
+        For a sharded zarr v3 array this is the *inner* chunk, the unit that
+        can be read on its own, not the shard. See :attr:`shard_shape` for the
+        unit that is written on its own.
+        """
         return Coordinate(self.data.chunksize)  # ty: ignore[unresolved-attribute]
+
+    @property
+    def shard_shape(self) -> Optional[Coordinate]:
+        """The shard shape in voxels, or ``None`` if the array is not sharded.
+
+        Only a zarr v3 array created with the sharding codec has one. A shard
+        is a single object in the store (one file, one S3 key) holding
+        :attr:`chunk_shape`-sized chunks, so it is the smallest region that
+        can be written without reading the rest of the shard back first.
+        Concurrent writers that each cover whole shards are safe; two writers
+        that touch the same shard race, and one of them loses its data.
+        """
+        shards = getattr(self._source_data, "shards", None)
+        if shards is None:
+            return None
+        return Coordinate(
+            s for s, uncollapsed in zip(shards, self._uncollapsed_dims) if uncollapsed
+        )
 
     def uncollapsed_dims(self, physical: bool = False) -> list[bool]:
         """

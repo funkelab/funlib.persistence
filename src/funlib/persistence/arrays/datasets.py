@@ -135,6 +135,7 @@ def prepare_ds(
     dtype: DTypeLike = np.float32,
     mode: Literal["r", "r+", "a", "w", "w-"] = "a",
     custom_metadata: dict[str, Any] | None = None,
+    shard_shape: Optional[Sequence[int]] = None,
     **kwargs,
 ) -> Array:
     """Prepare a Zarr or N5 dataset.
@@ -201,6 +202,24 @@ def prepare_ds(
             A dictionary of custom metadata to add to the dataset. This will be written to the
             zarr .attrs object.
 
+        shard_shape:
+
+            If given, create a zarr v3 array with the sharding codec: each shard is one
+            object in the store (one file, one S3 key) holding `chunk_shape`-sized chunks.
+            For all dimensions, including non-physical. Every element must be a multiple
+            of the corresponding `chunk_shape` element.
+
+            A shard is the unit of writing. Writing a region that covers whole shards
+            is a plain put; writing part of a shard reads the shard back, merges and
+            rewrites it, so two writers touching the same shard at the same time race
+            and one loses its data silently. Concurrent (e.g. blockwise) writers must
+            each write regions aligned to, and a multiple of, `shard_shape`.
+
+            `chunk_shape` keeps meaning the inner chunk, which is also what
+            `Array.chunk_shape` reports; `Array.shard_shape` reports the shard.
+            With a `shard_shape`, `kwargs` go to `zarr.create_array` rather than
+            `zarr.open_array`.
+
         kwargs:
 
             See additional arguments available here:
@@ -249,6 +268,17 @@ def prepare_ds(
                 "Chunk shapes differ: given (%s) vs parsed (%s)",
                 chunk_shape,
                 existing_array._source_data.chunks,
+            )
+            data_compatible = False
+
+        if (
+            shard_shape is not None
+            and tuple(shard_shape) != existing_array._source_data.shards
+        ):
+            logger.info(
+                "Shard shapes differ: given (%s) vs parsed (%s)",
+                shard_shape,
+                existing_array._source_data.shards,
             )
             data_compatible = False
 
@@ -342,14 +372,35 @@ def prepare_ds(
     )
 
     # create the dataset
-    ds = zarr.open_array(
-        store=store,
-        shape=shape,
-        chunks=chunk_shape,
-        dtype=dtype,
-        mode=mode,
-        **kwargs,
-    )
+    if shard_shape is None:
+        ds = zarr.open_array(
+            store=store,
+            shape=shape,
+            chunks=chunk_shape,
+            dtype=dtype,
+            mode=mode,
+            **kwargs,
+        )
+    else:
+        # The legacy `zarr.open_array` cannot build a sharding codec, so a
+        # sharded array goes through `zarr.create_array`, which takes `overwrite`
+        # in place of `mode`. Reaching this point means there is nothing
+        # compatible to reuse, so only the creating modes can proceed.
+        if mode in ("r", "r+"):
+            raise FileNotFoundError(
+                f"No array at {store} to open in mode '{mode}', and a "
+                f"shard_shape can only be applied when creating one."
+            )
+        kwargs.setdefault("zarr_format", 3)
+        ds = zarr.create_array(
+            store=store,
+            shape=tuple(shape),
+            chunks=tuple(chunk_shape) if chunk_shape is not None else "auto",
+            shards=tuple(shard_shape),
+            dtype=dtype,
+            overwrite=mode == "w",
+            **kwargs,
+        )
 
     default_metadata_format = get_default_metadata_format()
     our_metadata = {
@@ -366,7 +417,8 @@ def prepare_ds(
 
     ds.attrs.put(our_metadata)
 
-    # open array
-    array = Array(ds, offset, voxel_size, axis_names, units, types)
+    # open array, chunked as stored so that `chunk_shape` reports the same
+    # thing here as it does from `open_ds` and from the reuse path above
+    array = Array(ds, offset, voxel_size, axis_names, units, types, ds.chunks)
 
     return array
