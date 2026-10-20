@@ -406,7 +406,7 @@ def prepare_ds(
         ) != tuple(existing_array._source_data.chunks):
             logger.info(
                 "Inner chunk shapes differ: given (%s) vs parsed (%s)",
-                inner,
+                tuple(inner_chunk_shape),
                 existing_array._source_data.chunks,
             )
             data_compatible = False
