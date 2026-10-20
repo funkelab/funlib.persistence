@@ -1,3 +1,4 @@
+import inspect
 import logging
 from collections.abc import Sequence
 from typing import Any, Literal, Optional, Union
@@ -11,6 +12,15 @@ from .array import Array
 from .metadata import MetaDataFormat, get_default_metadata_format
 
 logger = logging.getLogger(__name__)
+
+def _location_kwargs(kwargs: dict) -> dict:
+    """The kwargs that say WHERE an array is, as `zarr.open` takes them; `name`
+    (`zarr.create_array`'s spelling of `path`) is translated."""
+    out = {k: kwargs[k] for k in ("path", "storage_options", "zarr_format") if k in kwargs}
+    if "name" in kwargs and "path" not in kwargs:
+        out["path"] = kwargs["name"]
+    return out
+
 
 def open_ds(
     store,
@@ -248,7 +258,10 @@ def prepare_ds(
     )
 
     try:
-        existing_array = open_ds(store, mode="r", **kwargs)
+        # only what LOCATES the array: creation kwargs (`compressors`, ...) are not
+        # `zarr.open`'s, and on a location that exists without an array it would
+        # hand them to `open_group` and fail with a TypeError instead of "not found"
+        existing_array = open_ds(store, mode="r", **_location_kwargs(kwargs))
     except FileNotFoundError:
         existing_array = None
 
@@ -407,28 +420,35 @@ def prepare_ds(
             )
         # a sharded array is a zarr v3 array whatever the configured default format
         kwargs.setdefault("zarr_format", 3)
+        # `zarr.create_array` names the sub-location `name`, the legacy calls `path`;
+        # accept either, and reject anything else BEFORE touching the store so a
+        # rejected kwarg cannot leave a placeholder behind
+        create_kwargs = dict(kwargs)
+        sub_path = create_kwargs.pop("path", None)
+        name = create_kwargs.pop("name", None)
+        if sub_path is not None and name is not None and sub_path != name:
+            raise ValueError(
+                f"path={sub_path!r} and name={name!r} name different sub-locations"
+            )
+        sub_path = name if name is not None else sub_path
+        inspect.signature(zarr.create_array).bind_partial(**create_kwargs)
         if mode == "w-":
             # "w-" means "create only where there is nothing": not an array, and
             # not stray files either (orphaned shards would come back as data).
             # `zarr.create_array` only refuses an existing NODE, so the emptiness
-            # check is borrowed from the legacy path, which creates a placeholder
-            # under zarr's own "w-" and raises FileExistsError on anything there.
-            # Only the kwargs that locate the store go along: creation kwargs such
-            # as `compressors` are `create_array`'s and the legacy call rejects them.
-            zarr.open_array(
+            # check is zarr's own, through a placeholder GROUP opened under "w-"
+            # at the same location (it raises FileExistsError on anything there)
+            # which the create below replaces.
+            zarr.open_group(
                 store=store,
                 mode="w-",
-                shape=tuple(shape),
-                chunks=tuple(chunk_shape),
-                dtype=dtype,
-                **{
-                    k: kwargs[k]
-                    for k in ("path", "storage_options", "zarr_format")
-                    if k in kwargs
-                },
+                path=sub_path,
+                storage_options=create_kwargs.get("storage_options"),
+                zarr_format=create_kwargs["zarr_format"],
             )
         ds = zarr.create_array(
             store=store,
+            name=sub_path,
             shape=tuple(shape),
             chunks=tuple(chunk_shape),
             shards=tuple(shard_shape),
@@ -436,7 +456,7 @@ def prepare_ds(
             # "w" and the placeholder just written under "w-" are replaced; "a"
             # creates beside whatever else the location holds, as the legacy path
             overwrite=mode in ("w", "w-"),
-            **kwargs,
+            **create_kwargs,
         )
 
     default_metadata_format = get_default_metadata_format()

@@ -603,7 +603,7 @@ def test_shard_shape_follows_collapsed_dims_and_stays_under_a_roi(tmp_path):
 
 
 def test_sharded_w_minus_creates_on_an_empty_location_with_creation_kwargs(tmp_path):
-    """"w-" on an empty location CREATES (the placeholder it uses for zarr's emptiness check
+    """ "w-" on an empty location CREATES (the placeholder it uses for zarr's emptiness check
     is replaced, not tripped over), and creation kwargs that only `zarr.create_array` takes
     reach it."""
     from zarr.codecs import ZstdCodec
@@ -623,5 +623,52 @@ def test_sharded_w_minus_creates_on_an_empty_location_with_creation_kwargs(tmp_p
     reopened = open_ds(store)
     assert reopened.shard_shape == Coordinate(2, 64, 32)
     np.testing.assert_array_equal(reopened[reopened.roi], 4)
-    inner = reopened._source_data.metadata.to_dict()["codecs"][0]["configuration"]["codecs"]
+    inner = reopened._source_data.metadata.to_dict()["codecs"][0]["configuration"][
+        "codecs"
+    ]
     assert any(c["name"] == "zstd" for c in inner), inner
+
+
+def test_sharded_w_minus_at_a_sub_location_and_a_rejected_kwarg_leaves_nothing(
+    tmp_path,
+):
+    """`name=` (create_array's spelling) and `path=` (the legacy spelling) both place the
+    array; "w-" checks emptiness at THAT location; a kwarg create_array rejects is refused
+    before anything is written, so a corrected retry is not met by a stray placeholder."""
+    store = tmp_path / stores["zarr"]
+    layout = dict(chunk_shape=(2, 16, 16), shard_shape=(2, 64, 32), dtype=np.uint8)
+
+    with pytest.raises(TypeError):
+        prepare_ds(store, (2, 64, 64), mode="w-", bogus=1, **layout)
+    assert not store.exists(), "a rejected kwarg must not leave a placeholder"
+    prepare_ds(store, (2, 64, 64), mode="w-", **layout)  # the retry goes through
+
+    # a sub-location: the emptiness check and the create both target it (an array cannot
+    # have children, so this is a second, group-rooted store)
+    nested = tmp_path / "nested.zarr"
+    sub = prepare_ds(nested, (2, 64, 64), mode="w-", name="sub", **layout)
+    assert sub.shard_shape == Coordinate(2, 64, 32)
+    assert open_ds(nested / "sub").shard_shape == Coordinate(2, 64, 32)
+    with pytest.raises(FileExistsError):
+        prepare_ds(nested, (2, 64, 64), mode="w-", path="sub", **layout)
+    other = prepare_ds(nested, (2, 64, 64), mode="w-", path="other", **layout)
+    assert other.shard_shape == Coordinate(2, 64, 32), (
+        "an empty sibling location is fine"
+    )
+    with pytest.raises(ValueError, match="different sub-locations"):
+        prepare_ds(nested, (2, 64, 64), mode="w", path="a", name="b", **layout)
+
+
+def test_creation_kwargs_do_not_break_the_existence_probe(tmp_path):
+    """An existing directory with no array in it, plus creation kwargs: the probe must say
+    "no array here" and the create must proceed, in every creating mode."""
+    from zarr.codecs import ZstdCodec
+
+    layout = dict(chunk_shape=(2, 16, 16), shard_shape=(2, 64, 32), dtype=np.uint8)
+    for mode in ("w-", "w", "a"):
+        store = tmp_path / f"{mode.replace('-', 'minus')}.zarr"
+        store.mkdir()
+        array = prepare_ds(
+            store, (2, 64, 64), mode=mode, compressors=[ZstdCodec()], **layout
+        )
+        assert array.shard_shape == Coordinate(2, 64, 32), mode
