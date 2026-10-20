@@ -13,6 +13,30 @@ from .metadata import MetaDataFormat, get_default_metadata_format
 
 logger = logging.getLogger(__name__)
 
+DEFAULT_INNER_CHUNK = 64
+"""The chunk inside each shard when `prepare_ds(sharding=True)` is given none, per axis
+(the whole axis where the shard is smaller). Small enough that a reader fetching a window
+with context pays for little beyond the window; the shard, not this, is what writes must
+cover whole."""
+
+
+def _default_inner_chunk(chunk_shape: Sequence[int]) -> tuple[int, ...]:
+    inner = []
+    for c in chunk_shape:
+        c = int(c)
+        if c <= DEFAULT_INNER_CHUNK:
+            inner.append(c)
+        elif c % DEFAULT_INNER_CHUNK == 0:
+            inner.append(DEFAULT_INNER_CHUNK)
+        else:
+            raise ValueError(
+                f"chunk_shape {tuple(int(x) for x in chunk_shape)}: axis extent {c} is "
+                f"larger than the default inner chunk {DEFAULT_INNER_CHUNK} and not a "
+                "multiple of it; pass inner_chunk_shape explicitly"
+            )
+    return tuple(inner)
+
+
 def _is_empty_group(store, location: dict) -> bool:
     """Whether a zarr GROUP with no members and no attrs sits at the location."""
     try:
@@ -150,7 +174,8 @@ def prepare_ds(
     dtype: DTypeLike = np.float32,
     mode: Literal["r", "r+", "a", "w", "w-"] = "a",
     custom_metadata: dict[str, Any] | None = None,
-    shard_shape: Optional[Sequence[int]] = None,
+    sharding: bool = False,
+    inner_chunk_shape: Optional[Sequence[int]] = None,
     **kwargs,
 ) -> Array:
     """Prepare a Zarr or N5 dataset.
@@ -200,8 +225,15 @@ def prepare_ds(
 
         chunk_shape:
 
-            The shape of the chunks to use in the dataset. For all dimensions,
-            including non-physical.
+            The unit of the dataset that is WRITTEN on its own, in voxels, for all
+            dimensions including non-physical: a write covering whole chunks never reads
+            back and rewrites anything another writer may be writing, which is what
+            blockwise writers size their blocks by. Without `sharding` this is the zarr
+            chunk; with it, the shard (one stored object holding `inner_chunk_shape`
+            chunks). Either way it is what `Array.chunk_shape` reports.
+
+            Against an existing dataset it is compared to that dataset's write unit (its
+            shard if sharded, else its chunk); a difference is a data incompatibility.
 
         dtype:
 
@@ -217,28 +249,34 @@ def prepare_ds(
             A dictionary of custom metadata to add to the dataset. This will be written to the
             zarr .attrs object.
 
-        shard_shape:
+        sharding:
 
-            If given, create a zarr v3 array with the sharding codec: each shard is one
-            object in the store (one file, one S3 key) holding `chunk_shape`-sized chunks.
-            For all dimensions, including non-physical. Every element must be a multiple
-            of the corresponding `chunk_shape` element.
+            Create a zarr v3 array with the sharding codec: `chunk_shape` becomes the
+            SHARD, one object in the store (one file, one S3 key), holding smaller
+            `inner_chunk_shape` chunks that a reader can fetch on their own. Writing is
+            constrained exactly as it is by a plain chunk: a region covering whole shards
+            is a plain put, writing part of a shard reads the shard back, merges and
+            rewrites it, so two writers touching one shard at the same time race and
+            one loses its data silently. Reads need no alignment at all. So pick
+            `chunk_shape` as today, the largest block a worker writes comfortably, and
+            let sharding keep the objects few and the reads small.
 
-            A shard is the unit of writing. Writing a region that covers whole shards
-            is a plain put; writing part of a shard reads the shard back, merges and
-            rewrites it, so two writers touching the same shard at the same time race
-            and one loses its data silently. Concurrent (e.g. blockwise) writers must
-            each write regions aligned to, and a multiple of, `shard_shape`.
+            A creation option only: against an existing dataset only the write unit is
+            compared, so a sharded dataset is reused by a caller that does not ask for
+            sharding and vice versa, as long as `chunk_shape` matches. With `sharding`,
+            the array is created by `zarr.create_array` rather than `zarr.open_array`,
+            so creation-time `kwargs` must be ones it accepts (`compressors`, `filters`,
+            `serializer`, ...); opening and relabelling an existing array still go
+            through `zarr.open`.
 
-            `chunk_shape` keeps meaning the inner chunk here, as an ARGUMENT. On the
-            Array, `chunk_shape` is the parallel-safe write unit, the shard; the inner
-            chunk is `Array.inner_chunk_shape`. To create another array with an
-            existing one's layout, pass `chunk_shape=a.inner_chunk_shape,
-            shard_shape=a.shard_shape`, not `a.chunk_shape`.
-            With a `shard_shape`, the array is created by `zarr.create_array` rather
-            than `zarr.open_array`, so creation-time `kwargs` must be ones it accepts
-            (`compressors`, `filters`, `serializer`, ...); opening and relabelling an
-            existing array still go through `zarr.open`.
+        inner_chunk_shape:
+
+            With `sharding`, the chunk inside each shard, for all dimensions. Every
+            `chunk_shape` element must be a multiple of it. Defaults to
+            `DEFAULT_INNER_CHUNK` (64) per axis, or the whole axis where the shard is
+            smaller than that; a shard axis larger than 64 that 64 does not divide needs
+            an explicit value. Reported by `Array.inner_chunk_shape`; given against an
+            existing sharded dataset it is compared to its inner chunk.
 
         kwargs:
 
@@ -264,6 +302,30 @@ def prepare_ds(
         units=units,
         types=types,
     )
+
+    if inner_chunk_shape is not None and not sharding:
+        raise ValueError("inner_chunk_shape only applies with sharding=True")
+    inner: Optional[tuple[int, ...]] = None
+    if sharding:
+        if chunk_shape is None:
+            raise ValueError(
+                "sharding=True needs a chunk_shape: the shard, the unit a writer covers"
+            )
+        inner = (
+            tuple(int(c) for c in inner_chunk_shape)
+            if inner_chunk_shape is not None
+            else _default_inner_chunk(chunk_shape)
+        )
+        if len(inner) != len(tuple(chunk_shape)):
+            raise ValueError(
+                f"inner_chunk_shape {inner} and chunk_shape {tuple(chunk_shape)} differ "
+                "in dimensions"
+            )
+        if any(int(c) % i != 0 for c, i in zip(chunk_shape, inner)):
+            raise ValueError(
+                f"chunk_shape {tuple(chunk_shape)} (the shard) must be a whole number of "
+                f"inner_chunk_shape {inner} per axis"
+            )
 
     # `zarr.create_array` calls the sub-location `name`, every legacy call `path`:
     # accept either, carry it as `path` from here on (the open/relabel calls take
@@ -305,25 +367,28 @@ def prepare_ds(
             )
             data_compatible = False
 
-        if (
-            chunk_shape is not None
-            and chunk_shape != existing_array._source_data.chunks
-        ):
+        existing_shards = existing_array._source_data.shards
+        existing_write_unit = (
+            existing_shards
+            if existing_shards is not None
+            else existing_array._source_data.chunks
+        )
+        if chunk_shape is not None and tuple(chunk_shape) != tuple(existing_write_unit):
             logger.info(
-                "Chunk shapes differ: given (%s) vs parsed (%s)",
+                "Chunk shapes (the write unit) differ: given (%s) vs parsed (%s)",
                 chunk_shape,
-                existing_array._source_data.chunks,
+                existing_write_unit,
             )
             data_compatible = False
 
         if (
-            shard_shape is not None
-            and tuple(shard_shape) != existing_array._source_data.shards
+            inner_chunk_shape is not None
+            and inner != tuple(existing_array._source_data.chunks)
         ):
             logger.info(
-                "Shard shapes differ: given (%s) vs parsed (%s)",
-                shard_shape,
-                existing_array._source_data.shards,
+                "Inner chunk shapes differ: given (%s) vs parsed (%s)",
+                inner,
+                existing_array._source_data.chunks,
             )
             data_compatible = False
 
@@ -417,7 +482,7 @@ def prepare_ds(
     )
 
     # create the dataset
-    if shard_shape is None:
+    if not sharding:
         ds = zarr.open_array(
             store=store,
             shape=shape,
@@ -438,16 +503,10 @@ def prepare_ds(
         # compatible to reuse, so only the creating modes can proceed.
         if mode in ("r", "r+"):
             raise FileNotFoundError(
-                f"No array at {store} to open in mode '{mode}', and a "
-                f"shard_shape can only be applied when creating one."
+                f"No array at {store} to open in mode '{mode}', and sharding can only "
+                "be applied when creating one."
             )
-        if chunk_shape is None:
-            # zarr guesses "auto" chunks from the array shape alone, ignoring the
-            # shards, and then refuses them as not dividing the shard
-            raise ValueError(
-                f"shard_shape={tuple(shard_shape)} needs a chunk_shape, the chunk "
-                "inside each shard."
-            )
+        assert chunk_shape is not None and inner is not None  # validated above
         # a sharded array is a zarr v3 array whatever the configured default format
         kwargs.setdefault("zarr_format", 3)
         create_kwargs = dict(kwargs)
@@ -456,7 +515,7 @@ def prepare_ds(
         if reserved:
             raise TypeError(
                 f"prepare_ds sets {', '.join(reserved)} itself; pass shape, dtype, "
-                "chunk_shape and shard_shape through its own parameters"
+                "chunk_shape and inner_chunk_shape through its own parameters"
             )
         # Rejected BEFORE anything touches the store: a kwarg `zarr.create_array`
         # does not take, and anything it would refuse once it looks at the values
@@ -469,8 +528,8 @@ def prepare_ds(
             store=zarr.storage.MemoryStore(),
             name=sub_path,
             shape=tuple(shape),
-            chunks=tuple(chunk_shape),
-            shards=tuple(shard_shape),
+            chunks=inner,
+            shards=tuple(chunk_shape),
             dtype=dtype,
             **{k: v for k, v in create_kwargs.items() if k != "storage_options"},
         )
@@ -493,8 +552,8 @@ def prepare_ds(
             store=store,
             name=sub_path,
             shape=tuple(shape),
-            chunks=tuple(chunk_shape),
-            shards=tuple(shard_shape),
+            chunks=inner,
+            shards=tuple(chunk_shape),
             dtype=dtype,
             # "w", the placeholder just written under "w-" and a stray one are
             # replaced; "a" otherwise creates beside whatever else the location

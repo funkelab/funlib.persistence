@@ -166,8 +166,8 @@ class Array(Freezable):
         array was opened. Equals :attr:`chunk_shape` for an unsharded array.
         Reads need no alignment to it; writes must align to
         :attr:`chunk_shape`. To create another array with this one's layout,
-        pass this as ``prepare_ds``'s ``chunk_shape`` and :attr:`shard_shape`
-        as its ``shard_shape``."""
+        pass ``chunk_shape=a.chunk_shape, sharding=a.shard_shape is not None,
+        inner_chunk_shape=a.inner_chunk_shape`` to ``prepare_ds``."""
         return Coordinate(self.data.chunksize)  # ty: ignore[unresolved-attribute]
 
     @property

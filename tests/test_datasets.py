@@ -294,257 +294,195 @@ def test_open_ds(tmp_path, store, dtype):
     )
 
 
+# --- sharding: chunk_shape is the WRITE unit (the shard), inner_chunk_shape the read unit -------
+
+SHARD = Coordinate(2, 64, 32)  # what a writer covers whole; the stored object
+INNER = Coordinate(2, 16, 16)  # what a reader can fetch on its own
+
+
+def _sharded(store, mode="w", **over):
+    kw: dict[str, Any] = dict(
+        shape=(2, 64, 64),
+        voxel_size=(1, 1),
+        axis_names=["c^", "y", "x"],
+        chunk_shape=SHARD,
+        sharding=True,
+        inner_chunk_shape=INNER,
+        dtype=np.uint8,
+        mode=mode,
+    )
+    kw.update(over)
+    return prepare_ds(store, **kw)
+
+
 @pytest.mark.parametrize("store", ["zarr", "zarr_ds", "zipped_zarr"])
 def test_sharded(tmp_path, store):
     store = tmp_path / stores[store]
-    shape = Coordinate(2, 64, 64)
-    chunk_shape = Coordinate(1, 16, 16)
-    shard_shape = Coordinate(2, 64, 32)
-    axis_names = ["c^", "y", "x"]
-    voxel_size = Coordinate(4, 4)
 
-    # nothing to open yet: a shard_shape cannot be applied to an array that
-    # does not exist, so the read modes fail the same way they do unsharded
+    # nothing to open yet: the read modes fail the same way they do unsharded
     for mode in ("r", "r+"):
         with pytest.raises(FileNotFoundError):
-            prepare_ds(
-                store,
-                shape,
-                voxel_size=voxel_size,
-                axis_names=axis_names,
-                chunk_shape=chunk_shape,
-                shard_shape=shard_shape,
-                dtype=np.uint8,
-                mode=mode,
-            )
+            _sharded(store, mode=mode)
 
-    array = prepare_ds(
-        store,
-        shape,
-        voxel_size=voxel_size,
-        axis_names=axis_names,
-        chunk_shape=chunk_shape,
-        shard_shape=shard_shape,
-        dtype=np.uint8,
-        mode="w",
-    )
-    # the shard is the stored object and the unit a writer must cover; the inner
-    # chunk is what a reader can fetch on its own
-    assert array.shard_shape == shard_shape
-    assert array.chunk_shape == shard_shape, (
-        "chunk_shape is the parallel-safe WRITE unit"
-    )
-    assert array.inner_chunk_shape == chunk_shape
-    codecs = array._source_data.metadata.to_dict()["codecs"]
-    assert codecs[0]["name"] == "sharding_indexed"
-    assert tuple(codecs[0]["configuration"]["chunk_shape"]) == tuple(chunk_shape)
-    assert array._source_data.metadata.to_dict()["chunk_grid"]["configuration"][
-        "chunk_shape"
-    ] == tuple(shard_shape)
+    array = _sharded(store)
+    # chunk_shape IS the shard: the parallel-safe write unit, as on an unsharded array
+    assert array.chunk_shape == SHARD
+    assert array.shard_shape == SHARD
+    assert array.inner_chunk_shape == INNER
+    meta = array._source_data.metadata.to_dict()
+    assert meta["codecs"][0]["name"] == "sharding_indexed"
+    assert tuple(meta["codecs"][0]["configuration"]["chunk_shape"]) == tuple(INNER)
+    assert tuple(meta["chunk_grid"]["configuration"]["chunk_shape"]) == tuple(SHARD)
+    assert array.voxel_size == Coordinate(1, 1)
 
-    # funlib's metadata lands on the sharded array like on any other
-    assert array.voxel_size == voxel_size
-    assert array.axis_names == axis_names
-
-    # data written through funlib comes back through funlib
-    data = np.arange(np.prod(shape), dtype=np.uint8).reshape(shape)
+    data = np.arange(np.prod(array.shape), dtype=np.uint8).reshape(array.shape)
     array[array.roi] = data
     reopened = open_ds(store)
-    assert reopened.shard_shape == shard_shape
-    assert reopened.chunk_shape == shard_shape
-    assert reopened.inner_chunk_shape == chunk_shape
+    assert (reopened.chunk_shape, reopened.inner_chunk_shape) == (SHARD, INNER)
     np.testing.assert_array_equal(reopened[reopened.roi], data)
 
-    # a matching shard_shape reuses the array instead of recreating it
-    same = prepare_ds(
-        store,
-        shape,
-        voxel_size=voxel_size,
-        axis_names=axis_names,
-        chunk_shape=chunk_shape,
-        shard_shape=shard_shape,
-        dtype=np.uint8,
-        mode="a",
-    )
-    np.testing.assert_array_equal(same[same.roi], data)
+    # the same layout reuses the array; so does the same WRITE UNIT with sharding unsaid
+    # (a creation option only) and with no inner chunk said (don't care)
+    for over in (
+        {},
+        {"sharding": False, "inner_chunk_shape": None},
+        {"inner_chunk_shape": None},
+    ):
+        same = _sharded(store, mode="a", **over)
+        np.testing.assert_array_equal(same[same.roi], data)
+        assert same.chunk_shape == SHARD
 
-    # shard_shape=None means "don't care", like chunk_shape=None
-    unspecified = prepare_ds(
-        store,
-        shape,
-        voxel_size=voxel_size,
-        axis_names=axis_names,
-        dtype=np.uint8,
-        mode="a",
-    )
-    assert unspecified.shard_shape == shard_shape
-    np.testing.assert_array_equal(unspecified[unspecified.roi], data)
-
-    # a different shard_shape is a data incompatibility: refused unless mode is "w"
-    for mode in ("r", "r+", "a"):
-        with pytest.raises(PermissionError):
-            prepare_ds(
-                store,
-                shape,
-                voxel_size=voxel_size,
-                axis_names=axis_names,
-                chunk_shape=chunk_shape,
-                shard_shape=Coordinate(2, 32, 32),
-                dtype=np.uint8,
-                mode=mode,
-            )
+    # another write unit, or another inner chunk, is a data incompatibility
+    for over in ({"chunk_shape": (2, 32, 32)}, {"inner_chunk_shape": (2, 8, 8)}):
+        for mode in ("r", "r+", "a"):
+            with pytest.raises(PermissionError):
+                _sharded(store, mode=mode, **over)
     np.testing.assert_array_equal(open_ds(store)[array.roi], data)
 
-    recreated = prepare_ds(
-        store,
-        shape,
-        voxel_size=voxel_size,
-        axis_names=axis_names,
-        chunk_shape=chunk_shape,
-        shard_shape=Coordinate(2, 32, 32),
+    recreated = _sharded(store, mode="w", chunk_shape=(2, 32, 32))
+    assert (recreated.chunk_shape, recreated.inner_chunk_shape) == (
+        Coordinate(2, 32, 32),
+        INNER,
+    )
+    assert not np.any(recreated[recreated.roi])
+
+    # a collapsed dimension drops out of every shape alike
+    recreated.lazy_op(np.s_[0, :, :])
+    assert recreated.chunk_shape == recreated.shard_shape == Coordinate(32, 32)
+    assert recreated.inner_chunk_shape == Coordinate(16, 16)
+
+
+def test_unsharded_is_reused_by_a_sharding_caller_with_the_same_write_unit(tmp_path):
+    """`sharding` is a creation option; an existing array is judged by its write unit."""
+    store = tmp_path / stores["zarr"]
+    plain = prepare_ds(store, (8, 8), chunk_shape=(4, 4), mode="w")
+    assert (
+        plain.shard_shape is None
+        and plain.chunk_shape == plain.inner_chunk_shape == (4, 4)
+    )
+    again = prepare_ds(store, (8, 8), chunk_shape=(4, 4), sharding=True, mode="a")
+    assert again.shard_shape is None, "reused as it is; nothing recreated"
+    with pytest.raises(PermissionError):
+        prepare_ds(store, (8, 8), chunk_shape=(8, 8), sharding=True, mode="a")
+
+
+def test_inner_chunk_defaults(tmp_path):
+    """64 per axis, the whole axis where the shard is smaller, and a loud ask where 64
+    does not divide a larger axis."""
+    a = prepare_ds(
+        tmp_path / "a.zarr",
+        (2, 256, 256),
+        chunk_shape=(2, 256, 128),
+        sharding=True,
         dtype=np.uint8,
         mode="w",
     )
-    assert recreated.shard_shape == Coordinate(2, 32, 32)
-    assert not np.any(recreated[recreated.roi])
+    assert a.inner_chunk_shape == Coordinate(2, 64, 64)
+    assert a.chunk_shape == Coordinate(2, 256, 128)
+    b = prepare_ds(
+        tmp_path / "b.zarr",
+        (2, 32, 32),
+        chunk_shape=(2, 32, 32),
+        sharding=True,
+        dtype=np.uint8,
+        mode="w",
+    )
+    assert b.inner_chunk_shape == Coordinate(2, 32, 32)
+    with pytest.raises(ValueError, match="pass inner_chunk_shape explicitly"):
+        prepare_ds(
+            tmp_path / "c.zarr",
+            (2, 100, 100),
+            chunk_shape=(2, 100, 100),
+            sharding=True,
+            dtype=np.uint8,
+            mode="w",
+        )
 
-    # a collapsed dimension drops out of the shard shape as it does the chunk shape
-    recreated.lazy_op(np.s_[0, :, :])
-    assert recreated.shard_shape == Coordinate(32, 32)
-    assert recreated.chunk_shape == Coordinate(32, 32)
-    assert recreated.inner_chunk_shape == Coordinate(16, 16)
+
+def test_sharding_option_refusals(tmp_path):
+    store = tmp_path / stores["zarr"]
+    with pytest.raises(ValueError, match="only applies with sharding=True"):
+        prepare_ds(
+            store, (8, 8), chunk_shape=(8, 8), inner_chunk_shape=(4, 4), mode="w"
+        )
+    with pytest.raises(ValueError, match="needs a chunk_shape"):
+        prepare_ds(store, (8, 8), sharding=True, mode="w")
+    with pytest.raises(ValueError, match="whole number of inner_chunk_shape"):
+        prepare_ds(
+            store,
+            (8, 8),
+            chunk_shape=(8, 8),
+            sharding=True,
+            inner_chunk_shape=(3, 3),
+            mode="w",
+        )
+    with pytest.raises(ValueError, match="differ in dimensions"):
+        prepare_ds(
+            store,
+            (8, 8),
+            chunk_shape=(8, 8),
+            sharding=True,
+            inner_chunk_shape=(4,),
+            mode="w",
+        )
+    with pytest.raises(ValueError):  # sharding is zarr v3 only
+        prepare_ds(
+            store, (8, 8), chunk_shape=(8, 8), sharding=True, mode="w", zarr_format=2
+        )
+    assert not store.exists(), "every refusal came before the location was touched"
 
 
 @pytest.mark.parametrize("mode", ["a", "r+"])
 def test_sharded_relabel_reopens_instead_of_recreating(tmp_path, mode):
-    """Data-compatible but metadata-incompatible (a different voxel_size, say) is a RELABEL
-    of the existing array in the unsharded path; the sharded path must do the same rather
-    than hand the existing node to `zarr.create_array`, which refuses it."""
+    """Data-compatible but metadata-incompatible is a RELABEL of the existing array, on the
+    sharded path as on the unsharded one."""
     store = tmp_path / stores["zarr"]
-    layout: dict[str, Any] = dict(
-        chunk_shape=(2, 16, 16), shard_shape=(2, 64, 32), dtype=np.uint8
-    )
-    array = prepare_ds(
-        store,
-        (2, 64, 64),
-        voxel_size=(1, 1),
-        axis_names=["c^", "y", "x"],
-        mode="w",
-        **layout,
-    )
+    array = _sharded(store)
     array[:] = 9
-
-    relabeled = prepare_ds(
-        store,
-        (2, 64, 64),
-        voxel_size=(4, 8),
-        axis_names=["c^", "y", "x"],
-        mode=mode,
-        **layout,
-    )
+    relabeled = _sharded(store, mode=mode, voxel_size=(4, 8))
     assert relabeled.voxel_size == Coordinate(4, 8)
-    assert relabeled.shard_shape == Coordinate(2, 64, 32)
-    assert relabeled.chunk_shape == Coordinate(2, 64, 32)
-    assert relabeled.inner_chunk_shape == Coordinate(2, 16, 16)
+    assert (relabeled.chunk_shape, relabeled.inner_chunk_shape) == (SHARD, INNER)
     np.testing.assert_array_equal(relabeled[relabeled.roi], 9)
     assert open_ds(store).voxel_size == Coordinate(4, 8)
 
 
-@pytest.mark.parametrize("store", ["zarr", "zarr_ds"])
-def test_sharded_refusals(tmp_path, store):
-    store = tmp_path / stores[store]
-
-    # an unsharded array has no shard shape, so nothing sizes blocks off a phantom
-    plain = prepare_ds(store, (8, 8), chunk_shape=(4, 4), mode="w")
-    assert plain.shard_shape is None
-    assert prepare_ds(store, (8, 8), shard_shape=None, mode="a").shard_shape is None
-
-    # the created array reports the chunks as stored, like open_ds and the reuse
-    # path do, not whatever dask would pick for an in-memory array
-    assert plain.chunk_shape == Coordinate(4, 4)
-    assert plain.inner_chunk_shape == Coordinate(4, 4), "unsharded: the two agree"
-    assert open_ds(store).chunk_shape == Coordinate(4, 4)
-    assert prepare_ds(store, (8, 8), mode="a").chunk_shape == Coordinate(4, 4)
-
-    # asking an unsharded array for a shard shape is a data incompatibility
-    with pytest.raises(PermissionError):
-        prepare_ds(store, (8, 8), chunk_shape=(4, 4), shard_shape=(8, 8), mode="a")
-
-    # a shard must hold whole chunks
-    with pytest.raises(ValueError):
-        prepare_ds(store, (8, 8), chunk_shape=(3, 3), shard_shape=(8, 8), mode="w")
-
-    # sharding is zarr v3 only
-    with pytest.raises(ValueError):
-        prepare_ds(
-            store,
-            (8, 8),
-            chunk_shape=(4, 4),
-            shard_shape=(8, 8),
-            mode="w",
-            zarr_format=2,
-        )
-
-
 def test_sharded_w_minus_refuses_an_existing_array_and_keeps_its_data(tmp_path):
-    """ "w-" never recreates: a sharded call on an existing array refuses, like the
-    unsharded path does, and the data is still there afterwards."""
     store = tmp_path / stores["zarr"]
-    layout: dict[str, Any] = dict(
-        chunk_shape=(2, 16, 16), shard_shape=(2, 64, 32), dtype=np.uint8
-    )
-    array = prepare_ds(
-        store,
-        (2, 64, 64),
-        voxel_size=(1, 1),
-        axis_names=["c^", "y", "x"],
-        mode="w",
-        **layout,
-    )
-    array[:] = 9
+    _sharded(store)[:] = 9
     with pytest.raises(FileExistsError):
-        prepare_ds(
-            store,
-            (2, 64, 64),
-            voxel_size=(4, 8),
-            axis_names=["c^", "y", "x"],
-            mode="w-",
-            **layout,
-        )
+        _sharded(store, mode="w-", voxel_size=(4, 8))
     reopened = open_ds(store)
     np.testing.assert_array_equal(reopened[reopened.roi], 9)
     assert reopened.voxel_size == Coordinate(1, 1)
 
 
-def test_shard_shape_is_none_after_a_callable_lazy_op(tmp_path):
-    store = tmp_path / stores["zarr"]
-    prepare_ds(
-        store,
-        (2, 64, 64),
-        chunk_shape=(2, 16, 16),
-        shard_shape=(2, 64, 32),
-        axis_names=["c^", "y", "x"],
-        dtype=np.uint8,
-        mode="w",
-    )
-    array = open_ds(store)
-    assert array.shard_shape == Coordinate(2, 64, 32)
-    array.lazy_op(lambda d: d.sum(axis=0))
-    assert array.shard_shape is None, "the shape changed in a way no shard describes"
-
-
 def test_sharded_default_mode_creates_where_nothing_is(tmp_path):
-    """The default mode, "a", on an empty location creates the sharded array."""
     store = tmp_path / stores["zarr"]
     array = prepare_ds(
-        store,
-        (2, 64, 64),
-        chunk_shape=(2, 16, 16),
-        shard_shape=(2, 64, 32),
-        dtype=np.uint8,
+        store, (2, 64, 64), chunk_shape=SHARD, sharding=True, dtype=np.uint8
     )
-    assert array.shard_shape == Coordinate(2, 64, 32)
-    assert open_ds(store).shard_shape == Coordinate(2, 64, 32)
+    assert array.shard_shape == SHARD
+    assert open_ds(store).shard_shape == SHARD
 
 
 def test_sharded_a_creates_beside_other_files_and_w_minus_refuses_them(tmp_path):
@@ -553,207 +491,136 @@ def test_sharded_a_creates_beside_other_files_and_w_minus_refuses_them(tmp_path)
     store = tmp_path / stores["zarr"]
     store.mkdir()
     (store / "README").write_text("not an array")
-    layout: dict[str, Any] = dict(
-        chunk_shape=(2, 16, 16), shard_shape=(2, 64, 32), dtype=np.uint8
-    )
     with pytest.raises(FileExistsError):
-        prepare_ds(store, (2, 64, 64), mode="w-", **layout)
+        _sharded(store, mode="w-")
     assert (store / "README").exists() and not (store / "zarr.json").exists()
 
-    prepare_ds(store, (2, 64, 64), mode="a", **layout)
+    _sharded(store, mode="a")
     assert (store / "README").exists(), "mode 'a' must not wipe the location"
-    assert open_ds(store).shard_shape == Coordinate(2, 64, 32)
+    assert open_ds(store).shard_shape == SHARD
 
-    # orphaned shards: an array whose zarr.json is gone must not come back as data under "w-"
-    array = open_ds(store, mode="r+")
-    array[:] = 7
-    (store / "zarr.json").unlink()
+    open_ds(store, mode="r+")[:] = 7
+    (
+        store / "zarr.json"
+    ).unlink()  # orphaned shards must not come back as data under "w-"
     with pytest.raises(FileExistsError):
-        prepare_ds(store, (2, 64, 64), mode="w-", **layout)
-    recreated = prepare_ds(store, (2, 64, 64), mode="w", **layout)
+        _sharded(store, mode="w-")
+    recreated = _sharded(store, mode="w")
     assert not np.any(recreated[recreated.roi]), "mode 'w' starts from nothing"
-
-
-def test_a_shard_needs_a_chunk_shape(tmp_path):
-    with pytest.raises(ValueError, match="needs a chunk_shape"):
-        prepare_ds(
-            tmp_path / stores["zarr"], (2, 64, 64), shard_shape=(2, 64, 32), mode="w"
-        )
 
 
 def test_shard_shape_follows_collapsed_dims_and_stays_under_a_roi(tmp_path):
     """A tuple with two or more ints collapses the right dimensions (it did not: the
     in-place walk re-counted after each collapse), a Roi keeps the shard, a boolean
-    mask (not writeable) drops it."""
+    mask (not writeable) drops it and chunk_shape falls back to the read chunking."""
     store = tmp_path / stores["zarr"]
-    prepare_ds(
-        store,
-        (2, 64, 64),
-        chunk_shape=(2, 16, 16),
-        shard_shape=(2, 64, 32),
-        voxel_size=(1, 1),
-        axis_names=["c^", "y", "x"],
-        dtype=np.uint8,
-        mode="w",
-    )
-    for key, shard, chunk in [
+    _sharded(store)
+    for key, shard, inner in [
         (np.s_[0, 3], (32,), (16,)),
         (np.s_[0, :, 3], (64,), (16,)),
         (np.s_[:, 3, 5], (2,), (2,)),
     ]:
         array = open_ds(store)
         array.lazy_op(key)
-        assert array.shard_shape == Coordinate(*shard), key
-        assert array.chunk_shape == Coordinate(*shard), key
-        assert array.inner_chunk_shape == Coordinate(*chunk), key
+        assert array.chunk_shape == array.shard_shape == Coordinate(*shard), key
+        assert array.inner_chunk_shape == Coordinate(*inner), key
         assert (
             array.shard_shape.dims == array.inner_chunk_shape.dims == len(array.shape)
         )
 
     array = open_ds(store)
     array.lazy_op(Roi((0, 0), (32, 32)))
-    assert array.shard_shape == Coordinate(2, 64, 32)
-    assert array.is_writeable
+    assert array.shard_shape == SHARD and array.is_writeable
 
     array = open_ds(store)
     array.lazy_op(np.array([True, False]))  # ty: ignore[invalid-argument-type]
     assert not array.is_writeable
     assert array.shard_shape is None
-    # no write unit: chunk_shape falls back to the read chunking, as documented
     assert array.chunk_shape == array.inner_chunk_shape == Coordinate(1, 16, 16)
 
+    array = open_ds(store)
+    array.lazy_op(lambda d: d.sum(axis=0))
+    assert array.shard_shape is None
 
-def test_copying_a_layout_uses_inner_chunk_shape(tmp_path):
-    """`chunk_shape` on a sharded Array is the shard; the idiom for copying a layout is
-    `inner_chunk_shape` + `shard_shape`, and the docstrings say so."""
-    src = tmp_path / stores["zarr"]
-    a = prepare_ds(
-        src,
-        (2, 64, 64),
-        chunk_shape=(2, 16, 16),
-        shard_shape=(2, 64, 32),
-        dtype=np.uint8,
-        mode="w",
-    )
+
+def test_copying_a_layout(tmp_path):
+    a = _sharded(tmp_path / stores["zarr"])
     b = prepare_ds(
         tmp_path / "copy.zarr",
         a.shape,
-        chunk_shape=a.inner_chunk_shape,
-        shard_shape=a.shard_shape,
+        chunk_shape=a.chunk_shape,
+        sharding=a.shard_shape is not None,
+        inner_chunk_shape=a.inner_chunk_shape,
         dtype=a.dtype,
         mode="w",
     )
-    assert (b.inner_chunk_shape, b.shard_shape) == (
-        Coordinate(2, 16, 16),
-        Coordinate(2, 64, 32),
-    )
+    assert (b.chunk_shape, b.inner_chunk_shape) == (SHARD, INNER)
 
 
 def test_sharded_w_minus_creates_on_an_empty_location_with_creation_kwargs(tmp_path):
-    """ "w-" on an empty location CREATES (the placeholder it uses for zarr's emptiness check
-    is replaced, not tripped over), and creation kwargs that only `zarr.create_array` takes
-    reach it."""
     from zarr.codecs import ZstdCodec
 
     store = tmp_path / stores["zarr"]
-    array = prepare_ds(
-        store,
-        (2, 64, 64),
-        chunk_shape=(2, 16, 16),
-        shard_shape=(2, 64, 32),
-        dtype=np.uint8,
-        mode="w-",
-        compressors=[ZstdCodec(level=3)],
-    )
-    assert array.shard_shape == Coordinate(2, 64, 32)
+    array = _sharded(store, mode="w-", compressors=[ZstdCodec(level=3)])
     array[:] = 4
     reopened = open_ds(store)
-    assert reopened.shard_shape == Coordinate(2, 64, 32)
+    assert reopened.shard_shape == SHARD
     np.testing.assert_array_equal(reopened[reopened.roi], 4)
-    inner = reopened._source_data.metadata.to_dict()["codecs"][0]["configuration"][
-        "codecs"
-    ]
-    assert any(c["name"] == "zstd" for c in inner), inner
+    inner_codecs = reopened._source_data.metadata.to_dict()["codecs"][0][
+        "configuration"
+    ]["codecs"]
+    assert any(c["name"] == "zstd" for c in inner_codecs), inner_codecs
 
 
 def test_sharded_w_minus_at_a_sub_location_and_a_rejected_kwarg_leaves_nothing(
     tmp_path,
 ):
     """`name=` (create_array's spelling) and `path=` (the legacy spelling) both place the
-    array; "w-" checks emptiness at THAT location; a kwarg create_array rejects is refused
-    before anything is written, so a corrected retry is not met by a stray placeholder."""
+    array, on the create, reuse and relabel paths; "w-" checks emptiness at THAT location; a
+    kwarg create_array rejects is refused before anything is written."""
     store = tmp_path / stores["zarr"]
-    layout: dict[str, Any] = dict(
-        chunk_shape=(2, 16, 16), shard_shape=(2, 64, 32), dtype=np.uint8
-    )
-
     with pytest.raises(TypeError):
-        prepare_ds(store, (2, 64, 64), mode="w-", bogus=1, **layout)
+        _sharded(store, mode="w-", bogus=1)
     assert not store.exists(), "a rejected kwarg must not leave a placeholder"
-    prepare_ds(store, (2, 64, 64), mode="w-", **layout)  # the retry goes through
+    _sharded(store, mode="w-")  # the retry goes through
 
-    # a sub-location: the emptiness check and the create both target it (an array cannot
-    # have children, so this is a second, group-rooted store)
     nested = tmp_path / "nested.zarr"
-    sub = prepare_ds(nested, (2, 64, 64), mode="w-", name="sub", **layout)
-    assert sub.shard_shape == Coordinate(2, 64, 32)
-    assert open_ds(nested / "sub").shard_shape == Coordinate(2, 64, 32)
+    sub = _sharded(nested, mode="w-", name="sub")
+    assert sub.shard_shape == SHARD
+    assert open_ds(nested / "sub").shard_shape == SHARD
     with pytest.raises(FileExistsError):
-        prepare_ds(nested, (2, 64, 64), mode="w-", path="sub", **layout)
-    other = prepare_ds(nested, (2, 64, 64), mode="w-", path="other", **layout)
-    assert other.shard_shape == Coordinate(2, 64, 32), (
-        "an empty sibling location is fine"
-    )
+        _sharded(nested, mode="w-", path="sub")
+    assert _sharded(nested, mode="w-", path="other").shard_shape == SHARD
     with pytest.raises(ValueError, match="different sub-locations"):
-        prepare_ds(nested, (2, 64, 64), mode="w", path="a", name="b", **layout)
-    # `name=` on a store whose root is already a group, and on the reuse / relabel paths
-    axes: dict[str, Any] = dict(voxel_size=(1, 1), axis_names=["c^", "y", "x"])
-    another = prepare_ds(
-        nested, (2, 64, 64), mode="w-", name="another", **axes, **layout
-    )
-    assert another.shard_shape == Coordinate(2, 64, 32)
-    reused = prepare_ds(nested, (2, 64, 64), mode="a", name="another", **axes, **layout)
-    assert reused.roi == another.roi
-    relabeled = prepare_ds(
-        nested,
-        (2, 64, 64),
-        mode="a",
-        name="another",
-        voxel_size=(4, 8),
-        axis_names=["c^", "y", "x"],
-        **layout,
-    )
-    assert relabeled.voxel_size == Coordinate(4, 8)
-    assert open_ds(nested / "another").shard_shape == Coordinate(2, 64, 32)
+        _sharded(nested, mode="w", path="a", name="b")
+    another = _sharded(nested, mode="w-", name="another")
+    assert _sharded(nested, mode="a", name="another").roi == another.roi
+    assert _sharded(
+        nested, mode="a", name="another", voxel_size=(4, 8)
+    ).voxel_size == Coordinate(4, 8)
 
 
 def test_sharded_w_minus_leaves_nothing_behind_a_create_zarr_refuses(tmp_path):
-    """A create zarr refuses on its VALUES (an indivisible chunk, a codec of the wrong kind) or
-    a kwarg prepare_ds owns is found before the location is touched; the corrected retry then
-    goes through under every creating mode, instead of meeting a leftover placeholder."""
+    """A create zarr refuses on its VALUES, or a kwarg prepare_ds owns, is found before the
+    location is touched; the corrected retry then goes through under every creating mode."""
     from zarr.codecs import ZstdCodec
 
     store = tmp_path / stores["zarr"]
-    good: dict[str, Any] = dict(
-        chunk_shape=(2, 16, 16), shard_shape=(2, 64, 32), dtype=np.uint8
-    )
     cases: list[dict[str, Any]] = [
-        dict(good, chunk_shape=(3, 16, 16)),  # does not divide the shard
-        dict(good, compressors=ZstdCodec),  # the class, not an instance
-        dict(good, chunks=(2, 16, 16)),  # prepare_ds's own parameter
-        dict(good, overwrite=True),
+        dict(inner_chunk_shape=(3, 16, 16)),  # does not divide the shard
+        dict(compressors=ZstdCodec),  # the class, not an instance
+        dict(chunks=(2, 16, 16)),  # prepare_ds's own parameter
+        dict(overwrite=True),
     ]
     for bad in cases:
         with pytest.raises((ValueError, TypeError)):
-            prepare_ds(store, (2, 64, 64), mode="w-", **bad)
+            _sharded(store, mode="w-", **bad)
         assert not store.exists(), f"{bad} left something at the location"
     for mode in ("w-", "w", "a"):
-        array = prepare_ds(store, (2, 64, 64), mode=mode, **good)
-        assert array.shard_shape == Coordinate(2, 64, 32), mode
+        assert _sharded(store, mode=mode).shard_shape == SHARD, mode
         if mode == "w-":
-            # the second "w-" meets the array it just made
             with pytest.raises(FileExistsError):
-                prepare_ds(store, (2, 64, 64), mode="w-", **good)
+                _sharded(store, mode="w-")
 
 
 def test_creation_kwargs_do_not_break_the_existence_probe(tmp_path):
@@ -761,44 +628,34 @@ def test_creation_kwargs_do_not_break_the_existence_probe(tmp_path):
     "no array here" and the create must proceed, in every creating mode."""
     from zarr.codecs import ZstdCodec
 
-    layout: dict[str, Any] = dict(
-        chunk_shape=(2, 16, 16), shard_shape=(2, 64, 32), dtype=np.uint8
-    )
     for mode in ("w-", "w", "a"):
         store = tmp_path / f"{mode.replace('-', 'minus')}.zarr"
         store.mkdir()
-        array = prepare_ds(
-            store, (2, 64, 64), mode=mode, compressors=[ZstdCodec()], **layout
-        )
-        assert array.shard_shape == Coordinate(2, 64, 32), mode
+        assert (
+            _sharded(store, mode=mode, compressors=[ZstdCodec()]).shard_shape == SHARD
+        ), mode
 
 
 @pytest.mark.parametrize("mode", ["w-", "w", "a"])
 def test_a_stray_placeholder_group_does_not_block_a_sharded_create(tmp_path, mode):
-    """The process died between the "w-" placeholder group and the create: an EMPTY group
-    with no attrs is at the location. That is never data, so every creating mode treats it
-    as nothing there; a group with content is still a real group and refused."""
+    """An EMPTY group with no attrs at the location (a "w-" placeholder whose process died
+    before the create) is never data and counts as nothing there; a group with content is
+    a real group and refused."""
     import zarr
 
     store = tmp_path / stores["zarr"]
-    layout: dict[str, Any] = dict(
-        chunk_shape=(2, 16, 16), shard_shape=(2, 64, 32), dtype=np.uint8
-    )
-    zarr.open_group(str(store), mode="w-", zarr_format=3)  # the stray placeholder
-    array = prepare_ds(store, (2, 64, 64), mode=mode, **layout)
-    assert array.shard_shape == Coordinate(2, 64, 32)
-    assert open_ds(store).shard_shape == Coordinate(2, 64, 32)
+    zarr.open_group(str(store), mode="w-", zarr_format=3)
+    assert _sharded(store, mode=mode).shard_shape == SHARD
+    assert open_ds(store).shard_shape == SHARD
 
     real = tmp_path / "real.zarr"
-    g = zarr.open_group(str(real), mode="w-", zarr_format=3)
-    g.attrs["kept"] = True
+    zarr.open_group(str(real), mode="w-", zarr_format=3).attrs["kept"] = True
     with pytest.raises(TypeError, match="got Group"):
-        prepare_ds(real, (2, 64, 64), mode=mode, **layout)
+        _sharded(real, mode=mode)
     assert zarr.open_group(str(real), mode="r").attrs["kept"] is True
 
 
 def test_unsharded_name_is_path(tmp_path):
-    """`name=` (zarr.create_array's spelling) places an UNSHARDED array too."""
     store = tmp_path / stores["zarr"]
     for mode in ("w-", "w", "a"):
         array = prepare_ds(store, (8, 8), chunk_shape=(4, 4), mode=mode, name="sub")
