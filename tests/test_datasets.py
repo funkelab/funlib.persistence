@@ -717,3 +717,35 @@ def test_creation_kwargs_do_not_break_the_existence_probe(tmp_path):
             store, (2, 64, 64), mode=mode, compressors=[ZstdCodec()], **layout
         )
         assert array.shard_shape == Coordinate(2, 64, 32), mode
+
+
+@pytest.mark.parametrize("mode", ["w-", "w", "a"])
+def test_a_stray_placeholder_group_does_not_block_a_sharded_create(tmp_path, mode):
+    """The process died between the "w-" placeholder group and the create: an EMPTY group
+    with no attrs is at the location. That is never data, so every creating mode treats it
+    as nothing there; a group with content is still a real group and refused."""
+    import zarr
+
+    store = tmp_path / stores["zarr"]
+    layout = dict(chunk_shape=(2, 16, 16), shard_shape=(2, 64, 32), dtype=np.uint8)
+    zarr.open_group(str(store), mode="w-", zarr_format=3)  # the stray placeholder
+    array = prepare_ds(store, (2, 64, 64), mode=mode, **layout)
+    assert array.shard_shape == Coordinate(2, 64, 32)
+    assert open_ds(store).shard_shape == Coordinate(2, 64, 32)
+
+    real = tmp_path / "real.zarr"
+    g = zarr.open_group(str(real), mode="w-", zarr_format=3)
+    g.attrs["kept"] = True
+    with pytest.raises(TypeError, match="got Group"):
+        prepare_ds(real, (2, 64, 64), mode=mode, **layout)
+    assert zarr.open_group(str(real), mode="r").attrs["kept"] is True
+
+
+def test_unsharded_name_is_path(tmp_path):
+    """`name=` (zarr.create_array's spelling) places an UNSHARDED array too."""
+    store = tmp_path / stores["zarr"]
+    for mode in ("w-", "w", "a"):
+        array = prepare_ds(store, (8, 8), chunk_shape=(4, 4), mode=mode, name="sub")
+        assert array.shape == (8, 8)
+        assert open_ds(store / "sub").chunk_shape == Coordinate(4, 4)
+        assert prepare_ds(store, (8, 8), mode="a", path="sub").shape == (8, 8)

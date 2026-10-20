@@ -14,6 +14,15 @@ from .metadata import MetaDataFormat, get_default_metadata_format
 
 logger = logging.getLogger(__name__)
 
+def _is_empty_group(store, location: dict) -> bool:
+    """Whether a zarr GROUP with no members and no attrs sits at the location."""
+    try:
+        group = zarr.open_group(store, mode="r", **location)
+    except Exception:
+        return False
+    return not dict(group.attrs) and next(iter(group.keys()), None) is None
+
+
 def _location_kwargs(kwargs: dict) -> dict:
     """The kwargs that say WHERE an array is, as `zarr.open` takes them."""
     return {k: kwargs[k] for k in ("path", "storage_options", "zarr_format") if k in kwargs}
@@ -259,12 +268,14 @@ def prepare_ds(
     # that spelling) and hand it to `create_array` as `name` where that is called
     if "name" in kwargs:
         name = kwargs.pop("name")
-        if kwargs.get("path", name) != name:
+        path = kwargs.get("path")
+        if path is not None and str(path) != str(name):
             raise ValueError(
-                f"path={kwargs['path']!r} and name={name!r} name different sub-locations"
+                f"path={path!r} and name={name!r} name different sub-locations"
             )
         kwargs["path"] = name
 
+    stray_group = False
     try:
         # only what LOCATES the array: creation kwargs (`compressors`, ...) are not
         # `zarr.open`'s, and on a location that exists without an array it would
@@ -272,6 +283,15 @@ def prepare_ds(
         existing_array = open_ds(store, mode="r", **_location_kwargs(kwargs))
     except FileNotFoundError:
         existing_array = None
+    except TypeError:
+        # A GROUP at the location. An empty one with no attrs is never data: it is
+        # the placeholder a sharded "w-" create writes (below) when the process
+        # died between it and the create. Treat it as nothing there, so the retry
+        # is not refused for ever; anything with members or attrs is a real group.
+        if not _is_empty_group(store, _location_kwargs(kwargs)):
+            raise
+        existing_array = None
+        stray_group = True
 
     if existing_array is not None:
         data_compatible = True
@@ -430,10 +450,7 @@ def prepare_ds(
         kwargs.setdefault("zarr_format", 3)
         create_kwargs = dict(kwargs)
         sub_path = create_kwargs.pop("path", None)
-        reserved = sorted(
-            set(create_kwargs)
-            & {"store", "name", "shape", "dtype", "chunks", "shards", "overwrite", "data"}
-        )
+        reserved = sorted(set(create_kwargs) & {"chunks", "shards", "overwrite", "data"})
         if reserved:
             raise TypeError(
                 f"prepare_ds sets {', '.join(reserved)} itself; pass shape, dtype, "
@@ -455,13 +472,14 @@ def prepare_ds(
             dtype=dtype,
             **{k: v for k, v in create_kwargs.items() if k != "storage_options"},
         )
-        if mode == "w-":
+        if mode == "w-" and not stray_group:
             # "w-" means "create only where there is nothing": not an array, and
             # not stray files either (orphaned shards would come back as data).
             # `zarr.create_array` only refuses an existing NODE, so the emptiness
             # check is zarr's own, through a placeholder GROUP opened under "w-"
             # at the same location (it raises FileExistsError on anything there)
-            # which the create below replaces.
+            # which the create below replaces. A stray placeholder from an earlier
+            # interrupted "w-" is the one thing already there that counts as nothing.
             zarr.open_group(
                 store=store,
                 mode="w-",
@@ -476,9 +494,10 @@ def prepare_ds(
             chunks=tuple(chunk_shape),
             shards=tuple(shard_shape),
             dtype=dtype,
-            # "w" and the placeholder just written under "w-" are replaced; "a"
-            # creates beside whatever else the location holds, as the legacy path
-            overwrite=mode in ("w", "w-"),
+            # "w", the placeholder just written under "w-" and a stray one are
+            # replaced; "a" otherwise creates beside whatever else the location
+            # holds, as the legacy path
+            overwrite=mode in ("w", "w-") or stray_group,
             **create_kwargs,
         )
 
