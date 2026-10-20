@@ -328,9 +328,11 @@ def test_sharded(tmp_path, store):
         dtype=np.uint8,
         mode="w",
     )
-    # the shard is the stored object; the chunk stays the inner chunk
+    # the shard is the stored object and the unit a writer must cover; the inner
+    # chunk is what a reader can fetch on its own
     assert array.shard_shape == shard_shape
-    assert array.chunk_shape == chunk_shape
+    assert array.chunk_shape == shard_shape, "chunk_shape is the parallel-safe WRITE unit"
+    assert array.inner_chunk_shape == chunk_shape
     codecs = array._source_data.metadata.to_dict()["codecs"]
     assert codecs[0]["name"] == "sharding_indexed"
     assert tuple(codecs[0]["configuration"]["chunk_shape"]) == tuple(chunk_shape)
@@ -347,7 +349,8 @@ def test_sharded(tmp_path, store):
     array[array.roi] = data
     reopened = open_ds(store)
     assert reopened.shard_shape == shard_shape
-    assert reopened.chunk_shape == chunk_shape
+    assert reopened.chunk_shape == shard_shape
+    assert reopened.inner_chunk_shape == chunk_shape
     np.testing.assert_array_equal(reopened[reopened.roi], data)
 
     # a matching shard_shape reuses the array instead of recreating it
@@ -406,7 +409,8 @@ def test_sharded(tmp_path, store):
     # a collapsed dimension drops out of the shard shape as it does the chunk shape
     recreated.lazy_op(np.s_[0, :, :])
     assert recreated.shard_shape == Coordinate(32, 32)
-    assert recreated.chunk_shape == Coordinate(16, 16)
+    assert recreated.chunk_shape == Coordinate(32, 32)
+    assert recreated.inner_chunk_shape == Coordinate(16, 16)
 
 
 @pytest.mark.parametrize("mode", ["a", "r+"])
@@ -438,7 +442,8 @@ def test_sharded_relabel_reopens_instead_of_recreating(tmp_path, mode):
     )
     assert relabeled.voxel_size == Coordinate(4, 8)
     assert relabeled.shard_shape == Coordinate(2, 64, 32)
-    assert relabeled.chunk_shape == Coordinate(2, 16, 16)
+    assert relabeled.chunk_shape == Coordinate(2, 64, 32)
+    assert relabeled.inner_chunk_shape == Coordinate(2, 16, 16)
     np.testing.assert_array_equal(relabeled[relabeled.roi], 9)
     assert open_ds(store).voxel_size == Coordinate(4, 8)
 
@@ -455,6 +460,7 @@ def test_sharded_refusals(tmp_path, store):
     # the created array reports the chunks as stored, like open_ds and the reuse
     # path do, not whatever dask would pick for an in-memory array
     assert plain.chunk_shape == Coordinate(4, 4)
+    assert plain.inner_chunk_shape == Coordinate(4, 4), "unsharded: the two agree"
     assert open_ds(store).chunk_shape == Coordinate(4, 4)
     assert prepare_ds(store, (8, 8), mode="a").chunk_shape == Coordinate(4, 4)
 
@@ -596,8 +602,9 @@ def test_shard_shape_follows_collapsed_dims_and_stays_under_a_roi(tmp_path):
         array = open_ds(store)
         array.lazy_op(key)
         assert array.shard_shape == Coordinate(*shard), key
-        assert array.chunk_shape == Coordinate(*chunk), key
-        assert array.shard_shape.dims == array.chunk_shape.dims == len(array.shape)
+        assert array.chunk_shape == Coordinate(*shard), key
+        assert array.inner_chunk_shape == Coordinate(*chunk), key
+        assert array.shard_shape.dims == array.inner_chunk_shape.dims == len(array.shape)
 
     array = open_ds(store)
     array.lazy_op(Roi((0, 0), (32, 32)))

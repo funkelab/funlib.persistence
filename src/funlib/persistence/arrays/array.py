@@ -134,13 +134,29 @@ class Array(Freezable):
 
     @property
     def chunk_shape(self) -> Coordinate:
-        """The chunk shape in voxels: the dask chunking of this array, which is
-        the stored chunk unless ``chunks=`` overrode it when the array was opened.
+        """The unit of this array that can be WRITTEN on its own, in voxels.
 
-        For a sharded zarr v3 array the stored chunk is the *inner* chunk, the
-        unit that can be read on its own, not the shard. See :attr:`shard_shape`
-        for the unit that is written on its own.
+        This is the contract blockwise writers rely on: a write covering whole
+        ``chunk_shape`` units never reads back and rewrites anything another
+        writer may be writing. For an unsharded array it is the dask chunking
+        (the stored chunk, unless ``chunks=`` overrode it when the array was
+        opened). For a sharded zarr v3 array it is the SHARD, the one stored
+        object, because writing part of a shard is a read-modify-write of the
+        whole object; see :attr:`inner_chunk_shape` for the smaller unit that
+        can be read on its own, and :attr:`shard_shape`, which this equals.
         """
+        shards = self.shard_shape
+        if shards is not None:
+            return shards
+        return Coordinate(self.data.chunksize)  # ty: ignore[unresolved-attribute]
+
+    @property
+    def inner_chunk_shape(self) -> Coordinate:
+        """The unit of this array that can be READ on its own, in voxels: the
+        dask chunking, which is the stored chunk (for a sharded zarr v3 array,
+        the chunk inside each shard). Equals :attr:`chunk_shape` for an
+        unsharded array. Reads need no alignment to it; writes must align to
+        :attr:`chunk_shape`."""
         return Coordinate(self.data.chunksize)  # ty: ignore[unresolved-attribute]
 
     @property
