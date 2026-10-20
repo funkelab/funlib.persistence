@@ -217,8 +217,10 @@ def prepare_ds(
 
             `chunk_shape` keeps meaning the inner chunk, which is also what
             `Array.chunk_shape` reports; `Array.shard_shape` reports the shard.
-            With a `shard_shape`, `kwargs` go to `zarr.create_array` rather than
-            `zarr.open_array`.
+            With a `shard_shape`, the array is created by `zarr.create_array` rather
+            than `zarr.open_array`, so creation-time `kwargs` must be ones it accepts
+            (`compressors`, `filters`, `serializer`, ...); opening and relabelling an
+            existing array still go through `zarr.open`.
 
         kwargs:
 
@@ -396,6 +398,10 @@ def prepare_ds(
                 f"No array at {store} to open in mode '{mode}', and a "
                 f"shard_shape can only be applied when creating one."
             )
+        if mode == "w-" and existing_array is not None:
+            # as the legacy path: an existing array is never recreated under "w-"
+            raise FileExistsError(f"An array already exists at {store} (mode 'w-').")
+        # a sharded array is a zarr v3 array whatever the configured default format
         kwargs.setdefault("zarr_format", 3)
         ds = zarr.create_array(
             store=store,

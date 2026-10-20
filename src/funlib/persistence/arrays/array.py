@@ -134,11 +134,12 @@ class Array(Freezable):
 
     @property
     def chunk_shape(self) -> Coordinate:
-        """The chunk shape in voxels.
+        """The chunk shape in voxels: the dask chunking of this array, which is
+        the stored chunk unless ``chunks=`` overrode it when the array was opened.
 
-        For a sharded zarr v3 array this is the *inner* chunk, the unit that
-        can be read on its own, not the shard. See :attr:`shard_shape` for the
-        unit that is written on its own.
+        For a sharded zarr v3 array the stored chunk is the *inner* chunk, the
+        unit that can be read on its own, not the shard. See :attr:`shard_shape`
+        for the unit that is written on its own.
         """
         return Coordinate(self.data.chunksize)  # ty: ignore[unresolved-attribute]
 
@@ -155,6 +156,13 @@ class Array(Freezable):
         """
         shards = getattr(self._source_data, "shards", None)
         if shards is None:
+            return None
+        if any(
+            not (self._is_slice(op) or isinstance(op, Roi)) for op in self.lazy_ops
+        ):
+            # a callable lazy op may change the shape in ways `_uncollapsed_dims`
+            # does not track; the view is not writeable either, so there is no
+            # shard to align a write to
             return None
         return Coordinate(
             s for s, uncollapsed in zip(shards, self._uncollapsed_dims) if uncollapsed

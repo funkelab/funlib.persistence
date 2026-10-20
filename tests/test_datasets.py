@@ -415,12 +415,22 @@ def test_sharded_relabel_reopens_instead_of_recreating(tmp_path, mode):
     store = tmp_path / stores["zarr"]
     layout = dict(chunk_shape=(2, 16, 16), shard_shape=(2, 64, 32), dtype=np.uint8)
     array = prepare_ds(
-        store, (2, 64, 64), voxel_size=(1, 1), axis_names=["c^", "y", "x"], mode="w", **layout
+        store,
+        (2, 64, 64),
+        voxel_size=(1, 1),
+        axis_names=["c^", "y", "x"],
+        mode="w",
+        **layout,
     )
     array[:] = 9
 
     relabeled = prepare_ds(
-        store, (2, 64, 64), voxel_size=(4, 8), axis_names=["c^", "y", "x"], mode=mode, **layout
+        store,
+        (2, 64, 64),
+        voxel_size=(4, 8),
+        axis_names=["c^", "y", "x"],
+        mode=mode,
+        **layout,
     )
     assert relabeled.voxel_size == Coordinate(4, 8)
     assert relabeled.shard_shape == Coordinate(2, 64, 32)
@@ -462,3 +472,48 @@ def test_sharded_refusals(tmp_path, store):
             mode="w",
             zarr_format=2,
         )
+
+
+def test_sharded_w_minus_refuses_an_existing_array_and_keeps_its_data(tmp_path):
+    """ "w-" never recreates: a sharded call on an existing array refuses, like the
+    unsharded path does, and the data is still there afterwards."""
+    store = tmp_path / stores["zarr"]
+    layout = dict(chunk_shape=(2, 16, 16), shard_shape=(2, 64, 32), dtype=np.uint8)
+    array = prepare_ds(
+        store,
+        (2, 64, 64),
+        voxel_size=(1, 1),
+        axis_names=["c^", "y", "x"],
+        mode="w",
+        **layout,
+    )
+    array[:] = 9
+    with pytest.raises(FileExistsError):
+        prepare_ds(
+            store,
+            (2, 64, 64),
+            voxel_size=(4, 8),
+            axis_names=["c^", "y", "x"],
+            mode="w-",
+            **layout,
+        )
+    reopened = open_ds(store)
+    np.testing.assert_array_equal(reopened[reopened.roi], 9)
+    assert reopened.voxel_size == Coordinate(1, 1)
+
+
+def test_shard_shape_is_none_after_a_callable_lazy_op(tmp_path):
+    store = tmp_path / stores["zarr"]
+    prepare_ds(
+        store,
+        (2, 64, 64),
+        chunk_shape=(2, 16, 16),
+        shard_shape=(2, 64, 32),
+        axis_names=["c^", "y", "x"],
+        dtype=np.uint8,
+        mode="w",
+    )
+    array = open_ds(store)
+    assert array.shard_shape == Coordinate(2, 64, 32)
+    array.lazy_op(lambda d: d.sum(axis=0))
+    assert array.shard_shape is None, "the shape changed in a way no shard describes"
