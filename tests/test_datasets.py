@@ -738,3 +738,28 @@ def test_unsharded_name_is_path(tmp_path):
         assert array.shape == (8, 8)
         assert open_ds(store / "sub").chunk_shape == Coordinate(4, 4)
         assert prepare_ds(store, (8, 8), mode="a", path="sub").shape == (8, 8)
+
+
+def test_the_empty_group_probe_says_no_to_everything_but_an_empty_attrless_group(tmp_path):
+    """``_is_empty_group`` is what lets a stray ``w-`` placeholder be overwritten, so anything it
+    cannot open as a group -- an array, a plain file, an empty directory, nothing at all -- must
+    read as NOT a stray placeholder, as must a group holding attrs or members."""
+    import zarr
+
+    from funlib.persistence.arrays.datasets import _is_empty_group
+
+    stray = tmp_path / "stray.zarr"
+    zarr.open_group(str(stray), mode="w-", zarr_format=3)
+    assert _is_empty_group(str(stray), {})
+
+    zarr.create_array(store=str(tmp_path / "arr.zarr"), shape=(4,), chunks=(4,), dtype="uint8",
+                      zarr_format=3)
+    (tmp_path / "file.zarr").write_text("junk")
+    (tmp_path / "emptydir.zarr").mkdir()
+    for name in ("arr.zarr", "file.zarr", "emptydir.zarr", "missing.zarr"):
+        assert not _is_empty_group(str(tmp_path / name), {}), name
+    zarr.open_group(str(tmp_path / "attrs.zarr"), mode="w-", zarr_format=3).attrs["kept"] = True
+    assert not _is_empty_group(str(tmp_path / "attrs.zarr"), {})
+    zarr.open_group(str(tmp_path / "member.zarr"), mode="w-", zarr_format=3).create_array(
+        "m", shape=(2,), dtype="uint8")
+    assert not _is_empty_group(str(tmp_path / "member.zarr"), {})
