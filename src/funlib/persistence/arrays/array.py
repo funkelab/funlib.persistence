@@ -110,11 +110,13 @@ class Array(Freezable):
         # only used if not reading from zarr and there is no built in `.attrs`
         self._attrs: dict[str, Any] = {}
 
+        # whether the view's chunks still sit on the stored chunk grid (see
+        # `_keeps_chunk_grid`); `chunk_shape` is reported only while they do
+        self._on_chunk_grid = True
+        self.lazy_ops: list[LazyOp] = []
         if lazy_op is not None:
             self.apply_lazy_ops(lazy_op)
-
-        lazy_ops = [] if lazy_op is None else [lazy_op]
-        self.lazy_ops = lazy_ops
+            self.lazy_ops = [lazy_op]
 
         self.freeze()
 
@@ -133,68 +135,60 @@ class Array(Freezable):
             return self._attrs
 
     @property
-    def chunk_shape(self) -> Coordinate:
-        """The unit of this array that can be WRITTEN on its own, in voxels.
-
-        This is the contract blockwise writers rely on: on a view aligned to the
-        stored grid, a write covering whole ``chunk_shape`` units never reads
-        back and rewrites anything another writer may be writing. For an
-        unsharded array it is the dask chunking (the stored chunk, unless
-        ``chunks=`` overrode it when the array was opened). For a sharded zarr
-        v3 array it is the SHARD, the one stored object, because writing part
-        of a shard is a read-modify-write of the whole object; it then equals
-        :attr:`shard_shape` and ignores a ``chunks=`` override. See
-        :attr:`inner_chunk_shape` for the smaller unit a reader can fetch on
-        its own.
-
-        A view that cannot be written (a callable lazy op, a boolean mask) has
-        no write unit and reports its read chunking, :attr:`inner_chunk_shape`,
-        like an unsharded array. A view that is offset from the stored grid (an
-        offset or stepped lazy slice) still reports the stored unit, in source
-        voxels, which its own blocks do not tile.
-        """
+    def chunk_shape(self) -> Optional[Coordinate]:
+        """The write-safe chunk shape: the shard shape if sharded, else the chunk
+        shape. ``None`` for a view that is not writeable or that lazy operations
+        moved off the stored chunk grid."""
+        if not self.is_writeable or not self._on_chunk_grid:
+            return None
         shards = self.shard_shape
-        if shards is not None:
-            return shards
-        return Coordinate(self.data.chunksize)  # ty: ignore[unresolved-attribute]
+        return shards if shards is not None else self._dask_chunk_shape()
 
     @property
-    def inner_chunk_shape(self) -> Coordinate:
-        """The unit of this array that can be READ on its own, in voxels: the
-        dask chunking, which is the stored chunk (for a sharded zarr v3 array,
-        the chunk inside each shard) unless ``chunks=`` overrode it when the
-        array was opened. Equals :attr:`chunk_shape` for an unsharded array.
-        Reads need no alignment to it; writes must align to
-        :attr:`chunk_shape`. To create another array with this one's layout,
-        pass ``chunk_shape=a.chunk_shape, sharding=a.shard_shape is not None,
-        inner_chunk_shape=a.inner_chunk_shape`` to ``prepare_ds``."""
-        return Coordinate(self.data.chunksize)  # ty: ignore[unresolved-attribute]
+    def inner_chunk_shape(self) -> Optional[Coordinate]:
+        """Chunk shape for efficient reads. Can be smaller than the write-safe
+        :attr:`chunk_shape` in the case of sharding. ``None`` for a view that
+        lazy operations moved off the stored chunk grid."""
+        return self._dask_chunk_shape() if self._on_chunk_grid else None
 
     @property
     def shard_shape(self) -> Optional[Coordinate]:
-        """The shard shape in SOURCE voxels, or ``None`` if the array is not
-        sharded or this view is not writeable.
-
-        Only a zarr v3 array created with the sharding codec has one. A shard
-        is a single object in the store (one file, one S3 key) holding
-        :attr:`inner_chunk_shape`-sized chunks, so it is the smallest region
-        that can be written without reading the rest of the shard back first.
-        Concurrent writers that each cover whole shards are safe; two writers
-        that touch the same shard race, and one of them loses its data. On a
-        sharded array :attr:`chunk_shape` is this value.
-
-        It describes the stored array, not this view: collapsed dimensions are
-        dropped, but a stepped or offset lazy slice leaves it in source voxels,
-        a grid the view's own blocks do not tile. A view that cannot be
-        written (a callable lazy op, a boolean mask) has no shard to align a
-        write to and reports ``None``.
+        """The shard shape in the case of sharded datasets. ``None`` for non
+        sharded or unwritable datasets. See
+        https://zarr.readthedocs.io/en/stable/user-guide/performance.html#sharding
         """
         shards = getattr(self._source_data, "shards", None)
-        if shards is None or not self.is_writeable:
+        if shards is None or not self.is_writeable or not self._on_chunk_grid:
             return None
         return Coordinate(
             s for s, uncollapsed in zip(shards, self._uncollapsed_dims) if uncollapsed
         )
+
+    def _dask_chunk_shape(self) -> Coordinate:
+        return Coordinate(self.data.chunksize)  # ty: ignore[unresolved-attribute]
+
+    def _keeps_chunk_grid(self, lazy_op) -> bool:
+        """Whether a lazy op leaves this view's chunks on the stored chunk grid:
+        dropping or truncating axes does, a start, a step, a selection list, a
+        mask or an arbitrary callable does not. A ``Roi`` does if it begins on
+        a chunk boundary."""
+        if isinstance(lazy_op, Roi):
+            unit = self.chunk_shape
+            if unit is None:
+                return False
+            physical = [c for c, t in zip(unit, self.types) if t in ["space", "time"]]
+            begin = (lazy_op.offset - self.offset) / self.voxel_size
+            return all(b % c == 0 for b, c in zip(begin, physical))
+        if not isinstance(lazy_op, tuple):
+            lazy_op = (lazy_op,)
+        for a in lazy_op:
+            if isinstance(a, int):
+                continue
+            if isinstance(a, slice):
+                if a.start in (None, 0) and a.step in (None, 1):
+                    continue
+            return False
+        return True
 
     def uncollapsed_dims(self, physical: bool = False) -> list[bool]:
         """
@@ -313,16 +307,18 @@ class Array(Freezable):
         )
 
     def apply_lazy_ops(self, lazy_op):
+        self._on_chunk_grid = self._on_chunk_grid and self._keeps_chunk_grid(lazy_op)
         if self._is_slice(lazy_op):
             if not isinstance(lazy_op, tuple):
                 lazy_op = (lazy_op,)
-            # Pair each entry with the dimension it indexes BEFORE collapsing any: the
-            # previous in-place walk re-counted uncollapsed dims after each collapse,
-            # so a tuple with two or more ints collapsed the wrong dimensions.
-            dims = [i for i, uc in enumerate(self._uncollapsed_dims) if uc]
-            for a, i in zip(lazy_op, dims):
+            for ii, a in enumerate(lazy_op):
                 if isinstance(a, int):
-                    self._uncollapsed_dims[i] = False
+                    for i, uc in enumerate(self._uncollapsed_dims):
+                        if uc:
+                            if ii == 0:
+                                self._uncollapsed_dims[i] = False
+                                break
+                            ii -= 1
             self.data = self.data[lazy_op]
         elif isinstance(lazy_op, Roi):
             assert all(self.uncollapsed_dims(physical=True)), (
@@ -497,18 +493,20 @@ class Array(Freezable):
         voxel_roi = (roi - self.offset) / self.voxel_size
 
         if check_chunk_align:
+            chunk_shape = self.chunk_shape
+            assert chunk_shape is not None, "this view has no chunk grid to align to"
             for d in range(roi.dims):
                 end_of_array = roi.get_end()[d] == self.roi.get_end()[d]
 
-                begin_align_with_chunks = voxel_roi.begin[d] % self.chunk_shape[d] == 0
-                shape_align_with_chunks = voxel_roi.shape[d] % self.chunk_shape[d] == 0
+                begin_align_with_chunks = voxel_roi.begin[d] % chunk_shape[d] == 0
+                shape_align_with_chunks = voxel_roi.shape[d] % chunk_shape[d] == 0
 
                 assert begin_align_with_chunks and (
                     shape_align_with_chunks or end_of_array
                 ), (
                     "ROI %s (in voxels: %s) does not align with chunks of "
                     "size %s (mismatch in dimension %d)"
-                    % (roi, voxel_roi, self.chunk_shape, d)
+                    % (roi, voxel_roi, chunk_shape, d)
                 )
 
         roi_slices = tuple(

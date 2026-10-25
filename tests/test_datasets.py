@@ -509,16 +509,20 @@ def test_sharded_a_creates_beside_other_files_and_w_minus_refuses_them(tmp_path)
     assert not np.any(recreated[recreated.roi]), "mode 'w' starts from nothing"
 
 
-def test_shard_shape_follows_collapsed_dims_and_stays_under_a_roi(tmp_path):
-    """A tuple with two or more ints collapses the right dimensions (it did not: the
-    in-place walk re-counted after each collapse), a Roi keeps the shard, a boolean
-    mask (not writeable) drops it and chunk_shape falls back to the read chunking."""
+def test_chunk_shapes_follow_collapsed_dims_and_are_none_off_the_stored_grid(tmp_path):
+    """Dropping or truncating an axis keeps the view on the stored chunk grid, so the
+    shapes follow with that axis gone. A view that cannot be written, or that a lazy
+    op moved off the grid (a start, a step, a selection list, a mask, a callable, a
+    Roi beginning inside a chunk), reports no chunk shape at all rather than a grid
+    its own blocks do not tile."""
     store = tmp_path / stores["zarr"]
     _sharded(store)
     for key, shard, inner in [
-        (np.s_[0, 3], (32,), (16,)),
-        (np.s_[0, :, 3], (64,), (16,)),
-        (np.s_[:, 3, 5], (2,), (2,)),
+        (np.s_[0], (64, 32), (16, 16)),
+        (np.s_[:, 3], (2, 32), (2, 16)),
+        (np.s_[:, :, 5], (2, 64), (2, 16)),
+        (np.s_[:, :48], (2, 64, 32), (2, 16, 16)),
+        (np.s_[1, 0:32], (64, 32), (16, 16)),
     ]:
         array = open_ds(store)
         array.lazy_op(key)
@@ -529,18 +533,38 @@ def test_shard_shape_follows_collapsed_dims_and_stays_under_a_roi(tmp_path):
         )
 
     array = open_ds(store)
-    array.lazy_op(Roi((0, 0), (32, 32)))
-    assert array.shard_shape == SHARD and array.is_writeable
+    array.lazy_op(Roi((0, 32), (32, 32)))  # begins on a shard boundary
+    assert array.chunk_shape == array.shard_shape == SHARD and array.is_writeable
 
-    array = open_ds(store)
-    array.lazy_op(np.array([True, False]))  # ty: ignore[invalid-argument-type]
-    assert not array.is_writeable
-    assert array.shard_shape is None
-    assert array.chunk_shape == array.inner_chunk_shape == Coordinate(1, 16, 16)
+    for key in [
+        np.s_[:, 8:],  # a start
+        np.s_[:, ::2],  # a step
+        np.s_[[0, 1]],  # a selection list
+        Roi((0, 8), (32, 32)),  # begins inside a shard
+    ]:
+        array = open_ds(store)
+        array.lazy_op(key)
+        assert array.is_writeable, key
+        assert array.chunk_shape is None, key
+        assert array.inner_chunk_shape is None, key
+        assert array.shard_shape is None, key
 
-    array = open_ds(store)
-    array.lazy_op(lambda d: d.sum(axis=0))
-    assert array.shard_shape is None
+    for key in [np.array([True, False]), lambda d: d.sum(axis=0)]:
+        array = open_ds(store)
+        array.lazy_op(key)  # ty: ignore[invalid-argument-type]
+        assert not array.is_writeable
+        assert array.chunk_shape is None
+        assert array.inner_chunk_shape is None
+        assert array.shard_shape is None
+
+    # a plain array reports the same way
+    plain = prepare_ds(
+        tmp_path / "plain.zarr", (8, 8), chunk_shape=Coordinate(4, 4), mode="w"
+    )
+    assert plain.chunk_shape == plain.inner_chunk_shape == Coordinate(4, 4)
+    assert plain.shard_shape is None
+    plain.lazy_op(np.s_[2:])
+    assert plain.chunk_shape is None and plain.inner_chunk_shape is None
 
 
 def _copy_layout(a, store):
@@ -740,7 +764,9 @@ def test_unsharded_name_is_path(tmp_path):
         assert prepare_ds(store, (8, 8), mode="a", path="sub").shape == (8, 8)
 
 
-def test_the_empty_group_probe_says_no_to_everything_but_an_empty_attrless_group(tmp_path):
+def test_the_empty_group_probe_says_no_to_everything_but_an_empty_attrless_group(
+    tmp_path,
+):
     """``_is_empty_group`` is what lets a stray ``w-`` placeholder be overwritten, so anything it
     cannot open as a group -- an array, a plain file, an empty directory, nothing at all -- must
     read as NOT a stray placeholder, as must a group holding attrs or members."""
@@ -752,14 +778,22 @@ def test_the_empty_group_probe_says_no_to_everything_but_an_empty_attrless_group
     zarr.open_group(str(stray), mode="w-", zarr_format=3)
     assert _is_empty_group(str(stray), {})
 
-    zarr.create_array(store=str(tmp_path / "arr.zarr"), shape=(4,), chunks=(4,), dtype="uint8",
-                      zarr_format=3)
+    zarr.create_array(
+        store=str(tmp_path / "arr.zarr"),
+        shape=(4,),
+        chunks=(4,),
+        dtype="uint8",
+        zarr_format=3,
+    )
     (tmp_path / "file.zarr").write_text("junk")
     (tmp_path / "emptydir.zarr").mkdir()
     for name in ("arr.zarr", "file.zarr", "emptydir.zarr", "missing.zarr"):
         assert not _is_empty_group(str(tmp_path / name), {}), name
-    zarr.open_group(str(tmp_path / "attrs.zarr"), mode="w-", zarr_format=3).attrs["kept"] = True
+    zarr.open_group(str(tmp_path / "attrs.zarr"), mode="w-", zarr_format=3).attrs[
+        "kept"
+    ] = True
     assert not _is_empty_group(str(tmp_path / "attrs.zarr"), {})
-    zarr.open_group(str(tmp_path / "member.zarr"), mode="w-", zarr_format=3).create_array(
-        "m", shape=(2,), dtype="uint8")
+    zarr.open_group(
+        str(tmp_path / "member.zarr"), mode="w-", zarr_format=3
+    ).create_array("m", shape=(2,), dtype="uint8")
     assert not _is_empty_group(str(tmp_path / "member.zarr"), {})
