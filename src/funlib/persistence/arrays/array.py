@@ -137,8 +137,9 @@ class Array(Freezable):
     @property
     def chunk_shape(self) -> Optional[Coordinate]:
         """The write-safe chunk shape: the shard shape if sharded, else the chunk
-        shape. ``None`` for a view that is not writeable or that lazy operations
-        moved off the stored chunk grid."""
+        shape (an ``open_ds(chunks=...)`` override is reported as given). ``None``
+        for a view that is not writeable or that lazy operations moved off the
+        stored chunk grid."""
         if not self.is_writeable or not self._on_chunk_grid:
             return None
         shards = self.shard_shape
@@ -154,7 +155,7 @@ class Array(Freezable):
     @property
     def shard_shape(self) -> Optional[Coordinate]:
         """The shard shape in the case of sharded datasets. ``None`` for non
-        sharded or unwritable datasets. See
+        sharded or unwritable datasets, or off the stored chunk grid. See
         https://zarr.readthedocs.io/en/stable/user-guide/performance.html#sharding
         """
         shards = getattr(self._source_data, "shards", None)
@@ -173,6 +174,11 @@ class Array(Freezable):
         mask or an arbitrary callable does not. A ``Roi`` does if it begins on
         a chunk boundary."""
         if isinstance(lazy_op, Roi):
+            if (
+                not all(self.uncollapsed_dims(physical=True))
+                or lazy_op.dims != self.spatial_dims
+            ):
+                return True  # apply_lazy_ops refuses the op, with its own message
             unit = self.chunk_shape
             if unit is None:
                 return False
@@ -307,7 +313,8 @@ class Array(Freezable):
         )
 
     def apply_lazy_ops(self, lazy_op):
-        self._on_chunk_grid = self._on_chunk_grid and self._keeps_chunk_grid(lazy_op)
+        # decided before the op moves the offset, recorded only once it applied
+        on_chunk_grid = self._on_chunk_grid and self._keeps_chunk_grid(lazy_op)
         if self._is_slice(lazy_op):
             if not isinstance(lazy_op, tuple):
                 lazy_op = (lazy_op,)
@@ -336,6 +343,7 @@ class Array(Freezable):
                 f"LazyOp {lazy_op} is not a supported lazy_op. "
                 f"Supported lazy_ops are: {LazyOp}"
             )
+        self._on_chunk_grid = on_chunk_grid
 
     def lazy_op(self, lazy_op: LazyOp):
         """Apply an lazy operation to this array.

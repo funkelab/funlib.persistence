@@ -434,6 +434,8 @@ def prepare_ds(
 
             The efficient-read chunk shape. Can be less than the write-safe chunk shape in
             the case of sharding; defaults to `DEFAULT_INNER_CHUNK` (64) per axis there.
+            Unsharded it can only restate `chunk_shape`. Given against an existing dataset
+            it must match that dataset's chunks.
 
         kwargs:
 
