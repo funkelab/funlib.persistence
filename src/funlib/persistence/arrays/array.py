@@ -311,14 +311,13 @@ class Array(Freezable):
         if self._is_slice(lazy_op):
             if not isinstance(lazy_op, tuple):
                 lazy_op = (lazy_op,)
-            for ii, a in enumerate(lazy_op):
+            # Pair each entry with the dimension it indexes BEFORE collapsing any: the
+            # previous in-place walk re-counted uncollapsed dims after each collapse,
+            # so a tuple with two or more ints collapsed the wrong dimensions.
+            dims = [i for i, uc in enumerate(self._uncollapsed_dims) if uc]
+            for a, i in zip(lazy_op, dims):
                 if isinstance(a, int):
-                    for i, uc in enumerate(self._uncollapsed_dims):
-                        if uc:
-                            if ii == 0:
-                                self._uncollapsed_dims[i] = False
-                                break
-                            ii -= 1
+                    self._uncollapsed_dims[i] = False
             self.data = self.data[lazy_op]
         elif isinstance(lazy_op, Roi):
             assert all(self.uncollapsed_dims(physical=True)), (
