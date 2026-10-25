@@ -464,3 +464,18 @@ def test_to_pixel_world_space_roi():
     pixel_loc = Roi((0, 0, 0), (10, 10, 10))
     assert arr.to_pixel_space(world_loc) == pixel_loc
     assert arr.to_world_space(pixel_loc) == world_loc
+
+
+def test_lazy_op_with_several_ints_collapses_the_dimensions_they_index():
+    """`np.s_[0, 1]` indexes dimensions 0 and 1. The in-place walk re-counted the
+    uncollapsed dimensions after each collapse, so the second int landed on dimension 2."""
+    for key, uncollapsed, names in [
+        (np.s_[0, 1], [False, False, True], ["c"]),
+        (np.s_[:, 1, 2], [True, False, False], ["a"]),
+        (np.s_[0, :, 2], [False, True, False], ["b"]),
+    ]:
+        array = Array(np.zeros((2, 3, 4)), axis_names=["a", "b", "c"])
+        array.lazy_op(key)
+        assert array.uncollapsed_dims() == uncollapsed, key
+        assert array.axis_names == names, key
+        assert array.shape == np.zeros((2, 3, 4))[key].shape, key
