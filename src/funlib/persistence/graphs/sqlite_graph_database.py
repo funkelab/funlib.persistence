@@ -155,6 +155,13 @@ class SQLiteGraphDataBase(SQLGraphDataBase):
             + f", PRIMARY KEY ({self.endpoint_names[0]}, {self.endpoint_names[1]})"
             + ")"
         )
+        # the primary key only serves lookups on the first endpoint; reads
+        # with fetch_on_v=True also match on the second one
+        self.cur.execute(
+            f"CREATE INDEX IF NOT EXISTS "
+            f"{self.edges_table_name}_{self.endpoint_names[1]}_index ON "
+            f"{self.edges_table_name}({self.endpoint_names[1]})"
+        )
 
     def _store_metadata(self, metadata):
         with open(self.meta_collection, "w") as f:

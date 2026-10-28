@@ -689,6 +689,50 @@ def test_read_edges_fetch_on_v(provider_factory, write_method):
         assert graph_edges_u_and_v == {(0, 5), (1, 5), (2, 8), (5, 8)}
 
 
+def _single_column_indices(provider, table):
+    """Return the set of columns that have a single-column index on ``table``."""
+    from funlib.persistence.graphs import SQLiteGraphDataBase
+
+    cur = provider.cur
+    columns = set()
+    if isinstance(provider, SQLiteGraphDataBase):
+        cur.execute(f"PRAGMA index_list({table})")
+        for index in [row[1] for row in cur.fetchall()]:
+            cur.execute(f"PRAGMA index_info({index})")
+            info = cur.fetchall()
+            if len(info) == 1:
+                columns.add(info[0][2])
+    else:
+        cur.execute(
+            "SELECT a.attname FROM pg_index i "
+            "JOIN pg_attribute a ON a.attrelid = i.indrelid "
+            "AND a.attnum = i.indkey[0] "
+            "WHERE i.indrelid = %s::regclass AND i.indnatts = 1",
+            (table,),
+        )
+        columns = {row[0] for row in cur.fetchall()}
+    return columns
+
+
+def test_edges_indexed_on_both_endpoints(provider_factory):
+    """read_edges(fetch_on_v=True) matches on v as well as u, so v needs an
+    index of its own: the (u, v) primary key only serves lookups on u."""
+    graph = nx.Graph()
+    graph.add_node(1, position=(1.0, 1.0, 1.0))
+    graph.add_node(2, position=(2.0, 2.0, 2.0))
+    graph.add_edge(1, 2)
+
+    with provider_factory(
+        "w", node_attrs={"position": Vec(float, 3)}
+    ) as graph_provider:
+        assert "v" in _single_column_indices(graph_provider, "edges")
+
+        # bulk_write_mode may drop indices while writing; they must come back
+        with graph_provider.bulk_write_mode():
+            graph_provider.bulk_write_graph(graph)
+        assert "v" in _single_column_indices(graph_provider, "edges")
+
+
 def test_graph_roi_upper_bound_exclusive(provider_factory):
     """Nodes at exactly the upper bound of the ROI must be excluded.
 
