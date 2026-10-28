@@ -902,3 +902,94 @@ def test_a_different_dtype_or_a_list_shape_against_a_sharded_array(tmp_path):
     # a list or array shape describes the same array as the tuple does
     assert _sharded(store, mode="a", shape=[2, 64, 64]).shard_shape == SHARD
     assert _sharded(store, mode="a", shape=np.array([2, 64, 64])).shard_shape == SHARD
+
+
+def test_incompatible_dataset_error_names_the_store_and_each_difference(tmp_path):
+    """The PermissionError for an incompatible existing dataset keeps its historical
+    prefix and lists every differing field as `what: (given) ... vs (parsed) ...`."""
+    store = tmp_path / stores["zarr"]
+    prepare_ds(
+        store,
+        (10, 10),
+        voxel_size=Coordinate(1, 1),
+        chunk_shape=Coordinate(5, 5),
+        dtype="uint8",
+    )
+
+    with pytest.raises(PermissionError) as excinfo:
+        prepare_ds(
+            store,
+            (10, 12),
+            voxel_size=Coordinate(1, 1),
+            chunk_shape=Coordinate(5, 5),
+            dtype="uint8",
+        )
+    message = str(excinfo.value)
+    assert message.startswith("Existing dataset is not compatible, but mode is not 'w'")
+    assert str(store) in message
+    assert "Shapes: (given) (10, 12) vs (parsed) (10, 10)" in message
+    assert "dtypes" not in message
+
+    # several differences give one line each; metadata differences are listed too
+    with pytest.raises(PermissionError) as excinfo:
+        prepare_ds(
+            store,
+            (10, 12),
+            voxel_size=Coordinate(2, 2),
+            chunk_shape=Coordinate(5, 5),
+            dtype="float32",
+        )
+    lines = str(excinfo.value).splitlines()
+    assert lines[0].startswith("Existing dataset is not compatible")
+    assert lines[1].startswith("Shapes: (given) (10, 12) vs (parsed) (10, 10)")
+    assert lines[2].startswith("dtypes: (given) float32 vs (parsed) uint8")
+    assert lines[3].startswith("voxel_size: (given) (2, 2) vs (parsed) (1, 1)")
+
+    # metadata only, under "r": the metadata prefix with the differing field
+    with pytest.raises(PermissionError) as excinfo:
+        prepare_ds(
+            store,
+            (10, 10),
+            voxel_size=Coordinate(2, 2),
+            chunk_shape=Coordinate(5, 5),
+            dtype="uint8",
+            mode="r",
+        )
+    message = str(excinfo.value)
+    assert message.startswith("Existing metadata is not compatible, but mode is 'r'")
+    assert str(store) in message
+    assert "voxel_size: (given) (2, 2) vs (parsed) (1, 1)" in message
+
+
+def test_scheduler_is_passed_through_open_ds_and_prepare_ds(tmp_path):
+    store = tmp_path / stores["zarr"]
+    created = prepare_ds(
+        store,
+        (10, 10),
+        voxel_size=Coordinate(1, 1),
+        chunk_shape=Coordinate(5, 5),
+        dtype="uint8",
+    )
+    assert created.scheduler is None
+    created[created.roi] = 3
+
+    for scheduler in (None, "single-threaded", "threads"):
+        opened = open_ds(store, scheduler=scheduler)
+        assert opened.scheduler == scheduler
+        assert opened[opened.roi].max() == 3
+        # an existing compatible dataset is reopened with the requested scheduler
+        reopened = prepare_ds(
+            store,
+            (10, 10),
+            voxel_size=Coordinate(1, 1),
+            chunk_shape=Coordinate(5, 5),
+            dtype="uint8",
+            scheduler=scheduler,
+        )
+        assert reopened.scheduler == scheduler
+    assert (
+        prepare_ds(
+            tmp_path / "new.zarr", (4, 4), dtype="uint8", scheduler="single-threaded"
+        ).scheduler
+        == "single-threaded"
+    )

@@ -63,6 +63,7 @@ def open_ds(
     types: Optional[Sequence[str]] = None,
     chunks: Optional[Union[int, Sequence[int], str]] = "strict",
     strict_metadata: bool = False,
+    scheduler: Optional[str] = None,
     **kwargs,
 ) -> Array:
     """
@@ -120,6 +121,11 @@ def open_ds(
             If True, all metadata fields (offset, voxel_size, axis_names, units, types)
             must be provided either as arguments or read from dataset attributes.
 
+        scheduler (`str`, (optional)):
+
+            The dask scheduler the returned `Array` computes reads with. `None`
+            (the default) leaves the choice to dask. See `Array`.
+
         kwargs:
 
             See additional arguments available here:
@@ -160,6 +166,7 @@ def open_ds(
         metadata.units,
         metadata.types,
         data.chunks if chunks == "strict" else chunks,
+        scheduler=scheduler,
     )
 
 
@@ -369,6 +376,7 @@ def prepare_ds(
     custom_metadata: dict[str, Any] | None = None,
     sharding: bool = False,
     inner_chunk_shape: Optional[Coordinate] = None,
+    scheduler: Optional[str] = None,
     **kwargs,
 ) -> Array:
     """Prepare a Zarr or N5 dataset.
@@ -449,6 +457,11 @@ def prepare_ds(
             Unsharded it can only restate `chunk_shape`. Given against an existing dataset
             it must match that dataset's chunks.
 
+        scheduler (`str`, (optional)):
+
+            The dask scheduler the returned `Array` computes reads with. `None`
+            (the default) leaves the choice to dask. See `Array`.
+
         kwargs:
 
             See additional arguments available here:
@@ -488,15 +501,16 @@ def prepare_ds(
         if data_mismatches:
             if mode != "w":
                 raise PermissionError(
-                    f"Existing dataset ({store}) is not compatible, but mode is not 'w'.\n"
+                    f"Existing dataset is not compatible, but mode is not 'w' "
+                    f"(store: {store}).\n"
                     + _describe_mismatches(data_mismatches + metadata_mismatches)
                 )
             logger.info("Existing dataset is not compatible, creating a new one")
         elif metadata_mismatches:
             if mode == "r":
                 raise PermissionError(
-                    f"Existing metadata ({store}) is not compatible, but mode is 'r' "
-                    "and the metadata can't be updated.\n"
+                    "Existing metadata is not compatible, but mode is 'r' and the "
+                    f"metadata can't be updated (store: {store}).\n"
                     + _describe_mismatches(metadata_mismatches)
                 )
             # the structure matches: reopened and relabelled below
@@ -518,6 +532,7 @@ def prepare_ds(
                 existing_metadata.units,
                 existing_metadata.types,
                 ds.chunks,
+                scheduler=scheduler,
             )
 
     combined_metadata = metadata_format.parse(
@@ -556,4 +571,6 @@ def prepare_ds(
     _write_metadata(ds, combined_metadata, custom_metadata)
 
     # chunked as stored, so `chunk_shape` reports what it does from `open_ds`
-    return Array(ds, offset, voxel_size, axis_names, units, types, ds.chunks)
+    return Array(
+        ds, offset, voxel_size, axis_names, units, types, ds.chunks, scheduler=scheduler
+    )
