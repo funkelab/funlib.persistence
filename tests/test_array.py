@@ -479,3 +479,42 @@ def test_lazy_op_with_several_ints_collapses_the_dimensions_they_index():
         assert array.uncollapsed_dims() == uncollapsed, key
         assert array.axis_names == names, key
         assert array.shape == np.zeros((2, 3, 4))[key].shape, key
+
+
+def _thread_recording_dask_array(seen: set, shape=(4, 4), chunks=(1, 4)):
+    """A dask array of zeros whose every chunk records the thread computing it."""
+    import threading
+
+    def chunk(block):
+        seen.add(threading.get_ident())
+        return block
+
+    return da.zeros(shape, chunks=chunks, dtype=np.float32).map_blocks(
+        chunk, dtype=np.float32
+    )
+
+
+def test_scheduler_default_is_dasks():
+    """Not passing `scheduler` leaves the choice to dask, as before 0.8."""
+    a = Array(np.zeros((2, 2)), (0, 0), (1, 1))
+    assert a.scheduler is None
+
+
+@pytest.mark.parametrize("scheduler", [None, "single-threaded", "threads"])
+def test_scheduler_is_honoured_on_reads(scheduler):
+    import threading
+
+    seen: set = set()
+    data = _thread_recording_dask_array(seen, shape=(16, 4), chunks=(1, 4))
+    a = Array(data, (0, 0), (1, 1), scheduler=scheduler)
+    assert a.scheduler == scheduler
+
+    # the three read paths: roi, coordinate, plain index
+    assert a[Roi((0, 0), (16, 4))].shape == (16, 4)
+    assert a[Coordinate((3, 1))] == 0
+    assert a[0, 0] == 0
+    assert a.to_ndarray(Roi((0, 0), (16, 4))).shape == (16, 4)
+
+    if scheduler == "single-threaded":
+        assert seen == {threading.get_ident()}
+    # with None or "threads" dask may use any threads; only the result is asserted

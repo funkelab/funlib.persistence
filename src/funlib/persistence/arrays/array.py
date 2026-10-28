@@ -74,6 +74,18 @@ class Array(Freezable):
             offset, voxel_size, axis_names, units, and types. Metadata
             can either be passed in or read from array attributes.
 
+        scheduler (``Optional[str]``):
+
+            The dask scheduler used to compute reads (`__getitem__` and
+            `to_ndarray`); writes do not go through dask. `None` (the default)
+            leaves the choice to dask, which uses its threaded scheduler for
+            arrays. Pass `"single-threaded"` when the caller already
+            parallelises array access (one process or thread per block, as
+            daisy does), where dask's own thread pool only adds contention
+            and can deadlock. See
+            https://docs.dask.org/en/stable/scheduler-overview.html for the
+            available schedulers.
+
     """
 
     data: da.Array
@@ -89,7 +101,9 @@ class Array(Freezable):
         chunks: Optional[Union[int, Sequence[int], str]] = "auto",
         lazy_op: Optional[LazyOp] = None,
         strict_metadata: bool = False,
+        scheduler: Optional[str] = None,
     ):
+        self.scheduler = scheduler
         if not isinstance(data, da.Array):
             self.data = da.from_array(data, chunks=chunks)
         else:
@@ -391,7 +405,9 @@ class Array(Freezable):
                     % (roi, self.roi)
                 )
 
-            return self.data[self.__slices(roi, use_lazy_slices=False)].compute()
+            return self.data[self.__slices(roi, use_lazy_slices=False)].compute(
+                scheduler=self.scheduler
+            )
 
         elif isinstance(key, Coordinate):
             coordinate = key
@@ -400,10 +416,10 @@ class Array(Freezable):
                 raise IndexError("Requested coordinate is not contained in this array.")
 
             index = self.__index(coordinate)
-            return self.data[index].compute()
+            return self.data[index].compute(scheduler=self.scheduler)
 
         else:
-            return self.data[key].compute()
+            return self.data[key].compute(scheduler=self.scheduler)
 
     def __setitem__(self, key: Roi | slice | tuple, value: np.ndarray | float | int):
         """Set the data of this array.
@@ -483,7 +499,7 @@ class Array(Freezable):
         if fill_value != 0:
             data[:] = fill_value
 
-        array = Array(data, roi.offset, self.voxel_size)
+        array = Array(data, roi.offset, self.voxel_size, scheduler=self.scheduler)
 
         shared_roi = self.roi.intersect(roi)
 
