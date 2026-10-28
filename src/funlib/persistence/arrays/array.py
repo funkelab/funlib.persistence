@@ -110,11 +110,13 @@ class Array(Freezable):
         # only used if not reading from zarr and there is no built in `.attrs`
         self._attrs: dict[str, Any] = {}
 
+        # whether the view's chunks still sit on the stored chunk grid (see
+        # `_keeps_chunk_grid`); `chunk_shape` is reported only while they do
+        self._on_chunk_grid = True
+        self.lazy_ops: list[LazyOp] = []
         if lazy_op is not None:
             self.apply_lazy_ops(lazy_op)
-
-        lazy_ops = [] if lazy_op is None else [lazy_op]
-        self.lazy_ops = lazy_ops
+            self.lazy_ops = [lazy_op]
 
         self.freeze()
 
@@ -133,8 +135,66 @@ class Array(Freezable):
             return self._attrs
 
     @property
-    def chunk_shape(self) -> Coordinate:
+    def chunk_shape(self) -> Optional[Coordinate]:
+        """The write-safe chunk shape: the shard shape if sharded, else the chunk
+        shape (an ``open_ds(chunks=...)`` override is reported as given). ``None``
+        for a view that is not writeable or that lazy operations moved off the
+        stored chunk grid."""
+        if not self.is_writeable or not self._on_chunk_grid:
+            return None
+        shards = self.shard_shape
+        return shards if shards is not None else self._dask_chunk_shape()
+
+    @property
+    def inner_chunk_shape(self) -> Optional[Coordinate]:
+        """Chunk shape for efficient reads. Can be smaller than the write-safe
+        :attr:`chunk_shape` in the case of sharding. ``None`` for a view that
+        lazy operations moved off the stored chunk grid."""
+        return self._dask_chunk_shape() if self._on_chunk_grid else None
+
+    @property
+    def shard_shape(self) -> Optional[Coordinate]:
+        """The shard shape in the case of sharded datasets. ``None`` for non
+        sharded or unwritable datasets, or off the stored chunk grid. See
+        https://zarr.readthedocs.io/en/stable/user-guide/performance.html#sharding
+        """
+        shards = getattr(self._source_data, "shards", None)
+        if shards is None or not self.is_writeable or not self._on_chunk_grid:
+            return None
+        return Coordinate(
+            s for s, uncollapsed in zip(shards, self._uncollapsed_dims) if uncollapsed
+        )
+
+    def _dask_chunk_shape(self) -> Coordinate:
         return Coordinate(self.data.chunksize)  # ty: ignore[unresolved-attribute]
+
+    def _keeps_chunk_grid(self, lazy_op) -> bool:
+        """Whether a lazy op leaves this view's chunks on the stored chunk grid:
+        dropping or truncating axes does, a start, a step, a selection list, a
+        mask or an arbitrary callable does not. A ``Roi`` does if it begins on
+        a chunk boundary."""
+        if isinstance(lazy_op, Roi):
+            if (
+                not all(self.uncollapsed_dims(physical=True))
+                or lazy_op.dims != self.spatial_dims
+            ):
+                return True  # apply_lazy_ops refuses the op, with its own message
+            unit = self.chunk_shape
+            if unit is None:
+                return False
+            physical = [c for c, t in zip(unit, self.types) if t in ["space", "time"]]
+            begin = (lazy_op.offset - self.offset) / self.voxel_size
+            return all(b % c == 0 for b, c in zip(begin, physical))
+        if not isinstance(lazy_op, tuple):
+            lazy_op = (lazy_op,)
+        for a in lazy_op:
+            if isinstance(a, int):
+                continue
+            if isinstance(a, slice):
+                if a.start in (None, 0) and a.step in (None, 1):
+                    continue
+            return False
+        return True
 
     def uncollapsed_dims(self, physical: bool = False) -> list[bool]:
         """
@@ -253,6 +313,8 @@ class Array(Freezable):
         )
 
     def apply_lazy_ops(self, lazy_op):
+        # decided before the op moves the offset, recorded only once it applied
+        on_chunk_grid = self._on_chunk_grid and self._keeps_chunk_grid(lazy_op)
         if self._is_slice(lazy_op):
             if not isinstance(lazy_op, tuple):
                 lazy_op = (lazy_op,)
@@ -281,6 +343,7 @@ class Array(Freezable):
                 f"LazyOp {lazy_op} is not a supported lazy_op. "
                 f"Supported lazy_ops are: {LazyOp}"
             )
+        self._on_chunk_grid = on_chunk_grid
 
     def lazy_op(self, lazy_op: LazyOp):
         """Apply an lazy operation to this array.
@@ -437,18 +500,20 @@ class Array(Freezable):
         voxel_roi = (roi - self.offset) / self.voxel_size
 
         if check_chunk_align:
+            chunk_shape = self.chunk_shape
+            assert chunk_shape is not None, "this view has no chunk grid to align to"
             for d in range(roi.dims):
                 end_of_array = roi.get_end()[d] == self.roi.get_end()[d]
 
-                begin_align_with_chunks = voxel_roi.begin[d] % self.chunk_shape[d] == 0
-                shape_align_with_chunks = voxel_roi.shape[d] % self.chunk_shape[d] == 0
+                begin_align_with_chunks = voxel_roi.begin[d] % chunk_shape[d] == 0
+                shape_align_with_chunks = voxel_roi.shape[d] % chunk_shape[d] == 0
 
                 assert begin_align_with_chunks and (
                     shape_align_with_chunks or end_of_array
                 ), (
                     "ROI %s (in voxels: %s) does not align with chunks of "
                     "size %s (mismatch in dimension %d)"
-                    % (roi, voxel_roi, self.chunk_shape, d)
+                    % (roi, voxel_roi, chunk_shape, d)
                 )
 
         roi_slices = tuple(
