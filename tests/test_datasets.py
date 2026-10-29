@@ -390,8 +390,8 @@ def test_unsharded_is_reused_by_a_sharding_caller_with_the_same_write_unit(tmp_p
 
 
 def test_inner_chunk_defaults(tmp_path):
-    """64 per axis, the whole axis where the shard is smaller, and a loud ask where 64
-    does not divide a larger axis."""
+    """The largest divisor of each shard axis that is at most 64; the whole axis where the
+    shard is smaller, or where no divisor comes near 64."""
     a = prepare_ds(
         tmp_path / "a.zarr",
         (2, 256, 256),
@@ -411,15 +411,21 @@ def test_inner_chunk_defaults(tmp_path):
         mode="w",
     )
     assert b.inner_chunk_shape == Coordinate(2, 32, 32)
-    with pytest.raises(ValueError, match="pass inner_chunk_shape explicitly"):
-        prepare_ds(
+    for shard, inner in [
+        ((3, 100, 96, 200), (3, 50, 48, 50)),
+        ((1, 128, 1000, 4096), (1, 64, 50, 64)),
+        ((2, 127, 134, 70), (2, 127, 134, 35)),
+    ]:
+        c = prepare_ds(
             tmp_path / "c.zarr",
-            (2, 100, 100),
-            chunk_shape=Coordinate(2, 100, 100),
+            shard,
+            chunk_shape=Coordinate(shard),
             sharding=True,
             dtype=np.uint8,
             mode="w",
         )
+        assert c.inner_chunk_shape == Coordinate(inner)
+        assert c.chunk_shape == Coordinate(shard)
 
 
 def test_sharding_option_refusals(tmp_path):

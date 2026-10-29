@@ -15,24 +15,19 @@ from .metadata import MetaDataFormat, get_default_metadata_format
 logger = logging.getLogger(__name__)
 
 DEFAULT_INNER_CHUNK = 64
-"""The chunk inside each shard when `prepare_ds(sharding=True)` is given none, per axis
-(the whole axis where the shard is smaller)."""
+"""The target chunk inside each shard when `prepare_ds(sharding=True)` is given none, per
+axis: the largest divisor of the shard's extent that is at most this (the whole axis where
+the shard is smaller)."""
 
 
 def _default_inner_chunk(chunk_shape: Sequence[int]) -> tuple[int, ...]:
     inner = []
     for c in chunk_shape:
         c = int(c)
-        if c <= DEFAULT_INNER_CHUNK:
-            inner.append(c)
-        elif c % DEFAULT_INNER_CHUNK == 0:
-            inner.append(DEFAULT_INNER_CHUNK)
-        else:
-            raise ValueError(
-                f"chunk_shape {tuple(int(x) for x in chunk_shape)}: axis extent {c} is "
-                f"larger than the default inner chunk {DEFAULT_INNER_CHUNK} and not a "
-                "multiple of it; pass inner_chunk_shape explicitly"
-            )
+        i = max(d for d in range(1, min(c, DEFAULT_INNER_CHUNK) + 1) if c % d == 0)
+        # an extent with no divisor near the target (a prime, twice a prime) keeps the
+        # whole axis as one inner chunk rather than splitting into slivers
+        inner.append(i if i >= DEFAULT_INNER_CHUNK // 4 else c)
     return tuple(inner)
 
 
@@ -453,7 +448,9 @@ def prepare_ds(
         inner_chunk_shape:
 
             The efficient-read chunk shape. Can be less than the write-safe chunk shape in
-            the case of sharding; defaults to `DEFAULT_INNER_CHUNK` (64) per axis there.
+            the case of sharding; defaults per axis to the largest divisor of `chunk_shape`
+            that is at most `DEFAULT_INNER_CHUNK` (64), or the whole axis if that divisor
+            is below 16.
             Unsharded it can only restate `chunk_shape`. Given against an existing dataset
             it must match that dataset's chunks.
 
