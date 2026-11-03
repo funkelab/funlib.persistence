@@ -49,10 +49,6 @@ dev = [
     "types-toml",
 ]
 
-[tool.ruff]
-# pyflakes, pycodestyle, isort
-lint.select = ["F", "W", "I001"]
-
 [tool.setuptools.package-data]
 "funlib.persistence" = ["py.typed"]
 
@@ -61,3 +57,15 @@ lint.select = ["F", "W", "I001"]
 module = ["zarr.*", "iohub.*"]
 ignore_missing_imports = true
 
+[tool.ruff]
+line-length = 88
+extend-exclude = ["docs/build"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B"]
+ignore = ["E501"]  # the formatter owns line length
+
+[tool.ruff.lint.per-file-ignores]
+"tutorials/**/*.py" = ["E402"]  # jupytext cells import mid-file
+"examples/**/*.py" = ["E402"]
+"__init__.py" = ["F401"]  # re-exports

@@ -155,12 +155,12 @@ def test_graph_read_and_update_specific_attrs(provider_factory):
             roi, node_attrs=["selected"], edge_attrs=["c"]
         )
 
-        for node, data in limited_graph.nodes(data=True):
+        for _node, data in limited_graph.nodes(data=True):
             assert "test" not in data
             assert "selected" in data
             data["selected"] = True
 
-        for u, v, data in limited_graph.edges(data=True):
+        for _u, _v, data in limited_graph.edges(data=True):
             assert "a" not in data
             assert "b" not in data
             nx.set_edge_attributes(limited_graph, 5, "c")  # type: ignore[call-overload]
@@ -174,10 +174,10 @@ def test_graph_read_and_update_specific_attrs(provider_factory):
 
         updated_graph = graph_provider.read_graph(roi)
 
-        for node, data in updated_graph.nodes(data=True):
+        for _node, data in updated_graph.nodes(data=True):
             assert data["selected"]
 
-        for u, v, data in updated_graph.edges(data=True):
+        for _u, _v, data in updated_graph.edges(data=True):
             assert data["c"] == 5
 
 
@@ -429,14 +429,14 @@ def test_graph_write_attributes(provider_factory, write_method):
     compare_nodes = [
         (node_id, data) for node_id, data in compare_nodes if len(data) > 0
     ]
-    for n, c in zip(nodes, compare_nodes):
+    for n, c in zip(nodes, compare_nodes, strict=False):
         assert n[0] == c[0]
         for key in n[1]:
             assert key in c[1]
             v1 = n[1][key]
             v2 = c[1][key]
             try:
-                for e1, e2 in zip(v1, v2):
+                for e1, e2 in zip(v1, v2, strict=False):
                     assert e1 == e2
             except:
                 assert v1 == v2

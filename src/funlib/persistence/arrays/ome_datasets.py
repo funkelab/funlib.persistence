@@ -172,7 +172,9 @@ def prepare_ome_ds(
 
     axis_metadata = [
         AxisMeta(name=n, type=t, unit=u)  # type: ignore[misc]
-        for n, t, u in zip(metadata.axis_names, metadata.types, metadata.ome_units)
+        for n, t, u in zip(
+            metadata.axis_names, metadata.types, metadata.ome_units, strict=False
+        )
     ]
 
     # create the dataset

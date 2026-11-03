@@ -1,7 +1,7 @@
 import inspect
 import logging
 from collections.abc import Sequence
-from typing import Any, Literal, Optional, Union
+from typing import Any, Literal
 
 import numpy as np
 import zarr
@@ -50,15 +50,15 @@ def _location_kwargs(kwargs: dict) -> dict:
 def open_ds(
     store,
     mode: Literal["r", "r+", "a", "w", "w-"] = "r",
-    metadata_format: Optional[MetaDataFormat] = None,
-    offset: Optional[Sequence[int]] = None,
-    voxel_size: Optional[Sequence[int]] = None,
-    axis_names: Optional[Sequence[str]] = None,
-    units: Optional[Sequence[str]] = None,
-    types: Optional[Sequence[str]] = None,
-    chunks: Optional[Union[int, Sequence[int], str]] = "strict",
+    metadata_format: MetaDataFormat | None = None,
+    offset: Sequence[int] | None = None,
+    voxel_size: Sequence[int] | None = None,
+    axis_names: Sequence[str] | None = None,
+    units: Sequence[str] | None = None,
+    types: Sequence[str] | None = None,
+    chunks: int | Sequence[int] | str | None = "strict",
     strict_metadata: bool = False,
-    scheduler: Optional[str] = None,
+    scheduler: str | None = None,
     **kwargs,
 ) -> Array:
     """
@@ -166,11 +166,11 @@ def open_ds(
 
 
 def _validate_layout(
-    chunk_shape: Optional[Coordinate],
+    chunk_shape: Coordinate | None,
     sharding: bool,
-    inner_chunk_shape: Optional[Coordinate],
+    inner_chunk_shape: Coordinate | None,
     kwargs: dict,
-) -> Optional[tuple[int, ...]]:
+) -> tuple[int, ...] | None:
     """Check the chunk arguments against each other. Returns the chunk inside each
     shard when sharding, else ``None``."""
     if "shard_shape" in kwargs:
@@ -206,7 +206,7 @@ def _validate_layout(
             f"inner_chunk_shape {inner} and chunk_shape {tuple(chunk_shape)} differ "
             "in dimensions"
         )
-    if any(int(c) % i != 0 for c, i in zip(chunk_shape, inner)):
+    if any(int(c) % i != 0 for c, i in zip(chunk_shape, inner, strict=False)):
         raise ValueError(
             f"chunk_shape {tuple(chunk_shape)} (the shard) must be a whole number of "
             f"inner_chunk_shape {inner} per axis"
@@ -227,7 +227,7 @@ def _normalise_sub_location(kwargs: dict) -> None:
         kwargs["path"] = name
 
 
-def _find_existing(store, kwargs: dict) -> tuple[Optional[Array], bool]:
+def _find_existing(store, kwargs: dict) -> tuple[Array | None, bool]:
     """The array at the location, or ``None``; and whether a stray placeholder (the
     empty, attr-less group an interrupted sharded ``w-`` create leaves) is there
     instead."""
@@ -342,7 +342,7 @@ def _create_sharded(
     )
 
 
-def _write_metadata(ds: zarr.Array, metadata, custom_metadata: Optional[dict]) -> None:
+def _write_metadata(ds: zarr.Array, metadata, custom_metadata: dict | None) -> None:
     fmt = get_default_metadata_format()
     attrs = {
         fmt.axis_names_attr: metadata.axis_names,
@@ -360,18 +360,18 @@ def _write_metadata(ds: zarr.Array, metadata, custom_metadata: Optional[dict]) -
 def prepare_ds(
     store,
     shape: Sequence[int],
-    offset: Optional[Coordinate] = None,
-    voxel_size: Optional[Coordinate] = None,
-    axis_names: Optional[Sequence[str]] = None,
-    units: Optional[Sequence[str]] = None,
-    types: Optional[Sequence[str]] = None,
-    chunk_shape: Optional[Coordinate] = None,
+    offset: Coordinate | None = None,
+    voxel_size: Coordinate | None = None,
+    axis_names: Sequence[str] | None = None,
+    units: Sequence[str] | None = None,
+    types: Sequence[str] | None = None,
+    chunk_shape: Coordinate | None = None,
     dtype: DTypeLike = np.float32,
     mode: Literal["r", "r+", "a", "w", "w-"] = "a",
     custom_metadata: dict[str, Any] | None = None,
     sharding: bool = False,
-    inner_chunk_shape: Optional[Coordinate] = None,
-    scheduler: Optional[str] = None,
+    inner_chunk_shape: Coordinate | None = None,
+    scheduler: str | None = None,
     **kwargs,
 ) -> Array:
     """Prepare a Zarr or N5 dataset.

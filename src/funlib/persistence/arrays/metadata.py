@@ -1,7 +1,7 @@
 import warnings
 from collections.abc import Mapping, Sequence
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 import toml
 from funlib.geometry import Coordinate
@@ -42,11 +42,11 @@ class MetaData:
     def __init__(
         self,
         shape: Sequence[int],
-        offset: Optional[Sequence[int]] = None,
-        voxel_size: Optional[Sequence[int]] = None,
-        axis_names: Optional[Sequence[str]] = None,
-        units: Optional[Sequence[str]] = None,
-        types: Optional[Sequence[str]] = None,
+        offset: Sequence[int] | None = None,
+        voxel_size: Sequence[int] | None = None,
+        axis_names: Sequence[str] | None = None,
+        units: Sequence[str] | None = None,
+        types: Sequence[str] | None = None,
         strict: bool = False,
     ):
         if types is not None:
@@ -68,7 +68,7 @@ class MetaData:
     ) -> Sequence[int | str | None]:
         interleaved: list[int | str | None] = []
         physical_ind = 0
-        for i, type in enumerate(self.types):
+        for _i, type in enumerate(self.types):
             if type in ["space", "time"]:
                 interleaved.append(physical[physical_ind])
                 physical_ind += 1
@@ -338,11 +338,11 @@ class MetaDataFormat(BaseModel):
         self,
         shape: Sequence[int],
         data: Mapping[str, Any],
-        offset: Optional[Sequence[int]] = None,
-        voxel_size: Optional[Sequence[int]] = None,
-        axis_names: Optional[Sequence[str]] = None,
-        units: Optional[Sequence[str]] = None,
-        types: Optional[Sequence[str]] = None,
+        offset: Sequence[int] | None = None,
+        voxel_size: Sequence[int] | None = None,
+        axis_names: Sequence[str] | None = None,
+        units: Sequence[str] | None = None,
+        types: Sequence[str] | None = None,
         strict: bool = False,
     ) -> MetaData:
         fetched_offset = (
@@ -394,11 +394,11 @@ USER_PATHS = [
 GLOBAL_PATHS = [Path("/etc/funlib_persistence/funlib_persistence.toml")]
 
 
-def read_config() -> Optional[dict]:
+def read_config() -> dict | None:
     config: dict[str, str] = {}
     for path in (LOCAL_PATHS + USER_PATHS + GLOBAL_PATHS)[::-1]:
         if path.exists():
-            with open(path, "r") as f:
+            with open(path) as f:
                 conf = toml.load(f)
                 if path.name == "pyproject.toml":
                     conf = conf.get("tool", {}).get("funlib_persistence", {})
