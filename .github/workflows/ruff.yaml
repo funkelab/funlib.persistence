@@ -12,4 +12,4 @@ jobs:
       - name: Install uv
         uses: astral-sh/setup-uv@main
       - name: Lint
-        run: uv run --extra dev ruff check funlib/persistence tests
+        run: uv run ruff check funlib/persistence tests

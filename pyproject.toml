@@ -33,13 +33,16 @@ dependencies = [
 [tool.setuptools.dynamic]
 version = { attr = "funlib.persistence.__version__" }
 
-[project.optional-dependencies]
+[dependency-groups]
+# Installed by `uv sync` (PEP 735); not part of the published package.
+# ruff and ty are pinned with == until uv.lock is committed: both change
+# their rule sets between releases.
 dev = [
     "coverage>=7.7.1",
     "pytest>=8.3.5",
     "pytest-mock>=3.14.0",
-    "ruff>=0.11.2",
-    "ty>=0.0.16",
+    "ruff==0.17.3",
+    "ty==0.0.96",
     "types-networkx",
     "types-psycopg2",
     "types-toml",

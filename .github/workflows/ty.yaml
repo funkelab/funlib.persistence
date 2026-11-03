@@ -12,4 +12,4 @@ jobs:
       - name: Install uv
         uses: astral-sh/setup-uv@main
       - name: ty
-        run: uv run --extra dev ty check src tests
+        run: uv run ty check src tests
