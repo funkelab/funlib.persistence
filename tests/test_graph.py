@@ -2,7 +2,6 @@ import networkx as nx
 import numpy as np
 import pytest
 from funlib.geometry import Roi
-
 from funlib.persistence.types import Vec
 
 
@@ -891,9 +890,7 @@ def test_read_nodes_by_ids(provider_factory, write_method):
         assert {n["id"] for n in nodes} == {2, 5}
 
         # attr_filter still applies on top of the id selection
-        nodes = graph_provider.read_nodes(
-            ids=[1, 2, 5], attr_filter={"selected": True}
-        )
+        nodes = graph_provider.read_nodes(ids=[1, 2, 5], attr_filter={"selected": True})
         assert {n["id"] for n in nodes} == {1, 5}
 
         # read_attrs limits the returned attributes
@@ -976,7 +973,9 @@ def test_read_arrays_match_dict_reads(provider_factory, write_method):
         arrays = gp.read_nodes_arrays(roi)
         assert arrays["id"].dtype == np.int64
         assert arrays["position"].shape == (3, 3)
-        assert arrays["score"].dtype == np.float64 and np.isnan(arrays["score"]).sum() == 1
+        assert (
+            arrays["score"].dtype == np.float64 and np.isnan(arrays["score"]).sum() == 1
+        )
         keys = ["id", "position", "selected", "score"]
         assert as_rows(arrays, keys) == dict_rows(gp.read_nodes(roi), keys)
 
@@ -984,7 +983,9 @@ def test_read_arrays_match_dict_reads(provider_factory, write_method):
         arrays = gp.read_nodes_arrays(ids=[8, 1, 42], read_attrs=["position"])
         assert set(arrays) == {"id", "position"}
         assert sorted(arrays["id"].tolist()) == [1, 8]
-        arrays = gp.read_nodes_arrays(ids=[1, 2, 5], attr_filter={"selected": True}, read_attrs=[])
+        arrays = gp.read_nodes_arrays(
+            ids=[1, 2, 5], attr_filter={"selected": True}, read_attrs=[]
+        )
         assert sorted(arrays["id"].tolist()) == [1, 5]
 
         # empty selections
@@ -1005,7 +1006,9 @@ def test_read_arrays_match_dict_reads(provider_factory, write_method):
 
         # edges by node list, limited attrs, chunked fetching
         nodes_in = gp.read_nodes(roi)
-        arrays = gp.read_edges_arrays(nodes=nodes_in, read_attrs=["weight"], fetch_on_v=True, chunk_size=1)
+        arrays = gp.read_edges_arrays(
+            nodes=nodes_in, read_attrs=["weight"], fetch_on_v=True, chunk_size=1
+        )
         assert set(arrays) == {"u", "v", "weight"}
         keys = ["u", "v", "weight"]
         assert as_rows(arrays, keys) == dict_rows(

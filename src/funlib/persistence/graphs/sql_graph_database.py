@@ -510,10 +510,16 @@ class SQLGraphDataBase(GraphDataBase):
         one chunk of rows, not one dict per node."""
         read_attrs = list(self.node_attrs.keys()) if read_attrs is None else read_attrs
         columns = ["id"] + self._node_attrs_to_columns(read_attrs)
-        statements = self._node_select_statements(", ".join(columns), roi, ids, attr_filter)
-        converters, members = self._column_plan(columns, read_attrs, self.node_attrs, ("id",))
+        statements = self._node_select_statements(
+            ", ".join(columns), roi, ids, attr_filter
+        )
+        converters, members = self._column_plan(
+            columns, read_attrs, self.node_attrs, ("id",)
+        )
         raw = self._fetch_columns(statements, converters, chunk_size)
-        return self._assemble_columns(raw, columns, read_attrs, self.node_attrs, ("id",), members)
+        return self._assemble_columns(
+            raw, columns, read_attrs, self.node_attrs, ("id",), members
+        )
 
     def num_nodes(self, roi: Roi) -> int:
         """Return the number of nodes in the roi."""
@@ -593,12 +599,18 @@ class SQLGraphDataBase(GraphDataBase):
         endpoint_names = self.endpoint_names
         read_attrs = list(self.edge_attrs.keys()) if read_attrs is None else read_attrs
         columns = list(endpoint_names) + self._edge_attrs_to_columns(read_attrs)
-        statement = self._edge_select_statement(columns, roi, nodes, attr_filter, fetch_on_v)
+        statement = self._edge_select_statement(
+            columns, roi, nodes, attr_filter, fetch_on_v
+        )
         statements = [] if statement is None else [statement]
         ids = tuple(endpoint_names)
-        converters, members = self._column_plan(columns, read_attrs, self.edge_attrs, ids)
+        converters, members = self._column_plan(
+            columns, read_attrs, self.edge_attrs, ids
+        )
         raw = self._fetch_columns(statements, converters, chunk_size)
-        return self._assemble_columns(raw, columns, read_attrs, self.edge_attrs, ids, members)
+        return self._assemble_columns(
+            raw, columns, read_attrs, self.edge_attrs, ids, members
+        )
 
     def _edge_select_statement(
         self,
@@ -707,10 +719,11 @@ class SQLGraphDataBase(GraphDataBase):
             isinstance(attr_type, Vec) and attr_type.dtype in (int, float, bool)
         )
         if numeric and size is not None:
+            width: int = size  # bound here: narrowing does not reach the closure
 
             def vec(chunk):
-                filled = [[np.nan] * size if x is None else list(x) for x in chunk]
-                return np.array(filled, dtype=np.float64).reshape(-1, size)
+                filled = [[np.nan] * width if x is None else list(x) for x in chunk]
+                return np.array(filled, dtype=np.float64).reshape(-1, width)
 
             return vec
         if numeric:
@@ -739,18 +752,15 @@ class SQLGraphDataBase(GraphDataBase):
         columns: list[list[np.ndarray]] = [[] for _ in range(n_columns)]
         for statement in statements:
             cursor = self._select_query(statement)
-            fetch = (
-                (lambda: cursor.fetchmany(chunk_size))
-                if hasattr(cursor, "fetchmany")
-                else None
-            )
-            if fetch is None:
+            fetchmany = getattr(cursor, "fetchmany", None)
+            if fetchmany is None:  # a materialised sequence of rows
                 rows_all = list(cursor)
                 chunks = (
-                    rows_all[i : i + chunk_size] for i in range(0, len(rows_all), chunk_size)
+                    rows_all[i : i + chunk_size]
+                    for i in range(0, len(rows_all), chunk_size)
                 )
             else:
-                chunks = iter(fetch, [])
+                chunks = iter(lambda: fetchmany(chunk_size), [])
             for rows in chunks:
                 if not rows:
                     break
@@ -818,7 +828,9 @@ class SQLGraphDataBase(GraphDataBase):
                 out[attr] = cat(attr, np.zeros((0, attr_type.size), dtype=np.float64))
             else:
                 numeric = attr_type in (int, float, bool)
-                out[attr] = cat(attr, np.zeros(0, dtype=np.float64 if numeric else object))
+                out[attr] = cat(
+                    attr, np.zeros(0, dtype=np.float64 if numeric else object)
+                )
         return out
 
     def write_edges(
