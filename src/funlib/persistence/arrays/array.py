@@ -533,9 +533,8 @@ class Array(Freezable):
                 assert begin_align_with_chunks and (
                     shape_align_with_chunks or end_of_array
                 ), (
-                    "ROI %s (in voxels: %s) does not align with chunks of "
-                    "size %s (mismatch in dimension %d)"
-                    % (roi, voxel_roi, chunk_shape, d)
+                    f"ROI {roi} (in voxels: {voxel_roi}) does not align with "
+                    f"chunks of size {chunk_shape} (mismatch in dimension {d})"
                 )
 
         roi_slices = tuple(

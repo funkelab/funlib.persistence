@@ -258,7 +258,7 @@ def test_graph_read_meta_values(provider_factory):
     with provider_factory("w", True, roi, node_attrs={"position": Vec(float, 3)}):
         pass
     with provider_factory("r", None, None) as graph_provider:
-        assert True == graph_provider.directed
+        assert graph_provider.directed is True
         assert roi == graph_provider.total_roi
 
 
@@ -266,12 +266,12 @@ def test_graph_default_meta_values(provider_factory):
     with provider_factory(
         "w", False, None, node_attrs={"position": Vec(float, 3)}
     ) as provider:
-        assert False == provider.directed
+        assert provider.directed is False
         assert provider.total_roi is None or provider.total_roi == Roi(
             (None, None, None), (None, None, None)
         )
     with provider_factory("r", False, None) as graph_provider:
-        assert False == graph_provider.directed
+        assert graph_provider.directed is False
         assert graph_provider.total_roi is None or graph_provider.total_roi == Roi(
             (None, None, None), (None, None, None)
         )
@@ -324,9 +324,9 @@ def test_graph_fail_if_exists(provider_factory):
         node_attrs={"position": Vec(float, 3), "swip": str, "zap": str},
     ) as graph_provider:
         graph_provider.write_graph(graph)
-        with pytest.raises(Exception):
+        with pytest.raises(Exception):  # noqa: B017 -- backend-specific error
             graph_provider.write_nodes(graph.nodes(), fail_if_exists=True)
-        with pytest.raises(Exception):
+        with pytest.raises(Exception):  # noqa: B017 -- backend-specific error
             graph_provider.write_edges(
                 graph.nodes(), graph.edges(), fail_if_exists=True
             )
@@ -350,9 +350,9 @@ def test_graph_duplicate_insert_behavior(provider_factory):
         graph_provider.write_edges(graph.nodes(), graph.edges())
 
         # fail_if_exists=True should raise on duplicate nodes and edges
-        with pytest.raises(Exception):
+        with pytest.raises(Exception):  # noqa: B017 -- backend-specific error
             graph_provider.write_nodes(graph.nodes(), fail_if_exists=True)
-        with pytest.raises(Exception):
+        with pytest.raises(Exception):  # noqa: B017 -- backend-specific error
             graph_provider.write_edges(
                 graph.nodes(), graph.edges(), fail_if_exists=True
             )
@@ -382,9 +382,9 @@ def test_graph_fail_if_not_exists(provider_factory):
         "w",
         node_attrs={"position": Vec(float, 3), "swip": str, "zap": str},
     ) as graph_provider:
-        with pytest.raises(Exception):
+        with pytest.raises(Exception):  # noqa: B017 -- backend-specific error
             graph_provider.write_nodes(graph.nodes(), fail_if_not_exists=True)
-        with pytest.raises(Exception):
+        with pytest.raises(Exception):  # noqa: B017 -- backend-specific error
             graph_provider.write_edges(
                 graph.nodes(), graph.edges(), fail_if_not_exists=True
             )
@@ -438,7 +438,7 @@ def test_graph_write_attributes(provider_factory, write_method):
             try:
                 for e1, e2 in zip(v1, v2, strict=False):
                     assert e1 == e2
-            except:
+            except (TypeError, AssertionError):
                 assert v1 == v2
 
 

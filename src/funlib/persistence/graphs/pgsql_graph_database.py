@@ -231,10 +231,10 @@ class PgSQLGraphDatabase(SQLGraphDataBase):
             return self.__sql_type(type.dtype) + f"[{type.size}]"
         try:
             return {bool: "BOOLEAN", int: "BIGINT", str: "VARCHAR", float: "REAL"}[type]
-        except ValueError:
+        except KeyError:
             raise NotImplementedError(
                 f"attributes of type {type} are not yet supported"
-            )
+            ) from None
 
     def print_summary(self, schema="public", limit=None):
         self._commit()
