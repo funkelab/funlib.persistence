@@ -853,3 +853,165 @@ def test_bulk_write_benchmark(provider_factory):
     print(f"Standard: {t_standard * 1000:.1f} ms")
     print(f"Bulk:     {t_bulk * 1000:.1f} ms")
     print(f"Speedup:  {t_standard / t_bulk:.2f}x")
+
+
+def test_read_nodes_by_ids(provider_factory, write_method):
+    """``read_nodes(ids=...)`` returns exactly the existing nodes with those ids.
+
+    Missing ids are silently absent (so callers can test existence), an empty
+    id list returns nothing, ``attr_filter`` still applies, ``read_attrs``
+    limits the columns, and combining ``ids`` with ``roi`` is an error.
+    """
+    graph = nx.Graph()
+    graph.add_node(1, position=(1.0, 1.0, 1.0), selected=True)
+    graph.add_node(2, position=(2.0, 2.0, 2.0), selected=False)
+    graph.add_node(5, position=(5.0, 5.0, 5.0), selected=True)
+    graph.add_node(8, position=(8.0, 8.0, 8.0), selected=True)
+
+    with provider_factory(
+        "w",
+        node_attrs={"position": Vec(float, 3), "selected": bool},
+    ) as graph_provider:
+        _write_graph(graph_provider, graph, write_method)
+
+    with provider_factory("r") as graph_provider:
+        nodes = graph_provider.read_nodes(ids=[8, 1, 42])
+        assert {n["id"] for n in nodes} == {1, 8}
+        by_id = {n["id"]: n for n in nodes}
+        assert tuple(by_id[8]["position"]) == (8.0, 8.0, 8.0)
+        assert by_id[1]["selected"] is True or by_id[1]["selected"] == 1
+
+        assert graph_provider.read_nodes(ids=[]) == []
+        assert graph_provider.read_nodes(ids=[42]) == []
+
+        # numpy integer ids are accepted
+        import numpy as np
+
+        nodes = graph_provider.read_nodes(ids=np.array([2, 5], dtype=np.int64))
+        assert {n["id"] for n in nodes} == {2, 5}
+
+        # attr_filter still applies on top of the id selection
+        nodes = graph_provider.read_nodes(
+            ids=[1, 2, 5], attr_filter={"selected": True}
+        )
+        assert {n["id"] for n in nodes} == {1, 5}
+
+        # read_attrs limits the returned attributes
+        nodes = graph_provider.read_nodes(ids=[1], read_attrs=["position"])
+        assert set(nodes[0].keys()) == {"id", "position"}
+
+        # more ids than one batch still works
+        graph_provider._READ_NODES_BY_ID_BATCH = 2
+        nodes = graph_provider.read_nodes(ids=[1, 2, 5, 8, 9, 10, 11])
+        assert {n["id"] for n in nodes} == {1, 2, 5, 8}
+
+        with pytest.raises(ValueError):
+            graph_provider.read_nodes(roi=Roi((0, 0, 0), (6, 6, 6)), ids=[1])
+
+
+def test_read_arrays_match_dict_reads(provider_factory, write_method):
+    """``read_nodes_arrays``/``read_edges_arrays`` return the same selection as
+    the dict-based reads, as columns: ids int64, numeric attrs float64 with
+    NaN for missing, Vec attrs (n, d), with roi / ids / nodes / fetch_on_v /
+    attr_filter / read_attrs all honoured, and empty selections well-formed."""
+    import numpy as np
+
+    graph = nx.Graph()
+    graph.add_node(1, position=(1.0, 1.0, 1.0), selected=True, score=0.5)
+    graph.add_node(2, position=(2.0, 2.0, 2.0), selected=False, score=None)
+    graph.add_node(5, position=(5.0, 5.0, 5.0), selected=True, score=2.5)
+    graph.add_node(8, position=(8.0, 8.0, 8.0), selected=True, score=-1.0)
+    # (Vec-typed EDGE attributes are not exercised: the SQLite write path does
+    # not explode them into columns, a pre-existing limitation.)
+    graph.add_edge(1, 5, weight=0.1, count=3)
+    graph.add_edge(2, 8, weight=None, count=None)
+    graph.add_edge(5, 8, weight=0.3, count=1)
+    graph.add_edge(0, 5, weight=0.4, count=0)
+    graph.add_node(0, position=(9.0, 9.0, 9.0), selected=False, score=0.0)
+
+    with provider_factory(
+        "w",
+        node_attrs={"position": Vec(float, 3), "selected": bool, "score": float},
+        edge_attrs={"weight": float, "count": int},
+    ) as graph_provider:
+        _write_graph(graph_provider, graph, write_method)
+
+    roi = Roi((0, 0, 0), (6, 6, 6))
+
+    def as_rows(arrays, keys):
+        n = len(arrays[keys[0]])
+        rows = set()
+        for i in range(n):
+            row = []
+            for k in keys:
+                v = arrays[k][i]
+                if isinstance(v, np.ndarray):
+                    row.append(tuple(None if np.isnan(x) else float(x) for x in v))
+                elif isinstance(v, float) and np.isnan(v):
+                    row.append(None)
+                else:
+                    row.append(v.item() if hasattr(v, "item") else v)
+            rows.add(tuple(row))
+        return rows
+
+    def dict_rows(dicts, keys):
+        rows = set()
+        for d in dicts:
+            row = []
+            for k in keys:
+                v = d.get(k)
+                if isinstance(v, (tuple, list)):
+                    row.append(tuple(None if x is None else float(x) for x in v))
+                elif isinstance(v, bool):
+                    row.append(float(v))
+                elif v is None:
+                    row.append(None)
+                else:
+                    row.append(float(v) if k != "id" and k not in ("u", "v") else v)
+            rows.add(tuple(row))
+        return rows
+
+    with provider_factory("r") as gp:
+        # nodes by roi, all attrs
+        arrays = gp.read_nodes_arrays(roi)
+        assert arrays["id"].dtype == np.int64
+        assert arrays["position"].shape == (3, 3)
+        assert arrays["score"].dtype == np.float64 and np.isnan(arrays["score"]).sum() == 1
+        keys = ["id", "position", "selected", "score"]
+        assert as_rows(arrays, keys) == dict_rows(gp.read_nodes(roi), keys)
+
+        # nodes by ids, limited attrs, attr filter
+        arrays = gp.read_nodes_arrays(ids=[8, 1, 42], read_attrs=["position"])
+        assert set(arrays) == {"id", "position"}
+        assert sorted(arrays["id"].tolist()) == [1, 8]
+        arrays = gp.read_nodes_arrays(ids=[1, 2, 5], attr_filter={"selected": True}, read_attrs=[])
+        assert sorted(arrays["id"].tolist()) == [1, 5]
+
+        # empty selections
+        empty = gp.read_nodes_arrays(ids=[])
+        assert empty["id"].shape == (0,) and empty["position"].shape == (0, 3)
+        empty = gp.read_edges_arrays(nodes=[])
+        assert empty["u"].shape == (0,) and empty["count"].shape == (0,)
+
+        # edges by roi, both fetch_on_v values, all attrs
+        for fetch_on_v in (False, True):
+            arrays = gp.read_edges_arrays(roi, fetch_on_v=fetch_on_v)
+            dicts = gp.read_edges(roi=roi, fetch_on_v=fetch_on_v)
+            keys = ["u", "v", "weight", "count"]
+            assert as_rows(arrays, keys) == dict_rows(dicts, keys)
+            assert arrays["u"].dtype == np.int64 and arrays["count"].dtype == np.float64
+        assert len(gp.read_edges_arrays(roi, fetch_on_v=True)["u"]) == 4
+        assert len(gp.read_edges_arrays(roi, fetch_on_v=False)["u"]) == 3
+
+        # edges by node list, limited attrs, chunked fetching
+        nodes_in = gp.read_nodes(roi)
+        arrays = gp.read_edges_arrays(nodes=nodes_in, read_attrs=["weight"], fetch_on_v=True, chunk_size=1)
+        assert set(arrays) == {"u", "v", "weight"}
+        keys = ["u", "v", "weight"]
+        assert as_rows(arrays, keys) == dict_rows(
+            gp.read_edges(nodes=nodes_in, read_attrs=["weight"], fetch_on_v=True), keys
+        )
+        assert np.isnan(arrays["weight"]).sum() == 1
+
+        with pytest.raises(ValueError):
+            gp.read_edges_arrays(roi=roi, nodes=nodes_in)

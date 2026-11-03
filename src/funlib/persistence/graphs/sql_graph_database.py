@@ -391,14 +391,46 @@ class SQLGraphDataBase(GraphDataBase):
     def edge_attrs(self, value: dict[str, AttributeType]) -> None:
         self._edge_attrs = value
 
+    # Node ids per ``WHERE id IN (...)`` clause. The ids are inlined as
+    # literals, so a bounded batch keeps each statement well inside any
+    # backend's statement length limit.
+    _READ_NODES_BY_ID_BATCH = 50_000
+
     def read_nodes(
         self,
         roi: Optional[Roi] = None,
         attr_filter: Optional[dict[str, Any]] = None,
         read_attrs: Optional[list[str]] = None,
         join_collection: Optional[str] = None,
+        ids: Optional[Iterable[int]] = None,
     ) -> list[dict[str, Any]]:
-        """Return a list of nodes within roi."""
+        """Return a list of nodes within ``roi``, or the nodes with the given
+        ``ids``, or all nodes.
+
+        Arguments:
+
+            roi (``Roi`` or ``None``):
+
+                Only return nodes whose position lies in this roi.
+
+            ids (iterable of ``int`` or ``None``):
+
+                Only return the nodes with these ids. Ids that are not in the
+                database are silently absent from the result, so the caller can
+                look up which of a set of ids exist. The order of the result is
+                not guaranteed to match the order of ``ids``. Cannot be
+                combined with ``roi``.
+
+            attr_filter, read_attrs:
+
+                As for ``read_graph``.
+        """
+
+        if roi is not None and ids is not None:
+            raise ValueError(
+                "read_nodes does not support both roi and ids at the same time. "
+                "Pass one or the other."
+            )
 
         # attributes to read
         read_attrs = list(self.node_attrs.keys()) if read_attrs is None else read_attrs
@@ -408,26 +440,80 @@ class SQLGraphDataBase(GraphDataBase):
         read_attrs = ["id"] + read_attrs
         read_attrs_query = ", ".join(read_columns)
 
-        logger.debug("Reading nodes in roi %s" % roi)
-        select_statement = (
-            f"SELECT {read_attrs_query} FROM {self.nodes_table_name} "
-            + (self.__roi_query(roi) if roi is not None else "")
-            + (
-                f" {'WHERE' if roi is None else 'AND'} "
-                + self.__attr_query(attr_filter)
-                if attr_filter is not None and len(attr_filter) > 0
-                else ""
+        nodes: list[dict[str, Any]] = []
+        for statement in self._node_select_statements(
+            read_attrs_query, roi, ids, attr_filter
+        ):
+            nodes.extend(
+                self._columns_to_node_attrs(
+                    {key: val for key, val in zip(read_columns, values)}, read_attrs
+                )
+                for values in self._select_query(statement)
             )
+        return nodes
+
+    def _node_select_statements(
+        self,
+        columns_query: str,
+        roi: Optional[Roi],
+        ids: Optional[Iterable[int]],
+        attr_filter: Optional[dict[str, Any]],
+    ) -> list[str]:
+        """The SELECT statement(s) for ``read_nodes``/``read_nodes_arrays``:
+        one per batch of ids, else exactly one."""
+        attr_clause = (
+            self.__attr_query(attr_filter)
+            if attr_filter is not None and len(attr_filter) > 0
+            else None
         )
 
-        nodes = [
-            self._columns_to_node_attrs(
-                {key: val for key, val in zip(read_columns, values)}, read_attrs
-            )
-            for values in self._select_query(select_statement)
-        ]
+        def statement(where_clauses: list[str]) -> str:
+            stmt = f"SELECT {columns_query} FROM {self.nodes_table_name}"
+            if where_clauses:
+                stmt += " WHERE " + " AND ".join(where_clauses)
+            return stmt
 
-        return nodes
+        if ids is not None:
+            id_list = [int(i) for i in ids]
+            logger.debug("Reading %d nodes by id", len(id_list))
+            batch = self._READ_NODES_BY_ID_BATCH
+            statements = []
+            for start in range(0, len(id_list), batch):
+                chunk = ", ".join(str(i) for i in id_list[start : start + batch])
+                clauses = [f"id IN ({chunk})"]
+                if attr_clause is not None:
+                    clauses.append(attr_clause)
+                statements.append(statement(clauses))
+            return statements
+
+        logger.debug("Reading nodes in roi %s" % roi)
+        clauses = []
+        if roi is not None:
+            clauses.append(self.__roi_query(roi).replace("WHERE ", "", 1))
+        if attr_clause is not None:
+            clauses.append(attr_clause)
+        return [statement([c for c in clauses if c])]
+
+    def read_nodes_arrays(
+        self,
+        roi: Optional[Roi] = None,
+        ids: Optional[Iterable[int]] = None,
+        attr_filter: Optional[dict[str, Any]] = None,
+        read_attrs: Optional[list[str]] = None,
+        chunk_size: int = 20_000,
+    ) -> dict[str, np.ndarray]:
+        """Columnar version of ``read_nodes``: the same selection, returned as
+        ``{"id": int64[n], attr: array[n] or array[n, d], ...}`` instead of a
+        list of dicts. Numeric attributes are float64 with NaN for a missing
+        value (``Vec`` attributes as ``(n, d)``), anything else is an object
+        array. Rows are consumed in chunks so peak memory is the arrays plus
+        one chunk of rows, not one dict per node."""
+        read_attrs = list(self.node_attrs.keys()) if read_attrs is None else read_attrs
+        columns = ["id"] + self._node_attrs_to_columns(read_attrs)
+        statements = self._node_select_statements(", ".join(columns), roi, ids, attr_filter)
+        converters, members = self._column_plan(columns, read_attrs, self.node_attrs, ("id",))
+        raw = self._fetch_columns(statements, converters, chunk_size)
+        return self._assemble_columns(raw, columns, read_attrs, self.node_attrs, ("id",), members)
 
     def num_nodes(self, roi: Roi) -> int:
         """Return the number of nodes in the roi."""
@@ -460,79 +546,14 @@ class SQLGraphDataBase(GraphDataBase):
             ValueError: If both roi and nodes are provided.
         """
 
-        if roi is not None and nodes is not None:
-            raise ValueError(
-                "read_edges does not support both roi and nodes at the same time. "
-                "Pass one or the other."
-            )
-
         endpoint_names = self.endpoint_names
-
-        # 1. Determine the base SELECT statement and WHERE clause
-
         # Columns to select from the edge table (T1)
         edge_table_cols = endpoint_names + list(self.edge_attrs.keys())
-        desired_columns = ", ".join(edge_table_cols)
-
-        # Base query starts with selecting all columns from the edges table
-        select_statement = f"SELECT {desired_columns} FROM {self.edges_table_name}"
-        where_clauses = []
-        using_join = False
-
-        if nodes is not None:
-            # Case 1: Filter by explicit list of nodes
-            if len(nodes) == 0:
-                return []
-
-            node_ids = ", ".join([str(node["id"]) for node in nodes])
-            if fetch_on_v:
-                where_clauses.append(
-                    f"({endpoint_names[0]} IN ({node_ids})"
-                    f" OR {endpoint_names[1]} IN ({node_ids}))"
-                )
-            else:
-                where_clauses.append(f"{endpoint_names[0]} IN ({node_ids})")
-
-        elif roi is not None:
-            # Case 2: Filter by ROI using INNER JOIN
-            using_join = True
-            node_id_column = "id"
-
-            edge_cols = ", ".join([f"T1.{col}" for col in edge_table_cols])
-            roi_condition = self.__roi_query(roi).replace("WHERE ", "")
-
-            join_condition = f"T1.{endpoint_names[0]} = T2.{node_id_column}"
-            if fetch_on_v:
-                join_condition += f" OR T1.{endpoint_names[1]} = T2.{node_id_column}"
-
-            select_statement = (
-                f"SELECT DISTINCT {edge_cols} "
-                f"FROM {self.edges_table_name} AS T1 "
-                f"INNER JOIN {self.nodes_table_name} AS T2 "
-                f"ON {join_condition} "
-            )
-            where_clauses.append(roi_condition)
-
-        # Case 3: Both nodes and roi are None — fetch all edges
-
-        # 2. Add Attribute Filter to WHERE clauses
-        if attr_filter is not None and len(attr_filter) > 0:
-            if using_join:
-                # Qualify each attribute with T1 for the JOIN case
-                parts = [
-                    f"T1.{k}={self.__convert_to_sql(v)}" for k, v in attr_filter.items()
-                ]
-                where_clauses.append(" AND ".join(parts))
-            else:
-                where_clauses.append(self.__attr_query(attr_filter))
-
-        # 3. Finalize the SELECT statement
-        if len(where_clauses) > 0:
-            select_statement += " WHERE " + " AND ".join(where_clauses)
-
-        logger.debug(f"Reading edges with query: {select_statement}")
-
-        # 4. Execute Query and Process Results
+        select_statement = self._edge_select_statement(
+            edge_table_cols, roi, nodes, attr_filter, fetch_on_v
+        )
+        if select_statement is None:
+            return []
 
         # Define the keys for the result dictionaries
         all_edge_keys = endpoint_names + list(self.edge_attrs.keys())
@@ -551,6 +572,254 @@ class SQLGraphDataBase(GraphDataBase):
         ]
 
         return edges
+
+    def read_edges_arrays(
+        self,
+        roi: Optional[Roi] = None,
+        nodes: Optional[list[dict[str, Any]]] = None,
+        attr_filter: Optional[dict[str, Any]] = None,
+        read_attrs: Optional[list[str]] = None,
+        fetch_on_v: bool = False,
+        chunk_size: int = 20_000,
+    ) -> dict[str, np.ndarray]:
+        """Columnar version of ``read_edges``: the same selection, returned as
+        ``{u: int64[n], v: int64[n], attr: float64[n], ...}`` instead of a
+        list of dicts. Numeric attributes are float64 with NaN for a missing
+        value (``Vec`` attributes as ``(n, d)``), anything else is an object
+        array. Only the requested attributes are selected. Rows are consumed
+        in chunks, so peak memory is the arrays plus one chunk of rows rather
+        than one dict per edge (roughly 10-20x less for a plain weighted
+        edge)."""
+        endpoint_names = self.endpoint_names
+        read_attrs = list(self.edge_attrs.keys()) if read_attrs is None else read_attrs
+        columns = list(endpoint_names) + self._edge_attrs_to_columns(read_attrs)
+        statement = self._edge_select_statement(columns, roi, nodes, attr_filter, fetch_on_v)
+        statements = [] if statement is None else [statement]
+        ids = tuple(endpoint_names)
+        converters, members = self._column_plan(columns, read_attrs, self.edge_attrs, ids)
+        raw = self._fetch_columns(statements, converters, chunk_size)
+        return self._assemble_columns(raw, columns, read_attrs, self.edge_attrs, ids, members)
+
+    def _edge_select_statement(
+        self,
+        edge_table_cols: list[str],
+        roi: Optional[Roi],
+        nodes: Optional[list[dict[str, Any]]],
+        attr_filter: Optional[dict[str, Any]],
+        fetch_on_v: bool,
+    ) -> Optional[str]:
+        """The SELECT statement for ``read_edges``/``read_edges_arrays``, or
+        ``None`` when the selection is empty by construction."""
+        if roi is not None and nodes is not None:
+            raise ValueError(
+                "read_edges does not support both roi and nodes at the same time. "
+                "Pass one or the other."
+            )
+
+        endpoint_names = self.endpoint_names
+
+        # 1. Determine the base SELECT statement and WHERE clause
+        desired_columns = ", ".join(edge_table_cols)
+
+        # Base query starts with selecting all columns from the edges table
+        select_statement = f"SELECT {desired_columns} FROM {self.edges_table_name}"
+        where_clauses = []
+        using_join = False
+
+        if nodes is not None:
+            # Case 1: Filter by explicit list of nodes
+            if len(nodes) == 0:
+                return None
+
+            node_ids = ", ".join([str(node["id"]) for node in nodes])
+            if fetch_on_v:
+                where_clauses.append(
+                    f"({endpoint_names[0]} IN ({node_ids})"
+                    f" OR {endpoint_names[1]} IN ({node_ids}))"
+                )
+            else:
+                where_clauses.append(f"{endpoint_names[0]} IN ({node_ids})")
+
+        elif roi is not None:
+            # Case 2: Filter by ROI using INNER JOIN
+            using_join = True
+            node_id_column = "id"
+
+            edge_cols = ", ".join([f"T1.{col}" for col in edge_table_cols])
+            roi_condition = self.__roi_query(roi).replace("WHERE ", "", 1)
+
+            def join_on(endpoint: str) -> str:
+                return (
+                    f"SELECT {edge_cols} "
+                    f"FROM {self.edges_table_name} AS T1 "
+                    f"INNER JOIN {self.nodes_table_name} AS T2 "
+                    f"ON T1.{endpoint} = T2.{node_id_column} "
+                )
+
+            # ``fetch_on_v`` used to join ``ON T1.u = T2.id OR T1.v = T2.id``.
+            # An OR in the join condition defeats the endpoint indexes and
+            # makes every read a full scan of the edge table, so it is
+            # expressed as the UNION of two single-endpoint joins instead
+            # (UNION also removes the duplicates DISTINCT used to).
+            join_statements = [join_on(endpoint_names[0])]
+            if fetch_on_v:
+                join_statements.append(join_on(endpoint_names[1]))
+            if roi_condition:
+                where_clauses.append(roi_condition)
+
+        # Case 3: Both nodes and roi are None — fetch all edges
+
+        # 2. Add Attribute Filter to WHERE clauses
+        if attr_filter is not None and len(attr_filter) > 0:
+            if using_join:
+                # Qualify each attribute with T1 for the JOIN case
+                parts = [
+                    f"T1.{k}={self.__convert_to_sql(v)}" for k, v in attr_filter.items()
+                ]
+                where_clauses.append(" AND ".join(parts))
+            else:
+                where_clauses.append(self.__attr_query(attr_filter))
+
+        # 3. Finalize the SELECT statement
+        where = " WHERE " + " AND ".join(where_clauses) if where_clauses else ""
+        if using_join:
+            select_statement = " UNION ".join(stmt + where for stmt in join_statements)
+        else:
+            select_statement += where
+
+        logger.debug(f"Reading edges with query: {select_statement}")
+        return select_statement
+
+    # -- columnar reads ----------------------------------------------------
+
+    @staticmethod
+    def _column_converter(attr_type, size: Optional[int] = None):
+        """Converter from one chunk of raw column values (a Python list) to an
+        array: ids/int64 for ``None`` type, numeric -> float64 with NaN for
+        None (``(chunk, size)`` when the column holds sequences), else object."""
+        if attr_type is None:
+
+            def ids(chunk):
+                return np.array(chunk, dtype=np.int64)
+
+            return ids
+        numeric = attr_type in (int, float, bool) or (
+            isinstance(attr_type, Vec) and attr_type.dtype in (int, float, bool)
+        )
+        if numeric and size is not None:
+
+            def vec(chunk):
+                filled = [[np.nan] * size if x is None else list(x) for x in chunk]
+                return np.array(filled, dtype=np.float64).reshape(-1, size)
+
+            return vec
+        if numeric:
+
+            def scalar(chunk):
+                return np.array(
+                    [np.nan if x is None else x for x in chunk], dtype=np.float64
+                )
+
+            return scalar
+
+        def obj(chunk):
+            arr = np.empty(len(chunk), dtype=object)
+            arr[:] = chunk
+            return arr
+
+        return obj
+
+    def _fetch_columns(
+        self, statements: list[str], converters: list, chunk_size: int
+    ) -> list[list[np.ndarray]]:
+        """Run ``statements`` and collect their rows column-wise. Every chunk
+        of rows is converted to arrays immediately, so the Python row objects
+        of at most one chunk are alive at a time."""
+        n_columns = len(converters)
+        columns: list[list[np.ndarray]] = [[] for _ in range(n_columns)]
+        for statement in statements:
+            cursor = self._select_query(statement)
+            fetch = (
+                (lambda: cursor.fetchmany(chunk_size))
+                if hasattr(cursor, "fetchmany")
+                else None
+            )
+            if fetch is None:
+                rows_all = list(cursor)
+                chunks = (
+                    rows_all[i : i + chunk_size] for i in range(0, len(rows_all), chunk_size)
+                )
+            else:
+                chunks = iter(fetch, [])
+            for rows in chunks:
+                if not rows:
+                    break
+                for j in range(n_columns):
+                    columns[j].append(converters[j]([row[j] for row in rows]))
+                del rows
+        return columns
+
+    def _column_plan(
+        self,
+        columns: list[str],
+        attrs: list[str],
+        attr_types: dict[str, AttributeType],
+        id_columns: tuple[str, ...],
+    ) -> tuple[list, dict[str, list[str]]]:
+        """Per selected column, how to convert it; and per attribute, which
+        selected columns make it up (several for a ``Vec`` stored exploded)."""
+        converters = []
+        members: dict[str, list[str]] = {}
+        col_type: dict[str, tuple] = {}
+        for name in id_columns:
+            col_type[name] = (None, None)
+        for attr in attrs:
+            attr_type = attr_types[attr]
+            if isinstance(attr_type, Vec):
+                exploded = [f"{attr}_{d}" for d in range(attr_type.size)]
+                if all(c in columns for c in exploded):
+                    members[attr] = exploded
+                    for c in exploded:
+                        col_type[c] = (attr_type, None)
+                else:
+                    members[attr] = [attr]
+                    col_type[attr] = (attr_type, attr_type.size)
+            else:
+                members[attr] = [attr]
+                col_type[attr] = (attr_type, None)
+        for name in columns:
+            converters.append(self._column_converter(*col_type[name]))
+        return converters, members
+
+    @staticmethod
+    def _assemble_columns(
+        raw: list[list[np.ndarray]],
+        columns: list[str],
+        attrs: list[str],
+        attr_types: dict[str, AttributeType],
+        id_columns: tuple[str, ...],
+        members: dict[str, list[str]],
+    ) -> dict[str, np.ndarray]:
+        by_name = dict(zip(columns, raw))
+
+        def cat(name, empty):
+            chunks = by_name[name]
+            return np.concatenate(chunks) if chunks else empty
+
+        out: dict[str, np.ndarray] = {}
+        for name in id_columns:
+            out[name] = cat(name, np.zeros(0, dtype=np.int64))
+        for attr in attrs:
+            attr_type = attr_types[attr]
+            if isinstance(attr_type, Vec) and len(members[attr]) > 1:
+                parts = [cat(c, np.zeros(0, dtype=np.float64)) for c in members[attr]]
+                out[attr] = np.stack(parts, axis=1)
+            elif isinstance(attr_type, Vec):
+                out[attr] = cat(attr, np.zeros((0, attr_type.size), dtype=np.float64))
+            else:
+                numeric = attr_type in (int, float, bool)
+                out[attr] = cat(attr, np.zeros(0, dtype=np.float64 if numeric else object))
+        return out
 
     def write_edges(
         self,
@@ -846,23 +1115,18 @@ class SQLGraphDataBase(GraphDataBase):
         return query
 
     def __roi_query(self, roi: Roi) -> str:
-        query = "WHERE "
+        """``WHERE <position inside roi>`` for the bounded dimensions of
+        ``roi``, or the empty string when every dimension is unbounded."""
         pos_attr = self.position_attribute
+        conditions = []
         for dim in range(self.ndims):
-            if dim > 0:
-                query += " AND "
-            if roi.begin[dim] is not None and roi.end[dim] is not None:
-                query += (
-                    f"{pos_attr}[{dim + 1}]>={roi.begin[dim]}"
-                    f" AND {pos_attr}[{dim + 1}]<{roi.end[dim]}"
-                )
-            elif roi.begin[dim] is not None:
-                query += f"{pos_attr}[{dim + 1}]>={roi.begin[dim]}"
-            elif roi.end[dim] is not None:
-                query += f"{pos_attr}[{dim + 1}]<{roi.end[dim]}"
-            else:
-                query = query[:-5]
-        return query
+            if roi.begin[dim] is not None:
+                conditions.append(f"{pos_attr}[{dim + 1}]>={roi.begin[dim]}")
+            if roi.end[dim] is not None:
+                conditions.append(f"{pos_attr}[{dim + 1}]<{roi.end[dim]}")
+        if not conditions:
+            return ""
+        return "WHERE " + " AND ".join(conditions)
 
     def print_summary(self):
         raise ValueError("Not implemented for base SQLGraphDataBase")
