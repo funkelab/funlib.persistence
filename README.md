@@ -1,7 +1,6 @@
 [![tests](https://github.com/funkelab/funlib.persistence/actions/workflows/tests.yaml/badge.svg)](https://github.com/funkelab/funlib.persistence/actions/workflows/tests.yaml)
-[![ruff](https://github.com/funkelab/funlib.persistence/actions/workflows/ruff.yaml/badge.svg)](https://github.com/funkelab/funlib.persistence/actions/workflows/ruff.yaml)
-[![ty](https://github.com/funkelab/funlib.persistence/actions/workflows/ty.yaml/badge.svg)](https://github.com/funkelab/funlib.persistence/actions/workflows/ty.yaml)
-[![pypi](https://github.com/funkelab/funlib.persistence/actions/workflows/publish.yaml/badge.svg)](https://pypi.org/project/funlib.persistence/)
+[![lint](https://github.com/funkelab/funlib.persistence/actions/workflows/lint.yaml/badge.svg)](https://github.com/funkelab/funlib.persistence/actions/workflows/lint.yaml)
+[![publish](https://github.com/funkelab/funlib.persistence/actions/workflows/publish.yaml/badge.svg)](https://pypi.org/project/funlib.persistence/)
 
 # funlib.persistence
 Interfaces for data (arrays and graphs) and storage formats (databases and file formats)

@@ -40,9 +40,8 @@ def test_local_config(mock_path_exists, mock_file_open):
 
 
 def test_user_config(mock_path_exists, mock_file_open):
-    mock_path_exists.side_effect = (
-        lambda p: p
-        == Path.home() / ".config" / "funlib_persistence" / "funlib_persistence.toml"
+    mock_path_exists.side_effect = lambda p: (
+        p == Path.home() / ".config" / "funlib_persistence" / "funlib_persistence.toml"
     )
     mock_file_open.return_value.read.return_value = dedent(
         """
@@ -63,8 +62,8 @@ def test_user_config(mock_path_exists, mock_file_open):
 
 
 def test_global_config(mock_path_exists, mock_file_open):
-    mock_path_exists.side_effect = lambda p: p == Path(
-        "/etc/funlib_persistence/funlib_persistence.toml"
+    mock_path_exists.side_effect = lambda p: (
+        p == Path("/etc/funlib_persistence/funlib_persistence.toml")
     )
     mock_file_open.return_value.read.return_value = dedent(
         """
