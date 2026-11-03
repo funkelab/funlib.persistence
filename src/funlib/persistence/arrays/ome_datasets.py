@@ -181,7 +181,9 @@ def prepare_ome_ds(
     ) as ds:
         transforms = [
             TransformationMeta(type="scale", scale=list(metadata.ome_scale)),
-            TransformationMeta(type="translation", translation=list(metadata.ome_translate)),
+            TransformationMeta(
+                type="translation", translation=list(metadata.ome_translate)
+            ),
         ]
 
         ds.create_zeros(

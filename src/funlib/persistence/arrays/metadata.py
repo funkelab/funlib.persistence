@@ -329,7 +329,9 @@ class MetaDataFormat(BaseModel):
                 return recurse(data[current_key], keys)
 
         result = recurse(data, keys)
-        assert (isinstance(result, Sequence) and not isinstance(result, (str, int))) or result is None, result
+        assert (
+            isinstance(result, Sequence) and not isinstance(result, (str, int))
+        ) or result is None, result
         return result
 
     def parse(
@@ -343,7 +345,9 @@ class MetaDataFormat(BaseModel):
         types: Optional[Sequence[str]] = None,
         strict: bool = False,
     ) -> MetaData:
-        fetched_offset = offset if offset is not None else self.fetch(data, self.offset_attr)
+        fetched_offset = (
+            offset if offset is not None else self.fetch(data, self.offset_attr)
+        )
         fetched_voxel_size = (
             voxel_size
             if voxel_size is not None
@@ -354,8 +358,12 @@ class MetaDataFormat(BaseModel):
             if axis_names is not None
             else self.fetch(data, self.axis_names_attr)
         )
-        fetched_units = units if units is not None else self.fetch(data, self.units_attr)
-        fetched_types = types if types is not None else self.fetch(data, self.types_attr)
+        fetched_units = (
+            units if units is not None else self.fetch(data, self.units_attr)
+        )
+        fetched_types = (
+            types if types is not None else self.fetch(data, self.types_attr)
+        )
         if fetched_types is None and fetched_axis_names is not None:
             fetched_types = [
                 "channel" if str(name).endswith("^") else "space"
