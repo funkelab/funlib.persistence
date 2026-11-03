@@ -10,6 +10,13 @@ Interfaces for data (arrays and graphs) and storage formats (databases and file 
 Regular installation for usage:
 `pip install funlib.persistence`
 
-Developer installation including pytest etc.:
-`pip install funlib.persistence[dev]`
+Developer setup (pytest, ruff, ty come from the `dev` dependency group,
+which `uv sync` installs by default):
+
+```bash
+git clone https://github.com/funkelab/funlib.persistence
+cd funlib.persistence
+uv sync
+uv run pytest tests
+```
 
