@@ -1,7 +1,7 @@
 import logging
 from collections.abc import Sequence
 from functools import reduce
-from typing import Any, Optional, Union
+from typing import Any
 
 import dask.array as da
 import numpy as np
@@ -93,15 +93,15 @@ class Array(Freezable):
     def __init__(
         self,
         data,
-        offset: Optional[Sequence[int]] = None,
-        voxel_size: Optional[Sequence[int]] = None,
-        axis_names: Optional[Sequence[str]] = None,
-        units: Optional[Sequence[str]] = None,
-        types: Optional[Sequence[str]] = None,
-        chunks: Optional[Union[int, Sequence[int], str]] = "auto",
-        lazy_op: Optional[LazyOp] = None,
+        offset: Sequence[int] | None = None,
+        voxel_size: Sequence[int] | None = None,
+        axis_names: Sequence[str] | None = None,
+        units: Sequence[str] | None = None,
+        types: Sequence[str] | None = None,
+        chunks: int | Sequence[int] | str | None = "auto",
+        lazy_op: LazyOp | None = None,
         strict_metadata: bool = False,
-        scheduler: Optional[str] = None,
+        scheduler: str | None = None,
     ):
         self.scheduler = scheduler
         if not isinstance(data, da.Array):
@@ -149,7 +149,7 @@ class Array(Freezable):
             return self._attrs
 
     @property
-    def chunk_shape(self) -> Optional[Coordinate]:
+    def chunk_shape(self) -> Coordinate | None:
         """The write-safe chunk shape: the shard shape if sharded, else the chunk
         shape (an ``open_ds(chunks=...)`` override is reported as given). ``None``
         for a view that is not writeable or that lazy operations moved off the
@@ -160,14 +160,14 @@ class Array(Freezable):
         return shards if shards is not None else self._dask_chunk_shape()
 
     @property
-    def inner_chunk_shape(self) -> Optional[Coordinate]:
+    def inner_chunk_shape(self) -> Coordinate | None:
         """Chunk shape for efficient reads. Can be smaller than the write-safe
         :attr:`chunk_shape` in the case of sharding. ``None`` for a view that
         lazy operations moved off the stored chunk grid."""
         return self._dask_chunk_shape() if self._on_chunk_grid else None
 
     @property
-    def shard_shape(self) -> Optional[Coordinate]:
+    def shard_shape(self) -> Coordinate | None:
         """The shard shape in the case of sharded datasets. ``None`` for non
         sharded or unwritable datasets, or off the stored chunk grid. See
         https://zarr.readthedocs.io/en/stable/user-guide/performance.html#sharding
@@ -176,7 +176,9 @@ class Array(Freezable):
         if shards is None or not self.is_writeable or not self._on_chunk_grid:
             return None
         return Coordinate(
-            s for s, uncollapsed in zip(shards, self._uncollapsed_dims) if uncollapsed
+            s
+            for s, uncollapsed in zip(shards, self._uncollapsed_dims, strict=False)
+            if uncollapsed
         )
 
     def _dask_chunk_shape(self) -> Coordinate:
@@ -196,9 +198,13 @@ class Array(Freezable):
             unit = self.chunk_shape
             if unit is None:
                 return False
-            physical = [c for c, t in zip(unit, self.types) if t in ["space", "time"]]
+            physical = [
+                c
+                for c, t in zip(unit, self.types, strict=False)
+                if t in ["space", "time"]
+            ]
             begin = (lazy_op.offset - self.offset) / self.voxel_size
-            return all(b % c == 0 for b, c in zip(begin, physical))
+            return all(b % c == 0 for b, c in zip(begin, physical, strict=False))
         if not isinstance(lazy_op, tuple):
             lazy_op = (lazy_op,)
         for a in lazy_op:
@@ -220,7 +226,9 @@ class Array(Freezable):
         if physical:
             return [
                 x
-                for x, t in zip(self._uncollapsed_dims, self._metadata.types)
+                for x, t in zip(
+                    self._uncollapsed_dims, self._metadata.types, strict=False
+                )
                 if t in ["space", "time"]
             ]
         else:
@@ -336,7 +344,7 @@ class Array(Freezable):
             # previous in-place walk re-counted uncollapsed dims after each collapse,
             # so a tuple with two or more ints collapsed the wrong dimensions.
             dims = [i for i, uc in enumerate(self._uncollapsed_dims) if uc]
-            for a, i in zip(lazy_op, dims):
+            for a, i in zip(lazy_op, dims, strict=False):
                 if isinstance(a, int):
                     self._uncollapsed_dims[i] = False
             self.data = self.data[lazy_op]
@@ -401,8 +409,7 @@ class Array(Freezable):
 
             if not self.roi.contains(roi):
                 raise IndexError(
-                    "Requested roi %s is not contained in this array %s."
-                    % (roi, self.roi)
+                    f"Requested roi {roi} is not contained in this array {self.roi}."
                 )
 
             return self.data[self.__slices(roi, use_lazy_slices=False)].compute(
@@ -444,8 +451,7 @@ class Array(Freezable):
 
                 if not self.roi.contains(roi):
                     raise IndexError(
-                        "Requested roi %s is not contained in this array %s."
-                        % (roi, self.roi)
+                        f"Requested roi {roi} is not contained in this array {self.roi}."
                     )
 
                 region_slices = self.__slices(roi)
@@ -527,9 +533,8 @@ class Array(Freezable):
                 assert begin_align_with_chunks and (
                     shape_align_with_chunks or end_of_array
                 ), (
-                    "ROI %s (in voxels: %s) does not align with chunks of "
-                    "size %s (mismatch in dimension %d)"
-                    % (roi, voxel_roi, chunk_shape, d)
+                    f"ROI {roi} (in voxels: {voxel_roi}) does not align with "
+                    f"chunks of size {chunk_shape} (mismatch in dimension {d})"
                 )
 
         roi_slices = tuple(
@@ -556,7 +561,7 @@ class Array(Freezable):
         elif isinstance(lazy_op, list) and all([isinstance(a, int) for a in lazy_op]):
             return True
         elif isinstance(lazy_op, tuple) and all(
-            [self._is_slice(a, writeable) for a in lazy_op]  # type: ignore[arg-type]  # ty can't narrow parameterized tuple iteration
+            [self._is_slice(a, writeable) for a in lazy_op]  # ty: ignore[invalid-argument-type]  # tuple elements are not narrowed
         ):
             return True
         elif (
@@ -622,7 +627,7 @@ class Array(Freezable):
 
     def to_world_space(
         self, pixel_loc: Roi | Coordinate | Sequence[int | float] | np.ndarray
-    ) -> Roi | Coordinate:
+    ) -> Roi | Coordinate | np.ndarray:
         """Convert a point or roi from pixel space in this array to the world
         coordinate system defined by this array's roi and voxel size.
         Works on Coordiantes and Rois, as well as sequences of ints or floats.

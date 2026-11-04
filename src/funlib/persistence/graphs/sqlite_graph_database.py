@@ -4,7 +4,7 @@ import re
 import sqlite3
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 from funlib.geometry import Roi
 
@@ -20,13 +20,13 @@ class SQLiteGraphDataBase(SQLGraphDataBase):
         db_file: Path,
         position_attribute: str,
         mode: str = "r+",
-        directed: Optional[bool] = None,
-        total_roi: Optional[Roi] = None,
+        directed: bool | None = None,
+        total_roi: Roi | None = None,
         nodes_table: str = "nodes",
         edges_table: str = "edges",
-        endpoint_names: Optional[list[str]] = None,
-        node_attrs: Optional[dict[str, AttributeType]] = None,
-        edge_attrs: Optional[dict[str, AttributeType]] = None,
+        endpoint_names: list[str] | None = None,
+        node_attrs: dict[str, AttributeType] | None = None,
+        edge_attrs: dict[str, AttributeType] | None = None,
     ):
         self.db_file = db_file
         self.meta_collection = self.db_file.parent / f"{self.db_file.stem}-meta.json"
@@ -167,11 +167,11 @@ class SQLiteGraphDataBase(SQLGraphDataBase):
         with open(self.meta_collection, "w") as f:
             json.dump(metadata, f)
 
-    def _read_metadata(self) -> Optional[dict[str, Any]]:
+    def _read_metadata(self) -> dict[str, Any] | None:
         if not self.meta_collection.exists():
             return None
 
-        with open(self.meta_collection, "r") as f:
+        with open(self.meta_collection) as f:
             return json.load(f)
 
     def _select_query(self, query):
@@ -195,9 +195,11 @@ class SQLiteGraphDataBase(SQLGraphDataBase):
         for row in values:
             exploded_columns = []
             exploded_row_values = []
-            for column, value in zip(columns, row):
+            for column, value in zip(columns, row, strict=False):
                 if column in self.node_array_columns:
-                    for c, v in zip(self.node_array_columns[column], value):
+                    for c, v in zip(
+                        self.node_array_columns[column], value, strict=False
+                    ):
                         exploded_columns.append(c)
                         exploded_row_values.append(v)
                 else:
@@ -235,9 +237,9 @@ class SQLiteGraphDataBase(SQLGraphDataBase):
         for row in rows:
             exploded_cols = []
             exploded_vals = []
-            for column, value in zip(columns, row):
+            for column, value in zip(columns, row, strict=False):
                 if column in array_columns:
-                    for c, v in zip(array_columns[column], value):
+                    for c, v in zip(array_columns[column], value, strict=False):
                         exploded_cols.append(c)
                         exploded_vals.append(v)
                 else:

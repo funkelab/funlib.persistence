@@ -3,9 +3,10 @@ import json
 import logging
 from collections.abc import Iterable
 from contextlib import contextmanager
-from typing import Any, Optional
+from typing import Any
 
 import psycopg2
+import psycopg2.errors
 from funlib.geometry import Roi
 from psycopg2 import sql
 
@@ -21,17 +22,17 @@ class PgSQLGraphDatabase(SQLGraphDataBase):
         position_attribute: str,
         db_name: str,
         db_host: str = "localhost",
-        db_user: Optional[str] = None,
-        db_password: Optional[str] = None,
-        db_port: Optional[int] = None,
+        db_user: str | None = None,
+        db_password: str | None = None,
+        db_port: int | None = None,
         mode: str = "r+",
-        directed: Optional[bool] = None,
-        total_roi: Optional[Roi] = None,
+        directed: bool | None = None,
+        total_roi: Roi | None = None,
         nodes_table: str = "nodes",
         edges_table: str = "edges",
-        endpoint_names: Optional[list[str]] = None,
-        node_attrs: Optional[dict[str, AttributeType]] = None,
-        edge_attrs: Optional[dict[str, AttributeType]] = None,
+        endpoint_names: list[str] | None = None,
+        node_attrs: dict[str, AttributeType] | None = None,
+        edge_attrs: dict[str, AttributeType] | None = None,
     ):
         self.db_host = db_host
         self.db_name = db_name
@@ -114,7 +115,7 @@ class PgSQLGraphDatabase(SQLGraphDataBase):
     def _create_tables(self) -> None:
         columns = list(self.node_attrs.keys())
         types = [self.__sql_type(t) for t in self.node_attrs.values()]
-        column_types = [f"{c} {t}" for c, t in zip(columns, types)]
+        column_types = [f"{c} {t}" for c, t in zip(columns, types, strict=False)]
         self.__exec(
             f"CREATE TABLE IF NOT EXISTS "
             f"{self.nodes_table_name}("
@@ -129,7 +130,7 @@ class PgSQLGraphDatabase(SQLGraphDataBase):
 
         columns = list(self.edge_attrs.keys())
         types = list([self.__sql_type(t) for t in self.edge_attrs.values()])
-        column_types = [f"{c} {t}" for c, t in zip(columns, types)]
+        column_types = [f"{c} {t}" for c, t in zip(columns, types, strict=False)]
         endpoint_names = self.endpoint_names
         assert endpoint_names is not None
         self.__exec(
@@ -161,7 +162,7 @@ class PgSQLGraphDatabase(SQLGraphDataBase):
             "metadata", ["value"], [[json.dumps(metadata)]], fail_if_exists=True
         )
 
-    def _read_metadata(self) -> Optional[dict[str, Any]]:
+    def _read_metadata(self) -> dict[str, Any] | None:
         try:
             self.__exec("SELECT value FROM metadata")
         except psycopg2.errors.UndefinedTable:
@@ -231,10 +232,10 @@ class PgSQLGraphDatabase(SQLGraphDataBase):
             return self.__sql_type(type.dtype) + f"[{type.size}]"
         try:
             return {bool: "BOOLEAN", int: "BIGINT", str: "VARCHAR", float: "REAL"}[type]
-        except ValueError:
+        except KeyError:
             raise NotImplementedError(
                 f"attributes of type {type} are not yet supported"
-            )
+            ) from None
 
     def print_summary(self, schema="public", limit=None):
         self._commit()
@@ -247,7 +248,9 @@ class PgSQLGraphDatabase(SQLGraphDataBase):
 
         # Basic DB info (read-only)
         self.cur.execute("SELECT current_database(), current_user, version();")
-        db, user, version = self.cur.fetchone()
+        row = self.cur.fetchone()
+        assert row is not None
+        db, user, version = row
         print(f"DB: {db} | User: {user}")
         print(version.split("\n")[0])
         print("-" * 80)
