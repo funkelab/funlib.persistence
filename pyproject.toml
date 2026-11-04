@@ -44,18 +44,15 @@ dev = [
     "pytest-mock>=3.14.0",
     "ruff==0.17.3",
     "ty==0.0.96",
-    "types-networkx",
-    "types-psycopg2",
-    "types-toml",
+    "types-psycopg2",  # psycopg2 ships no inline types; ty reads this stub package
 ]
 
 [tool.setuptools.package-data]
 "funlib.persistence" = ["py.typed"]
 
-# # module specific overrides
-[[tool.mypy.overrides]]
-module = ["zarr.*", "iohub.*"]
-ignore_missing_imports = true
+[tool.ty.src]
+include = ["src", "tests"]
+exclude = []  # only ever shrinks
 
 [tool.ruff]
 line-length = 88

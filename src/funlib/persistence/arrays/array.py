@@ -561,7 +561,7 @@ class Array(Freezable):
         elif isinstance(lazy_op, list) and all([isinstance(a, int) for a in lazy_op]):
             return True
         elif isinstance(lazy_op, tuple) and all(
-            [self._is_slice(a, writeable) for a in lazy_op]  # type: ignore[arg-type]  # ty can't narrow parameterized tuple iteration
+            [self._is_slice(a, writeable) for a in lazy_op]  # ty: ignore[invalid-argument-type]  # tuple elements are not narrowed
         ):
             return True
         elif (
@@ -627,7 +627,7 @@ class Array(Freezable):
 
     def to_world_space(
         self, pixel_loc: Roi | Coordinate | Sequence[int | float] | np.ndarray
-    ) -> Roi | Coordinate:
+    ) -> Roi | Coordinate | np.ndarray:
         """Convert a point or roi from pixel space in this array to the world
         coordinate system defined by this array's roi and voxel size.
         Works on Coordiantes and Rois, as well as sequences of ints or floats.

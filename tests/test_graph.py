@@ -163,7 +163,7 @@ def test_graph_read_and_update_specific_attrs(provider_factory):
         for _u, _v, data in limited_graph.edges(data=True):
             assert "a" not in data
             assert "b" not in data
-            nx.set_edge_attributes(limited_graph, 5, "c")  # type: ignore[call-overload]
+            nx.set_edge_attributes(limited_graph, 5, "c")
 
         try:
             graph_provider.write_attrs(

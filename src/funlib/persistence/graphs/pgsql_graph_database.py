@@ -6,6 +6,7 @@ from contextlib import contextmanager
 from typing import Any
 
 import psycopg2
+import psycopg2.errors
 from funlib.geometry import Roi
 from psycopg2 import sql
 
@@ -247,7 +248,9 @@ class PgSQLGraphDatabase(SQLGraphDataBase):
 
         # Basic DB info (read-only)
         self.cur.execute("SELECT current_database(), current_user, version();")
-        db, user, version = self.cur.fetchone()
+        row = self.cur.fetchone()
+        assert row is not None
+        db, user, version = row
         print(f"DB: {db} | User: {user}")
         print(version.split("\n")[0])
         print("-" * 80)

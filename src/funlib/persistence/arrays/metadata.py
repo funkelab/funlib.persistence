@@ -373,13 +373,14 @@ class MetaDataFormat(BaseModel):
         # fetch() returns Sequence[str | int | None] | None from untyped metadata.
         # Some OME-Zarr metadata may have holes (None elements), so we pass
         # the fetched values through as-is; MetaData.validate() checks at runtime.
+        # (ty: the five ignores below record exactly that.)
         metadata = MetaData(
             shape=shape,
-            offset=fetched_offset,  # type: ignore[arg-type]
-            voxel_size=fetched_voxel_size,  # type: ignore[arg-type]
-            axis_names=fetched_axis_names,  # type: ignore[arg-type]
-            units=fetched_units,  # type: ignore[arg-type]
-            types=fetched_types,  # type: ignore[arg-type]
+            offset=fetched_offset,  # ty: ignore[invalid-argument-type]
+            voxel_size=fetched_voxel_size,  # ty: ignore[invalid-argument-type]
+            axis_names=fetched_axis_names,  # ty: ignore[invalid-argument-type]
+            units=fetched_units,  # ty: ignore[invalid-argument-type]
+            types=fetched_types,  # ty: ignore[invalid-argument-type]
             strict=strict,
         )
 
