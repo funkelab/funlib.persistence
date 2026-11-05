@@ -1,7 +1,7 @@
 import warnings
 from collections.abc import Mapping, Sequence
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 import toml
 from funlib.geometry import Coordinate
@@ -42,11 +42,11 @@ class MetaData:
     def __init__(
         self,
         shape: Sequence[int],
-        offset: Optional[Sequence[int]] = None,
-        voxel_size: Optional[Sequence[int]] = None,
-        axis_names: Optional[Sequence[str]] = None,
-        units: Optional[Sequence[str]] = None,
-        types: Optional[Sequence[str]] = None,
+        offset: Sequence[int] | None = None,
+        voxel_size: Sequence[int] | None = None,
+        axis_names: Sequence[str] | None = None,
+        units: Sequence[str] | None = None,
+        types: Sequence[str] | None = None,
         strict: bool = False,
     ):
         if types is not None:
@@ -68,7 +68,7 @@ class MetaData:
     ) -> Sequence[int | str | None]:
         interleaved: list[int | str | None] = []
         physical_ind = 0
-        for i, type in enumerate(self.types):
+        for _i, type in enumerate(self.types):
             if type in ["space", "time"]:
                 interleaved.append(physical[physical_ind])
                 physical_ind += 1
@@ -329,21 +329,25 @@ class MetaDataFormat(BaseModel):
                 return recurse(data[current_key], keys)
 
         result = recurse(data, keys)
-        assert (isinstance(result, Sequence) and not isinstance(result, (str, int))) or result is None, result
+        assert (
+            isinstance(result, Sequence) and not isinstance(result, (str, int))
+        ) or result is None, result
         return result
 
     def parse(
         self,
         shape: Sequence[int],
         data: Mapping[str, Any],
-        offset: Optional[Sequence[int]] = None,
-        voxel_size: Optional[Sequence[int]] = None,
-        axis_names: Optional[Sequence[str]] = None,
-        units: Optional[Sequence[str]] = None,
-        types: Optional[Sequence[str]] = None,
+        offset: Sequence[int] | None = None,
+        voxel_size: Sequence[int] | None = None,
+        axis_names: Sequence[str] | None = None,
+        units: Sequence[str] | None = None,
+        types: Sequence[str] | None = None,
         strict: bool = False,
     ) -> MetaData:
-        fetched_offset = offset if offset is not None else self.fetch(data, self.offset_attr)
+        fetched_offset = (
+            offset if offset is not None else self.fetch(data, self.offset_attr)
+        )
         fetched_voxel_size = (
             voxel_size
             if voxel_size is not None
@@ -354,8 +358,12 @@ class MetaDataFormat(BaseModel):
             if axis_names is not None
             else self.fetch(data, self.axis_names_attr)
         )
-        fetched_units = units if units is not None else self.fetch(data, self.units_attr)
-        fetched_types = types if types is not None else self.fetch(data, self.types_attr)
+        fetched_units = (
+            units if units is not None else self.fetch(data, self.units_attr)
+        )
+        fetched_types = (
+            types if types is not None else self.fetch(data, self.types_attr)
+        )
         if fetched_types is None and fetched_axis_names is not None:
             fetched_types = [
                 "channel" if str(name).endswith("^") else "space"
@@ -365,13 +373,14 @@ class MetaDataFormat(BaseModel):
         # fetch() returns Sequence[str | int | None] | None from untyped metadata.
         # Some OME-Zarr metadata may have holes (None elements), so we pass
         # the fetched values through as-is; MetaData.validate() checks at runtime.
+        # (ty: the five ignores below record exactly that.)
         metadata = MetaData(
             shape=shape,
-            offset=fetched_offset,  # type: ignore[arg-type]
-            voxel_size=fetched_voxel_size,  # type: ignore[arg-type]
-            axis_names=fetched_axis_names,  # type: ignore[arg-type]
-            units=fetched_units,  # type: ignore[arg-type]
-            types=fetched_types,  # type: ignore[arg-type]
+            offset=fetched_offset,  # ty: ignore[invalid-argument-type]
+            voxel_size=fetched_voxel_size,  # ty: ignore[invalid-argument-type]
+            axis_names=fetched_axis_names,  # ty: ignore[invalid-argument-type]
+            units=fetched_units,  # ty: ignore[invalid-argument-type]
+            types=fetched_types,  # ty: ignore[invalid-argument-type]
             strict=strict,
         )
 
@@ -386,11 +395,11 @@ USER_PATHS = [
 GLOBAL_PATHS = [Path("/etc/funlib_persistence/funlib_persistence.toml")]
 
 
-def read_config() -> Optional[dict]:
+def read_config() -> dict | None:
     config: dict[str, str] = {}
     for path in (LOCAL_PATHS + USER_PATHS + GLOBAL_PATHS)[::-1]:
         if path.exists():
-            with open(path, "r") as f:
+            with open(path) as f:
                 conf = toml.load(f)
                 if path.name == "pyproject.toml":
                     conf = conf.get("tool", {}).get("funlib_persistence", {})

@@ -33,27 +33,62 @@ dependencies = [
 [tool.setuptools.dynamic]
 version = { attr = "funlib.persistence.__version__" }
 
-[project.optional-dependencies]
+[project.urls]
+Documentation = "https://funkelab.github.io/funlib.persistence"
+Source = "https://github.com/funkelab/funlib.persistence"
+Issues = "https://github.com/funkelab/funlib.persistence/issues"
+
+[dependency-groups]
+# Installed by `uv sync` (PEP 735); not part of the published package.
+# ruff and ty versions come from uv.lock; `uv lock --upgrade` moves them.
 dev = [
     "coverage>=7.7.1",
     "pytest>=8.3.5",
+    "pytest-cov>=6",
     "pytest-mock>=3.14.0",
-    "ruff>=0.11.2",
-    "ty>=0.0.16",
-    "types-networkx",
-    "types-psycopg2",
-    "types-toml",
+    "ruff>=0.17.3",
+    "ty>=0.0.96",
+    "types-psycopg2",  # psycopg2 ships no inline types; ty reads this stub package
 ]
-
-[tool.ruff]
-# pyflakes, pycodestyle, isort
-lint.select = ["F", "W", "I001"]
+docs = [
+    "sphinx>=8",
+    "sphinx-autodoc-typehints>=2",
+    "autodoc_pydantic>=2",
+    "myst-parser>=4",
+    "pydata-sphinx-theme>=0.16",
+]
 
 [tool.setuptools.package-data]
 "funlib.persistence" = ["py.typed"]
 
-# # module specific overrides
-[[tool.mypy.overrides]]
-module = ["zarr.*", "iohub.*"]
-ignore_missing_imports = true
+[tool.ty.src]
+include = ["src", "tests", "benchmarks"]
+exclude = []  # only ever shrinks
 
+[tool.ruff]
+line-length = 88
+extend-exclude = ["docs/build", "*.md"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B"]
+ignore = ["E501"]  # the formatter owns line length
+
+[tool.ruff.lint.per-file-ignores]
+"tutorials/**/*.py" = ["E402"]  # jupytext cells import mid-file
+"examples/**/*.py" = ["E402"]
+"__init__.py" = ["F401"]  # re-exports
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "--cov --cov-report=term-missing"
+
+[tool.coverage.run]
+branch = true
+source = ["funlib.persistence"]
+
+[tool.coverage.report]
+# Floor measured from the first branch-enabled run; raise it when measured
+# coverage is two or more points ahead, never lower it without saying why.
+fail_under = 75
+show_missing = true
+skip_covered = true

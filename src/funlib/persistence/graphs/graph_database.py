@@ -1,6 +1,6 @@
 import logging
 from abc import ABC, abstractmethod
-from typing import Any, Optional
+from typing import Any
 
 from funlib.geometry import Roi
 from networkx import Graph
@@ -54,12 +54,12 @@ class GraphDataBase(ABC):
     @abstractmethod
     def read_graph(
         self,
-        roi: Optional[Roi] = None,
+        roi: Roi | None = None,
         read_edges: bool = True,
-        node_attrs: Optional[list[str]] = None,
-        edge_attrs: Optional[list[str]] = None,
-        nodes_filter: Optional[dict[str, Any]] = None,
-        edges_filter: Optional[dict[str, Any]] = None,
+        node_attrs: list[str] | None = None,
+        edge_attrs: list[str] | None = None,
+        nodes_filter: dict[str, Any] | None = None,
+        edges_filter: dict[str, Any] | None = None,
         fetch_on_v: bool = False,
     ) -> Graph:
         """
@@ -104,11 +104,11 @@ class GraphDataBase(ABC):
     def write_graph(
         self,
         graph: Graph,
-        roi: Optional[Roi] = None,
+        roi: Roi | None = None,
         write_nodes: bool = True,
         write_edges: bool = True,
-        node_attrs: Optional[list[str]] = None,
-        edge_attrs: Optional[list[str]] = None,
+        node_attrs: list[str] | None = None,
+        edge_attrs: list[str] | None = None,
         fail_if_exists: bool = False,
         delete: bool = False,
     ) -> None:
@@ -157,9 +157,9 @@ class GraphDataBase(ABC):
     def write_attrs(
         self,
         graph: Graph,
-        roi: Optional[Roi] = None,
-        node_attrs: Optional[list[str]] = None,
-        edge_attrs: Optional[list[str]] = None,
+        roi: Roi | None = None,
+        node_attrs: list[str] | None = None,
+        edge_attrs: list[str] | None = None,
     ) -> None:
         """
         Alias call to write_graph with write_nodes and write_edges set to False.
@@ -170,11 +170,11 @@ class GraphDataBase(ABC):
     def bulk_write_graph(
         self,
         graph: Graph,
-        roi: Optional[Roi] = None,
+        roi: Roi | None = None,
         write_nodes: bool = True,
         write_edges: bool = True,
-        node_attrs: Optional[list[str]] = None,
-        edge_attrs: Optional[list[str]] = None,
+        node_attrs: list[str] | None = None,
+        edge_attrs: list[str] | None = None,
     ) -> None:
         """
         Fast bulk write of a graph. Mirrors ``write_graph`` but optimized

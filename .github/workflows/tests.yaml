@@ -1,19 +1,23 @@
 name: tests
-
 on:
   push:
-
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
 jobs:
   test:
     name: py${{ matrix.python-version }} ${{ matrix.resolution }}
     runs-on: ubuntu-latest
-
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.11", "3.12", "3.13"]
+        # requires-python floor and newest
+        python-version: ["3.11", "3.14"]
         resolution: ["highest", "lowest-direct"]
-
+        exclude:
+          # lowest-direct on the newest interpreter: the pydantic-core and similar floors have no 3.14 wheels and their sdists do not build there
+          - python-version: "3.14"
+            resolution: lowest-direct
     services:
       postgres:
         image: postgres
@@ -26,14 +30,24 @@ jobs:
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
-
     env:
-       PGUSER: postgres
-
+      PGUSER: postgres
     steps:
-      - name: Setup checkout
-        uses: actions/checkout@master
-      - name: Install uv
-        uses: astral-sh/setup-uv@main
-      - name: Test
-        run: uv run --resolution ${{ matrix.resolution }} --extra dev --python=${{ matrix.python-version }} pytest tests
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: ${{ matrix.python-version }}
+      - run: uv sync --resolution ${{ matrix.resolution }}
+      - name: tests
+        run: |
+          start=$(date +%s%N)
+          uv run pytest
+          echo "PYTEST_SECONDS=$(awk "BEGIN {print ($(date +%s%N) - $start) / 1e9}")" >> "$GITHUB_ENV"
+      # The benchmark workflow publishes these numbers after this run completes.
+      - if: github.event_name != 'pull_request' && matrix.python-version == '3.11' && matrix.resolution == 'highest'
+        run: uv run python benchmarks/run.py --pytest-seconds "$PYTEST_SECONDS" --pytest-command "uv run pytest"
+      - if: github.event_name != 'pull_request' && matrix.python-version == '3.11' && matrix.resolution == 'highest'
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark
+          path: benchmarks/output.json

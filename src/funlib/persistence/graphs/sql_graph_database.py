@@ -1,6 +1,8 @@
 import logging
 from abc import abstractmethod
-from typing import Any, Iterable, Optional
+from collections.abc import Iterable
+from functools import partial
+from typing import Any
 
 import numpy as np
 from funlib.geometry import Coordinate, Roi
@@ -65,20 +67,20 @@ class SQLGraphDataBase(GraphDataBase):
     create_modes = ["w"]
     valid_modes = ["r", "r+", "w"]
 
-    _node_attrs: Optional[dict[str, AttributeType]] = None
-    _edge_attrs: Optional[dict[str, AttributeType]] = None
+    _node_attrs: dict[str, AttributeType] | None = None
+    _edge_attrs: dict[str, AttributeType] | None = None
 
     def __init__(
         self,
         mode: str = "r+",
-        position_attribute: Optional[str] = None,
-        directed: Optional[bool] = None,
-        total_roi: Optional[Roi] = None,
-        nodes_table: Optional[str] = None,
-        edges_table: Optional[str] = None,
-        endpoint_names: Optional[list[str]] = None,
-        node_attrs: Optional[dict[str, AttributeType]] = None,
-        edge_attrs: Optional[dict[str, AttributeType]] = None,
+        position_attribute: str | None = None,
+        directed: bool | None = None,
+        total_roi: Roi | None = None,
+        nodes_table: str | None = None,
+        edges_table: str | None = None,
+        endpoint_names: list[str] | None = None,
+        node_attrs: dict[str, AttributeType] | None = None,
+        edge_attrs: dict[str, AttributeType] | None = None,
     ):
         assert mode in self.valid_modes, (
             f"Mode '{mode}' not in allowed modes {self.valid_modes}"
@@ -169,7 +171,7 @@ class SQLGraphDataBase(GraphDataBase):
         pass
 
     @abstractmethod
-    def _read_metadata(self) -> Optional[dict[str, Any]]:
+    def _read_metadata(self) -> dict[str, Any] | None:
         pass
 
     @abstractmethod
@@ -219,12 +221,12 @@ class SQLGraphDataBase(GraphDataBase):
 
     def read_graph(
         self,
-        roi: Optional[Roi] = None,
+        roi: Roi | None = None,
         read_edges: bool = True,
-        node_attrs: Optional[list[str]] = None,
-        edge_attrs: Optional[list[str]] = None,
-        nodes_filter: Optional[dict[str, Any]] = None,
-        edges_filter: Optional[dict[str, Any]] = None,
+        node_attrs: list[str] | None = None,
+        edge_attrs: list[str] | None = None,
+        nodes_filter: dict[str, Any] | None = None,
+        edges_filter: dict[str, Any] | None = None,
         fetch_on_v: bool = False,
     ) -> Graph:
         graph: Graph
@@ -278,9 +280,9 @@ class SQLGraphDataBase(GraphDataBase):
     def write_attrs(
         self,
         graph: Graph,
-        roi: Optional[Roi] = None,
-        node_attrs: Optional[list[str]] = None,
-        edge_attrs: Optional[list[str]] = None,
+        roi: Roi | None = None,
+        node_attrs: list[str] | None = None,
+        edge_attrs: list[str] | None = None,
     ) -> None:
         self.update_nodes(
             nodes=graph.nodes,
@@ -297,11 +299,11 @@ class SQLGraphDataBase(GraphDataBase):
     def write_graph(
         self,
         graph: Graph,
-        roi: Optional[Roi] = None,
+        roi: Roi | None = None,
         write_nodes: bool = True,
         write_edges: bool = True,
-        node_attrs: Optional[list[str]] = None,
-        edge_attrs: Optional[list[str]] = None,
+        node_attrs: list[str] | None = None,
+        edge_attrs: list[str] | None = None,
         fail_if_exists: bool = False,
         delete: bool = False,
     ) -> None:
@@ -326,11 +328,11 @@ class SQLGraphDataBase(GraphDataBase):
     def bulk_write_graph(
         self,
         graph: Graph,
-        roi: Optional[Roi] = None,
+        roi: Roi | None = None,
         write_nodes: bool = True,
         write_edges: bool = True,
-        node_attrs: Optional[list[str]] = None,
-        edge_attrs: Optional[list[str]] = None,
+        node_attrs: list[str] | None = None,
+        edge_attrs: list[str] | None = None,
     ) -> None:
         if write_nodes:
             self.bulk_write_nodes(graph.nodes, roi=roi, attributes=node_attrs)
@@ -398,11 +400,11 @@ class SQLGraphDataBase(GraphDataBase):
 
     def read_nodes(
         self,
-        roi: Optional[Roi] = None,
-        attr_filter: Optional[dict[str, Any]] = None,
-        read_attrs: Optional[list[str]] = None,
-        join_collection: Optional[str] = None,
-        ids: Optional[Iterable[int]] = None,
+        roi: Roi | None = None,
+        attr_filter: dict[str, Any] | None = None,
+        read_attrs: list[str] | None = None,
+        join_collection: str | None = None,
+        ids: Iterable[int] | None = None,
     ) -> list[dict[str, Any]]:
         """Return a list of nodes within ``roi``, or the nodes with the given
         ``ids``, or all nodes.
@@ -446,7 +448,8 @@ class SQLGraphDataBase(GraphDataBase):
         ):
             nodes.extend(
                 self._columns_to_node_attrs(
-                    {key: val for key, val in zip(read_columns, values)}, read_attrs
+                    {key: val for key, val in zip(read_columns, values, strict=False)},
+                    read_attrs,
                 )
                 for values in self._select_query(statement)
             )
@@ -455,9 +458,9 @@ class SQLGraphDataBase(GraphDataBase):
     def _node_select_statements(
         self,
         columns_query: str,
-        roi: Optional[Roi],
-        ids: Optional[Iterable[int]],
-        attr_filter: Optional[dict[str, Any]],
+        roi: Roi | None,
+        ids: Iterable[int] | None,
+        attr_filter: dict[str, Any] | None,
     ) -> list[str]:
         """The SELECT statement(s) for ``read_nodes``/``read_nodes_arrays``:
         one per batch of ids, else exactly one."""
@@ -486,7 +489,7 @@ class SQLGraphDataBase(GraphDataBase):
                 statements.append(statement(clauses))
             return statements
 
-        logger.debug("Reading nodes in roi %s" % roi)
+        logger.debug(f"Reading nodes in roi {roi}")
         clauses = []
         if roi is not None:
             clauses.append(self.__roi_query(roi).replace("WHERE ", "", 1))
@@ -496,10 +499,10 @@ class SQLGraphDataBase(GraphDataBase):
 
     def read_nodes_arrays(
         self,
-        roi: Optional[Roi] = None,
-        ids: Optional[Iterable[int]] = None,
-        attr_filter: Optional[dict[str, Any]] = None,
-        read_attrs: Optional[list[str]] = None,
+        roi: Roi | None = None,
+        ids: Iterable[int] | None = None,
+        attr_filter: dict[str, Any] | None = None,
+        read_attrs: list[str] | None = None,
         chunk_size: int = 20_000,
     ) -> dict[str, np.ndarray]:
         """Columnar version of ``read_nodes``: the same selection, returned as
@@ -535,10 +538,10 @@ class SQLGraphDataBase(GraphDataBase):
 
     def read_edges(
         self,
-        roi: Optional[Roi] = None,
-        nodes: Optional[list[dict[str, Any]]] = None,
-        attr_filter: Optional[dict[str, Any]] = None,
-        read_attrs: Optional[list[str]] = None,
+        roi: Roi | None = None,
+        nodes: list[dict[str, Any]] | None = None,
+        attr_filter: dict[str, Any] | None = None,
+        read_attrs: list[str] | None = None,
         fetch_on_v: bool = False,
     ) -> list[dict[str, Any]]:
         """
@@ -571,7 +574,7 @@ class SQLGraphDataBase(GraphDataBase):
         edges = [
             {
                 key: val
-                for key, val in zip(all_edge_keys, values)
+                for key, val in zip(all_edge_keys, values, strict=False)
                 if key in final_edge_keys
             }
             for values in self._select_query(select_statement)
@@ -581,10 +584,10 @@ class SQLGraphDataBase(GraphDataBase):
 
     def read_edges_arrays(
         self,
-        roi: Optional[Roi] = None,
-        nodes: Optional[list[dict[str, Any]]] = None,
-        attr_filter: Optional[dict[str, Any]] = None,
-        read_attrs: Optional[list[str]] = None,
+        roi: Roi | None = None,
+        nodes: list[dict[str, Any]] | None = None,
+        attr_filter: dict[str, Any] | None = None,
+        read_attrs: list[str] | None = None,
         fetch_on_v: bool = False,
         chunk_size: int = 20_000,
     ) -> dict[str, np.ndarray]:
@@ -615,11 +618,11 @@ class SQLGraphDataBase(GraphDataBase):
     def _edge_select_statement(
         self,
         edge_table_cols: list[str],
-        roi: Optional[Roi],
-        nodes: Optional[list[dict[str, Any]]],
-        attr_filter: Optional[dict[str, Any]],
+        roi: Roi | None,
+        nodes: list[dict[str, Any]] | None,
+        attr_filter: dict[str, Any] | None,
         fetch_on_v: bool,
-    ) -> Optional[str]:
+    ) -> str | None:
         """The SELECT statement for ``read_edges``/``read_edges_arrays``, or
         ``None`` when the selection is empty by construction."""
         if roi is not None and nodes is not None:
@@ -705,7 +708,7 @@ class SQLGraphDataBase(GraphDataBase):
     # -- columnar reads ----------------------------------------------------
 
     @staticmethod
-    def _column_converter(attr_type, size: Optional[int] = None):
+    def _column_converter(attr_type, size: int | None = None):
         """Converter from one chunk of raw column values (a Python list) to an
         array: ids/int64 for ``None`` type, numeric -> float64 with NaN for
         None (``(chunk, size)`` when the column holds sequences), else object."""
@@ -760,7 +763,7 @@ class SQLGraphDataBase(GraphDataBase):
                     for i in range(0, len(rows_all), chunk_size)
                 )
             else:
-                chunks = iter(lambda: fetchmany(chunk_size), [])
+                chunks = iter(partial(fetchmany, chunk_size), [])
             for rows in chunks:
                 if not rows:
                     break
@@ -810,7 +813,7 @@ class SQLGraphDataBase(GraphDataBase):
         id_columns: tuple[str, ...],
         members: dict[str, list[str]],
     ) -> dict[str, np.ndarray]:
-        by_name = dict(zip(columns, raw))
+        by_name = dict(zip(columns, raw, strict=True))
 
         def cat(name, empty):
             chunks = by_name[name]
@@ -916,7 +919,7 @@ class SQLGraphDataBase(GraphDataBase):
                     continue
 
             values = [data.get(attr) for attr in attrs]
-            setters = [f"{k}={v}" for k, v in zip(attrs, values)]
+            setters = [f"{k}={v}" for k, v in zip(attrs, values, strict=False)]
             update_statement = (
                 f"UPDATE {self.edges_table_name} SET "
                 f"{', '.join(setters)} WHERE "
@@ -979,11 +982,7 @@ class SQLGraphDataBase(GraphDataBase):
                 pos_u = self.__get_node_pos(data)
 
                 if not roi.contains(pos_u):
-                    logger.debug(
-                        ("Skipping node {} because it is not in roi {}").format(
-                            node, roi
-                        )
-                    )
+                    logger.debug(f"Skipping node {node} because it is not in roi {roi}")
                     continue
 
             setters = []
@@ -1000,7 +999,7 @@ class SQLGraphDataBase(GraphDataBase):
                     components = [None] * len(columns) if value is None else list(value)
                     setters.extend(
                         f"{col} = {self.__convert_to_sql(component)}"
-                        for col, component in zip(columns, components)
+                        for col, component in zip(columns, components, strict=False)
                     )
             update_statement = (
                 f"UPDATE {self.nodes_table_name} SET "
@@ -1032,14 +1031,14 @@ class SQLGraphDataBase(GraphDataBase):
     def __load_metadata(
         self,
         metadata,
-        position_attribute: Optional[str] = None,
-        directed: Optional[bool] = None,
-        total_roi: Optional[Roi] = None,
-        nodes_table: Optional[str] = None,
-        edges_table: Optional[str] = None,
-        endpoint_names: Optional[list[str]] = None,
-        node_attrs: Optional[dict[str, AttributeType]] = None,
-        edge_attrs: Optional[dict[str, AttributeType]] = None,
+        position_attribute: str | None = None,
+        directed: bool | None = None,
+        total_roi: Roi | None = None,
+        nodes_table: str | None = None,
+        edges_table: str | None = None,
+        endpoint_names: list[str] | None = None,
+        node_attrs: dict[str, AttributeType] | None = None,
+        edge_attrs: dict[str, AttributeType] | None = None,
     ):
         """Load the provided metadata into this object's attributes, check if
         user-provided overrides are consistent with stored metadata."""
@@ -1093,7 +1092,7 @@ class SQLGraphDataBase(GraphDataBase):
 
         return {k: v for k, v in dictionary.items() if k not in keys}
 
-    def __get_node_pos(self, n: dict[str, Any]) -> Optional[Coordinate]:
+    def __get_node_pos(self, n: dict[str, Any]) -> Coordinate | None:
         try:
             return Coordinate(n[self.position_attribute])
         except KeyError:

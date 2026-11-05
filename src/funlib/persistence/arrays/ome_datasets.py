@@ -171,8 +171,10 @@ def prepare_ome_ds(
     )
 
     axis_metadata = [
-        AxisMeta(name=n, type=t, unit=u)  # type: ignore[misc]
-        for n, t, u in zip(metadata.axis_names, metadata.types, metadata.ome_units)
+        AxisMeta(name=n, type=t, unit=u)  # ty: ignore[call-non-callable]  # iohub exports a GenericAlias
+        for n, t, u in zip(
+            metadata.axis_names, metadata.types, metadata.ome_units, strict=False
+        )
     ]
 
     # create the dataset
@@ -181,7 +183,9 @@ def prepare_ome_ds(
     ) as ds:
         transforms = [
             TransformationMeta(type="scale", scale=list(metadata.ome_scale)),
-            TransformationMeta(type="translation", translation=list(metadata.ome_translate)),
+            TransformationMeta(
+                type="translation", translation=list(metadata.ome_translate)
+            ),
         ]
 
         ds.create_zeros(

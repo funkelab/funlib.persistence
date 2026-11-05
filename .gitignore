@@ -131,4 +131,5 @@ dmypy.json
 
 *.sw[pmno]
 daisy_logs
-uv.lock
+docs/build/
+benchmarks/output.json
