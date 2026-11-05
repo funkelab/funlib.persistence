@@ -1,0 +1,36 @@
+/* Use the whole window on wide screens; the theme caps the page at 88rem. */
+.bd-page-width,
+.bd-container,
+.bd-main .bd-content .bd-article-container {
+    max-width: 100% !important;
+}
+.bd-article-container {
+    padding-left: 2rem;
+    padding-right: 2rem;
+}
+
+/* Wide tables scroll inside the page rather than clipping. */
+table.table {
+    display: block;
+    overflow-x: auto;
+    white-space: nowrap;
+}
+
+/* Images fill the available width. */
+.bd-article img {
+    max-width: 100%;
+    height: auto;
+}
+
+/* One parameter per line in API signatures, as in volara's docs. */
+.sig-param::before {
+    content: "\a\20\20\20\20\20\20\20\20\20\20\20\20\20\20\20\20";
+    white-space: pre;
+}
+dt em.sig-param:last-of-type::after {
+    content: "\a";
+    white-space: pre;
+}
+dl.class > dt:first-of-type {
+    display: block !important;
+}
