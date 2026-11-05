@@ -132,3 +132,4 @@ dmypy.json
 *.sw[pmno]
 daisy_logs
 docs/build/
+benchmarks/output.json
