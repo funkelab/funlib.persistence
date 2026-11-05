@@ -392,15 +392,15 @@ class Array(Freezable):
 
         Args:
 
-            key (`class:Roi` or `class:Coordinate` or any numpy compatible key):
+            key (:class:`Roi` or :class:`Coordinate` or any numpy compatible key):
 
                 The `Roi`, `Coordinate`, or numpy compatible key indicating the data
                 you want to read.
 
         Returns:
 
-            A numpy array containing the data requested by the key. If using a `class:Roi`
-            or `class:Coordinate`, the data will be returned in world units. If using
+            A numpy array containing the data requested by the key. If using a :class:`Roi`
+            or :class:`Coordinate`, the data will be returned in world units. If using
             a numpy compatible key, the data will be sliced as a regular numpy array.
         """
 
@@ -433,7 +433,7 @@ class Array(Freezable):
 
         Args:
 
-            key (`class:Roi` or any numpy compatible key):
+            key (:class:`Roi` or any numpy compatible key):
 
                 The region to write to. Can be a `Roi` for world-unit indexing,
                 or any numpy-compatible key (e.g. ``np.s_[:]``, a slice, a tuple
@@ -487,7 +487,7 @@ class Array(Freezable):
 
         Args:
 
-            roi (`class:Roi`, optional):
+            roi (:class:`Roi`, optional):
 
                 If given, copy only the data represented by this ROI. This is
                 equivalent to::

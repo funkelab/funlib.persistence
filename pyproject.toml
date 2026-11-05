@@ -34,6 +34,7 @@ dependencies = [
 version = { attr = "funlib.persistence.__version__" }
 
 [project.urls]
+Documentation = "https://funkelab.github.io/funlib.persistence"
 Source = "https://github.com/funkelab/funlib.persistence"
 Issues = "https://github.com/funkelab/funlib.persistence/issues"
 
@@ -49,17 +50,24 @@ dev = [
     "ty>=0.0.96",
     "types-psycopg2",  # psycopg2 ships no inline types; ty reads this stub package
 ]
+docs = [
+    "sphinx>=8",
+    "sphinx-autodoc-typehints>=2",
+    "autodoc_pydantic>=2",
+    "myst-parser>=4",
+    "pydata-sphinx-theme>=0.16",
+]
 
 [tool.setuptools.package-data]
 "funlib.persistence" = ["py.typed"]
 
 [tool.ty.src]
-include = ["src", "tests"]
+include = ["src", "tests", "benchmarks"]
 exclude = []  # only ever shrinks
 
 [tool.ruff]
 line-length = 88
-extend-exclude = ["docs/build"]
+extend-exclude = ["docs/build", "*.md"]
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "UP", "B"]
@@ -69,6 +77,10 @@ ignore = ["E501"]  # the formatter owns line length
 "tutorials/**/*.py" = ["E402"]  # jupytext cells import mid-file
 "examples/**/*.py" = ["E402"]
 "__init__.py" = ["F401"]  # re-exports
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "--cov --cov-report=term-missing"
 
 [tool.coverage.run]
 branch = true
