@@ -832,7 +832,7 @@ def test_the_chunk_grid_is_history_and_is_set_only_once_an_op_applied(tmp_path):
     assert array.chunk_shape is None and array.inner_chunk_shape is None
 
     array = open_ds(store)
-    with pytest.raises(Exception, match="not a supported lazy_op"):
+    with pytest.raises(TypeError, match="not a supported lazy_op"):
         array.lazy_op(None)  # ty: ignore[invalid-argument-type]
     assert array.chunk_shape == SHARD and array.lazy_ops == []
 

@@ -473,6 +473,15 @@ def prepare_ds(
     Returns:
 
         A :class:`Array` pointing to the newly created dataset.
+
+    Raises:
+
+        A combination of `chunk_shape`, `sharding` and `inner_chunk_shape` that cannot
+        be created raises ``ValueError``, and a keyword argument the create does not
+        take raises ``TypeError``. With `sharding=True` this also covers a value
+        `zarr.create_array` refuses. All of these are refused before the location is
+        touched: nothing is created at `store` and nothing already there is changed,
+        so the corrected call can be retried in any mode.
     """
 
     metadata_format = get_default_metadata_format()
