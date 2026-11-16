@@ -523,3 +523,51 @@ def test_scheduler_is_honoured_on_reads(scheduler):
     if scheduler == "single-threaded":
         assert seen == {threading.get_ident()}
     # with None or "threads" dask may use any threads; only the result is asserted
+
+
+def test_to_ndarray_of_a_roi_beside_the_array_is_all_fill_value():
+    a = Array(np.ones((2, 2)), (0, 0), (1, 1))
+    np.testing.assert_array_equal(
+        a.to_ndarray(Roi((2, 0), (1, 2)), fill_value=5), [[5, 5]]
+    )
+
+
+def test_attrs_of_an_in_memory_array_keep_what_is_put_in_them():
+    a = Array(np.zeros((2, 2)), (0, 0), (1, 1))
+    assert a.attrs == {}
+    a.attrs["custom"] = "metadata"
+    assert a.attrs == {"custom": "metadata"}
+
+
+def _read_roi(array, roi):
+    return array[roi]
+
+
+def _write_roi(array, roi):
+    array[roi] = 1
+
+
+@pytest.mark.parametrize(
+    "access, error, match",
+    [
+        (_read_roi, IndexError, "is not contained in this array"),
+        (_write_roi, IndexError, "is not contained in this array"),
+        (Array.to_pixel_space, ValueError, "is not included in this array"),
+    ],
+    ids=["read", "write", "to_pixel_space"],
+)
+def test_a_roi_reaching_outside_the_array_is_refused(access, error, match):
+    a = Array(np.zeros((4, 4)), (0, 0), (1, 1))
+    with pytest.raises(error, match=match):
+        access(a, Roi((2, 2), (4, 4)))
+
+
+def test_metadata_for_the_wrong_number_of_physical_dimensions_is_refused():
+    with pytest.raises(ValueError, match="are not compatible"):
+        Array(np.zeros((2, 4, 4)), offset=(0,), types=["channel", "space", "space"])
+
+
+def test_an_array_takes_no_new_attributes():
+    a = Array(np.zeros((2, 2)), (0, 0), (1, 1))
+    with pytest.raises(TypeError, match="is frozen"):
+        a.bogus = 1

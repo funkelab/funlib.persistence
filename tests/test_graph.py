@@ -4,6 +4,7 @@ import psycopg2
 import pytest
 from funlib.geometry import Roi
 
+from funlib.persistence.graphs import SQLiteGraphDataBase
 from funlib.persistence.types import Vec
 
 # What a write refused by ``fail_if_exists=True`` raises: the sqlite backend wraps the
@@ -704,4 +705,161 @@ def test_graph_mode_w_starts_from_an_empty_database(provider_factory, write_meth
     with provider_factory("r") as provider:
         result = provider.read_graph()
         assert sorted(result.nodes()) == [3]
+        assert list(result.edges()) == []
+
+
+def _path_graph(graph_type=nx.Graph):
+    """Nodes 1 - 2 - 3 along x, one per unit cell, with a score of 0 everywhere."""
+    graph = graph_type()
+    for node in (1, 2, 3):
+        graph.add_node(node, position=(node - 0.5, 0.5, 0.5), score=0.0)
+    graph.add_edge(1, 2, score=0.0)
+    graph.add_edge(2, 3, score=0.0)
+    return graph
+
+
+SCORED = dict(
+    node_attrs={"position": Vec(float, 3), "score": float},
+    edge_attrs={"score": float},
+)
+
+
+def test_directed_graph_keeps_edge_direction(provider_factory, write_method):
+    graph = nx.DiGraph()
+    graph.add_node(1, position=(0.5, 0.5, 0.5))
+    graph.add_node(2, position=(1.5, 0.5, 0.5))
+    graph.add_edge(2, 1)
+
+    with provider_factory(
+        "w", directed=True, node_attrs={"position": Vec(float, 3)}
+    ) as provider:
+        _write_graph(provider, graph, write_method)
+
+    with provider_factory("r") as provider:
+        result = provider.read_graph()
+        assert result.is_directed() is True
+        assert list(result.edges()) == [(2, 1)]
+
+
+def test_num_nodes_counts_the_nodes_in_the_roi(provider_factory):
+    with provider_factory("w", **SCORED) as provider:
+        provider.write_graph(_path_graph())
+        assert provider.num_nodes(Roi((0, 0, 0), (2, 1, 1))) == 2
+
+
+def test_read_edges_of_no_nodes_is_empty(provider_factory):
+    with provider_factory("w", **SCORED) as provider:
+        provider.write_graph(_path_graph())
+        assert provider.read_edges(nodes=[]) == []
+
+
+def test_read_edges_refuses_a_roi_together_with_nodes(provider_factory):
+    with provider_factory("w", **SCORED) as provider:
+        provider.write_graph(_path_graph())
+        with pytest.raises(ValueError, match="both roi and nodes"):
+            provider.read_edges(roi=Roi((0, 0, 0), (1, 1, 1)), nodes=[])
+
+
+def test_write_roi_limits_bulk_writes(provider_factory):
+    """Nodes are written where they lie in the ROI, edges where their first endpoint
+    does."""
+    with provider_factory("w", **SCORED) as provider:
+        provider.bulk_write_graph(_path_graph(), roi=Roi((0, 0, 0), (1, 1, 1)))
+        assert [node["id"] for node in provider.read_nodes()] == [1]
+        assert [(edge["u"], edge["v"]) for edge in provider.read_edges()] == [(1, 2)]
+
+
+def test_write_attrs_roi_limits_the_update(provider_factory):
+    graph = _path_graph()
+    with provider_factory("w", **SCORED) as provider:
+        provider.write_graph(graph)
+        nx.set_node_attributes(graph, 1.0, "score")
+        nx.set_edge_attributes(graph, 1.0, "score")
+        provider.write_attrs(
+            graph,
+            roi=Roi((0, 0, 0), (1, 1, 1)),
+            node_attrs=["score"],
+            edge_attrs=["score"],
+        )
+
+        result = provider.read_graph()
+        assert sorted(result.nodes(data="score")) == [(1, 1.0), (2, 0.0), (3, 0.0)]
+        assert sorted(
+            (min(u, v), max(u, v), score) for u, v, score in result.edges(data="score")
+        ) == [(1, 2, 1.0), (2, 3, 0.0)]
+
+
+@pytest.mark.parametrize(
+    "write",
+    [
+        lambda provider, graph: provider.write_nodes(graph.nodes),
+        lambda provider, graph: provider.write_edges(graph.nodes, graph.edges),
+        lambda provider, graph: provider.bulk_write_nodes(graph.nodes),
+        lambda provider, graph: provider.bulk_write_edges(graph.nodes, graph.edges),
+        lambda provider, graph: provider.update_nodes(graph.nodes),
+        lambda provider, graph: provider.update_edges(graph.nodes, graph.edges),
+    ],
+    ids=[
+        "write_nodes",
+        "write_edges",
+        "bulk_write_nodes",
+        "bulk_write_edges",
+        "update_nodes",
+        "update_edges",
+    ],
+)
+def test_mode_r_refuses_writes(provider_factory, write):
+    graph = _path_graph()
+    with provider_factory("w", **SCORED) as provider:
+        provider.write_graph(graph)
+    with provider_factory("r") as provider:
+        with pytest.raises(RuntimeError, match="Trying to write to read-only DB"):
+            write(provider, graph)
+
+
+@pytest.mark.parametrize(
+    "write",
+    [
+        lambda provider, graph: provider.write_nodes(graph.nodes, delete=True),
+        lambda provider, graph: provider.write_edges(
+            graph.nodes, graph.edges, delete=True
+        ),
+    ],
+    ids=["write_nodes", "write_edges"],
+)
+def test_delete_before_writing_is_not_implemented(provider_factory, write):
+    with provider_factory("w", **SCORED) as provider:
+        with pytest.raises(NotImplementedError, match="Delete not implemented"):
+            write(provider, _path_graph())
+
+
+def test_sqlite_mode_r_refuses_a_file_that_holds_no_graph(tmp_path):
+    with pytest.raises(RuntimeError, match="metadata does not exist"):
+        SQLiteGraphDataBase(
+            tmp_path / "empty.db", position_attribute="position", mode="r"
+        )
+
+
+@pytest.mark.parametrize(
+    "parts, nodes, edges",
+    [
+        (dict(write_edges=False), [1, 2, 3], []),
+        (dict(write_nodes=False), [], [(1, 2), (2, 3)]),
+    ],
+    ids=["nodes-only", "edges-only"],
+)
+def test_write_graph_writes_the_parts_asked_for(
+    provider_factory, write_method, parts, nodes, edges
+):
+    with provider_factory("w", **SCORED) as provider:
+        _write_graph(provider, _path_graph(), write_method, **parts)
+        assert [node["id"] for node in provider.read_nodes()] == nodes
+        assert [(edge["u"], edge["v"]) for edge in provider.read_edges()] == edges
+
+
+def test_read_graph_without_edges(provider_factory):
+    with provider_factory("w", **SCORED) as provider:
+        provider.write_graph(_path_graph())
+        result = provider.read_graph(read_edges=False)
+        assert sorted(result.nodes()) == [1, 2, 3]
         assert list(result.edges()) == []
