@@ -4,56 +4,42 @@ from unittest.mock import mock_open
 
 import pytest
 
-from funlib.persistence.arrays.metadata import configure_library, read_config
+from funlib.persistence.arrays.metadata import (
+    configure_library,
+    get_default_metadata_format,
+    read_config,
+    set_default_metadata_format,
+)
+
+SETTINGS = """
+    offset_attr = "test_offset"
+    voxel_size_attr = "resolution"
+    axis_names_attr = "axes"
+    units_attr = "units"
+    """
 
 
-@pytest.fixture
-def mock_path_exists(mocker):
-    return mocker.patch("pathlib.Path.exists", autospec=True)
+@pytest.fixture(
+    params=[
+        (Path("pyproject.toml"), "[tool.funlib_persistence]" + SETTINGS),
+        (
+            Path.home() / ".config" / "funlib_persistence" / "funlib_persistence.toml",
+            SETTINGS,
+        ),
+        (Path("/etc/funlib_persistence/funlib_persistence.toml"), SETTINGS),
+    ],
+    ids=["local", "user", "global"],
+)
+def config_file(request, mocker):
+    """The filesystem holds exactly one config file, at one of the three locations."""
+    path, text = request.param
+    mocker.patch("pathlib.Path.exists", autospec=True).side_effect = lambda p: p == path
+    mocker.patch("builtins.open", new_callable=mock_open, read_data=dedent(text))
+    return path
 
 
-@pytest.fixture
-def mock_file_open(mocker):
-    return mocker.patch("builtins.open", new_callable=mock_open)
-
-
-def test_local_config(mock_path_exists, mock_file_open):
-    mock_path_exists.side_effect = lambda p: p == Path("pyproject.toml")
-    mock_file_open.return_value.read.return_value = dedent(
-        """
-        [tool.funlib_persistence]
-        offset_attr = "test_offset"
-        voxel_size_attr = "resolution"
-        axis_names_attr = "axes"
-        units_attr = "units"
-        """
-    )
-
-    config = read_config()
-    assert config == {
-        "offset_attr": "test_offset",
-        "voxel_size_attr": "resolution",
-        "axis_names_attr": "axes",
-        "units_attr": "units",
-    }
-    configure_library()
-
-
-def test_user_config(mock_path_exists, mock_file_open):
-    mock_path_exists.side_effect = lambda p: (
-        p == Path.home() / ".config" / "funlib_persistence" / "funlib_persistence.toml"
-    )
-    mock_file_open.return_value.read.return_value = dedent(
-        """
-        offset_attr = "test_offset"
-        voxel_size_attr = "resolution"
-        axis_names_attr = "axes"
-        units_attr = "units"
-        """
-    )
-
-    config = read_config()
-    assert config == {
+def test_read_config(config_file):
+    assert read_config() == {
         "offset_attr": "test_offset",
         "voxel_size_attr": "resolution",
         "axis_names_attr": "axes",
@@ -61,23 +47,16 @@ def test_user_config(mock_path_exists, mock_file_open):
     }
 
 
-def test_global_config(mock_path_exists, mock_file_open):
-    mock_path_exists.side_effect = lambda p: (
-        p == Path("/etc/funlib_persistence/funlib_persistence.toml")
-    )
-    mock_file_open.return_value.read.return_value = dedent(
-        """
-        offset_attr = "test_offset"
-        voxel_size_attr = "resolution"
-        axis_names_attr = "axes"
-        units_attr = "units"
-        """
-    )
-
-    config = read_config()
-    assert config == {
-        "offset_attr": "test_offset",
-        "voxel_size_attr": "resolution",
-        "axis_names_attr": "axes",
-        "units_attr": "units",
-    }
+def test_configure_library_sets_the_default_metadata_format(config_file):
+    before = get_default_metadata_format()
+    try:
+        configure_library()
+        configured = get_default_metadata_format()
+        assert (
+            configured.offset_attr,
+            configured.voxel_size_attr,
+            configured.axis_names_attr,
+            configured.units_attr,
+        ) == ("test_offset", "resolution", "axes", "units")
+    finally:
+        set_default_metadata_format(before)

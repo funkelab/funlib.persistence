@@ -466,19 +466,24 @@ def test_to_pixel_world_space_roi():
     assert arr.to_world_space(pixel_loc) == world_loc
 
 
-def test_lazy_op_with_several_ints_collapses_the_dimensions_they_index():
-    """`np.s_[0, 1]` indexes dimensions 0 and 1. The in-place walk re-counted the
-    uncollapsed dimensions after each collapse, so the second int landed on dimension 2."""
-    for key, uncollapsed, names in [
-        (np.s_[0, 1], [False, False, True], ["c"]),
-        (np.s_[:, 1, 2], [True, False, False], ["a"]),
-        (np.s_[0, :, 2], [False, True, False], ["b"]),
-    ]:
-        array = Array(np.zeros((2, 3, 4)), axis_names=["a", "b", "c"])
-        array.lazy_op(key)
-        assert array.uncollapsed_dims() == uncollapsed, key
-        assert array.axis_names == names, key
-        assert array.shape == np.zeros((2, 3, 4))[key].shape, key
+@pytest.mark.parametrize(
+    "key, uncollapsed, names, shape",
+    [
+        (np.s_[1], [False, True, True], ["b", "c"], (3, 4)),
+        (np.s_[0, 1], [False, False, True], ["c"], (4,)),
+        (np.s_[:, 1, 2], [True, False, False], ["a"], (2,)),
+        (np.s_[0, :, 2], [False, True, False], ["b"], (3,)),
+    ],
+    ids=["[1]", "[0, 1]", "[:, 1, 2]", "[0, :, 2]"],
+)
+def test_lazy_op_ints_collapse_the_dimensions_they_index(
+    key, uncollapsed, names, shape
+):
+    array = Array(np.zeros((2, 3, 4)), axis_names=["a", "b", "c"])
+    array.lazy_op(key)
+    assert array.uncollapsed_dims() == uncollapsed
+    assert array.axis_names == names
+    assert array.shape == shape
 
 
 def _thread_recording_dask_array(seen: set, shape=(4, 4), chunks=(1, 4)):
