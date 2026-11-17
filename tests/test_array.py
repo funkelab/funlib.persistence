@@ -518,3 +518,27 @@ def test_scheduler_is_honoured_on_reads(scheduler):
     if scheduler == "single-threaded":
         assert seen == {threading.get_ident()}
     # with None or "threads" dask may use any threads; only the result is asserted
+
+
+COMPLETE_METADATA = {
+    "offset": (0, 0),
+    "voxel_size": (1, 1),
+    "axis_names": ["y", "x"],
+    "units": ["nm", "nm"],
+    "types": ["space", "space"],
+}
+
+
+def test_strict_metadata_accepts_an_array_with_every_field():
+    array = Array(np.zeros((4, 4)), strict_metadata=True, **COMPLETE_METADATA)
+
+    assert array.axis_names == ["y", "x"]
+    assert array.units == ["nm", "nm"]
+
+
+@pytest.mark.parametrize("missing", sorted(COMPLETE_METADATA))
+def test_strict_metadata_requires_every_field(missing):
+    given = {k: v for k, v in COMPLETE_METADATA.items() if k != missing}
+
+    with pytest.raises(ValueError, match="requires all metadata attributes"):
+        Array(np.zeros((4, 4)), strict_metadata=True, **given)
