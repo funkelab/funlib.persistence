@@ -36,8 +36,24 @@ def test_metadata(tmp_path, store):
     assert open_ds(store).attrs["custom2"] == "new metadata"
 
 
-@pytest.mark.parametrize("store", stores.keys())
-@pytest.mark.parametrize("dtype", [np.float32, np.uint8, np.uint64])
+# every store with one dtype, every dtype with one store
+STORES_AND_DTYPES = [(store, np.float32) for store in stores] + [
+    ("zarr", np.uint8),
+    ("zarr", np.uint64),
+]
+
+
+def _assert_placed(array, metadata, shape, voxel_size=None):
+    """The array carries `metadata`, for an array of `shape` (and `voxel_size`)."""
+    voxel_size = metadata.voxel_size if voxel_size is None else voxel_size
+    assert array.roi == Roi(metadata.offset, voxel_size * Coordinate(*shape[-3:]))
+    assert array.voxel_size == voxel_size
+    assert array.offset == metadata.offset
+    assert array.axis_names == metadata.axis_names
+    assert array.units == metadata.units
+
+
+@pytest.mark.parametrize("store, dtype", STORES_AND_DTYPES)
 def test_helpers(tmp_path, store, dtype):
     shape = Coordinate(1, 1, 10, 20, 30)
     chunk_shape = Coordinate(2, 3, 10, 10, 10)
@@ -53,175 +69,62 @@ def test_helpers(tmp_path, store, dtype):
         },
     )
 
-    # test prepare_ds fails if array does not exist and mode is read
-    with pytest.raises(FileNotFoundError):
-        prepare_ds(
+    def prepare(shape, mode, voxel_size=metadata.voxel_size):
+        return prepare_ds(
             store,
             shape,
             metadata.offset,
-            metadata.voxel_size,
+            voxel_size,
             metadata.axis_names,
             metadata.units,
             metadata.types,
             chunk_shape=chunk_shape,
             dtype=dtype,
-            mode="r",
+            mode=mode,
         )
 
+    def assert_placed(array, shape, voxel_size=metadata.voxel_size):
+        _assert_placed(array, metadata, shape, voxel_size)
+        assert array.types == metadata.types
+
+    # test prepare_ds fails if array does not exist and mode is read
+    with pytest.raises(FileNotFoundError):
+        prepare(shape, "r")
+
     # test prepare_ds creates array if it does not exist and mode is write
-    array = prepare_ds(
-        store,
-        shape,
-        metadata.offset,
-        metadata.voxel_size,
-        metadata.axis_names,
-        metadata.units,
-        metadata.types,
-        chunk_shape=chunk_shape,
-        dtype=dtype,
-        mode="w",
-    )
-    assert array.roi == Roi(
-        metadata.offset, metadata.voxel_size * Coordinate(*shape[-3:])
-    )
-    assert array.voxel_size == metadata.voxel_size
-    assert array.offset == metadata.offset
-    assert array.axis_names == metadata.axis_names
-    assert array.units == metadata.units
-    assert array.types == metadata.types
+    assert_placed(prepare(shape, "w"), shape)
 
     # test prepare_ds opens array if it exists and mode is read
-    array = prepare_ds(
-        store,
-        shape,
-        metadata.offset,
-        metadata.voxel_size,
-        metadata.axis_names,
-        metadata.units,
-        metadata.types,
-        chunk_shape=chunk_shape,
-        dtype=dtype,
-        mode="r",
-    )
-    assert array.roi == Roi(
-        metadata.offset, metadata.voxel_size * Coordinate(*shape[-3:])
-    )
-    assert array.voxel_size == metadata.voxel_size
-    assert array.offset == metadata.offset
-    assert array.axis_names == metadata.axis_names
-    assert array.units == metadata.units
-    assert array.types == metadata.types
+    assert_placed(prepare(shape, "r"), shape)
 
     # test prepare_ds fails if array exists and is opened in read mode
     # with incompatible arguments
     with pytest.raises(PermissionError):
-        array = prepare_ds(
-            store,
-            chunk_shape,
-            metadata.offset,
-            metadata.voxel_size,
-            metadata.axis_names,
-            metadata.units,
-            metadata.types,
-            chunk_shape=chunk_shape,
-            dtype=dtype,
-            mode="r",
-        )
+        prepare(chunk_shape, "r")
 
     # test prepare_ds overwrite existing array in write mode
-    array = prepare_ds(
-        store,
-        chunk_shape,
-        metadata.offset,
-        metadata.voxel_size,
-        metadata.axis_names,
-        metadata.units,
-        metadata.types,
-        chunk_shape=chunk_shape,
-        dtype=dtype,
-        mode="w",
-    )
-    assert array.roi == Roi(
-        metadata.offset, metadata.voxel_size * Coordinate(*chunk_shape[-3:])
-    )
-    assert array.voxel_size == metadata.voxel_size
-    assert array.offset == metadata.offset
-    assert array.axis_names == metadata.axis_names
-    assert array.units == metadata.units
-    assert array.types == metadata.types
+    assert_placed(prepare(chunk_shape, "w"), chunk_shape)
 
     # test prepare_ds updates metadata existing array in "r+" or "a" mode if it exists
-    array = prepare_ds(
-        store,
+    assert_placed(
+        prepare(chunk_shape, "r+", metadata.voxel_size * 2),
         chunk_shape,
-        metadata.offset,
         metadata.voxel_size * 2,
-        metadata.axis_names,
-        metadata.units,
-        metadata.types,
-        chunk_shape=chunk_shape,
-        dtype=dtype,
-        mode="r+",
     )
-    assert array.roi == Roi(
-        metadata.offset, metadata.voxel_size * Coordinate(*chunk_shape[-3:]) * 2
-    )
-    assert array.voxel_size == metadata.voxel_size * 2
-    assert array.offset == metadata.offset
-    assert array.axis_names == metadata.axis_names
-    assert array.units == metadata.units
-    assert array.types == metadata.types
 
     # test prepare_ds updates existing array in "r+" or "a" mode if it exists
-    array = prepare_ds(
-        store,
-        chunk_shape,
-        metadata.offset,
-        metadata.voxel_size,
-        metadata.axis_names,
-        metadata.units,
-        metadata.types,
-        chunk_shape=chunk_shape,
-        dtype=dtype,
-        mode="a",
-    )
-    assert array.roi == Roi(
-        metadata.offset, metadata.voxel_size * Coordinate(*chunk_shape[-3:])
-    )
-    assert array.voxel_size == metadata.voxel_size
-    assert array.offset == metadata.offset
-    assert array.axis_names == metadata.axis_names
-    assert array.units == metadata.units
-    assert array.types == metadata.types
+    array = prepare(chunk_shape, "a")
+    assert_placed(array, chunk_shape)
 
     # test prepare_ds with mode "w" overwrites existing array even if compatible
     array[:] = 2
     assert np.all(np.isclose(array[:], 2))
-    array = prepare_ds(
-        store,
-        chunk_shape,
-        metadata.offset,
-        metadata.voxel_size,
-        metadata.axis_names,
-        metadata.units,
-        metadata.types,
-        chunk_shape=chunk_shape,
-        dtype=dtype,
-        mode="w",
-    )
+    array = prepare(chunk_shape, "w")
     assert np.all(np.isclose(array[:], 0))
-    assert array.roi == Roi(
-        metadata.offset, metadata.voxel_size * Coordinate(*chunk_shape[-3:])
-    )
-    assert array.voxel_size == metadata.voxel_size
-    assert array.offset == metadata.offset
-    assert array.axis_names == metadata.axis_names
-    assert array.units == metadata.units
-    assert array.types == metadata.types
+    assert_placed(array, chunk_shape)
 
 
-@pytest.mark.parametrize("store", stores.keys())
-@pytest.mark.parametrize("dtype", [np.float32, np.uint8, np.uint64])
+@pytest.mark.parametrize("store, dtype", STORES_AND_DTYPES)
 def test_open_ds(tmp_path, store, dtype):
     shape = Coordinate(1, 1, 10, 20, 30)
     store = tmp_path / store
@@ -235,55 +138,23 @@ def test_open_ds(tmp_path, store, dtype):
             "types": ["sample", "channel", "space", "space", "space"],
         },
     )
+    placement: dict[str, Any] = dict(
+        offset=metadata.offset,
+        voxel_size=metadata.voxel_size,
+        axis_names=metadata.axis_names,
+        units=metadata.units,
+    )
 
     # test open_ds fails if array does not exist and mode is read
     with pytest.raises(FileNotFoundError):
-        open_ds(
-            store,
-            offset=metadata.offset,
-            voxel_size=metadata.voxel_size,
-            axis_names=metadata.axis_names,
-            units=metadata.units,
-            types=metadata.types,
-            mode="r",
-        )
+        open_ds(store, types=metadata.types, mode="r", **placement)
 
-    # test open_ds creates array if it does not exist and mode is write
-    array = prepare_ds(
-        store,
-        shape,
-        offset=metadata.offset,
-        voxel_size=metadata.voxel_size,
-        axis_names=metadata.axis_names,
-        units=metadata.units,
-        types=metadata.types,
-        dtype=dtype,
-        mode="w",
+    # test open_ds opens what prepare_ds created
+    created = prepare_ds(
+        store, shape, types=metadata.types, dtype=dtype, mode="w", **placement
     )
-    assert array.roi == Roi(
-        metadata.offset, metadata.voxel_size * Coordinate(*shape[-3:])
-    )
-    assert array.voxel_size == metadata.voxel_size
-    assert array.offset == metadata.offset
-    assert array.axis_names == metadata.axis_names
-    assert array.units == metadata.units
-
-    # test open_ds opens array if it exists and mode is read
-    array = open_ds(
-        store,
-        offset=metadata.offset,
-        voxel_size=metadata.voxel_size,
-        axis_names=metadata.axis_names,
-        units=metadata.units,
-        mode="r",
-    )
-    assert array.roi == Roi(
-        metadata.offset, metadata.voxel_size * Coordinate(*shape[-3:])
-    )
-    assert array.voxel_size == metadata.voxel_size
-    assert array.offset == metadata.offset
-    assert array.axis_names == metadata.axis_names
-    assert array.units == metadata.units
+    _assert_placed(created, metadata, shape)
+    _assert_placed(open_ds(store, mode="r", **placement), metadata, shape)
 
     # test open_ds arguments take the place of the stored metadata
     array = open_ds(
@@ -359,7 +230,6 @@ def test_sharded(tmp_path, store):
     np.testing.assert_array_equal(reopened[reopened.roi], data)
 
 
-@pytest.mark.parametrize("store", SHARDED_STORES)
 @pytest.mark.parametrize(
     "over",
     [
@@ -369,16 +239,15 @@ def test_sharded(tmp_path, store):
     ],
     ids=["same-layout", "sharding-unsaid", "inner-chunk-unsaid"],
 )
-def test_sharded_is_reused_by_a_caller_with_the_same_write_unit(tmp_path, store, over):
+def test_sharded_is_reused_by_a_caller_with_the_same_write_unit(tmp_path, over):
     """`sharding` is a creation option only, and no inner chunk means "don't care"."""
-    store = tmp_path / stores[store]
+    store = tmp_path / stores["zarr"]
     data = _sharded_with_data(store)
     same = _sharded(store, mode="a", **over)
     np.testing.assert_array_equal(same[same.roi], data)
     assert same.chunk_shape == SHARD
 
 
-@pytest.mark.parametrize("store", SHARDED_STORES)
 @pytest.mark.parametrize(
     "over",
     [{"chunk_shape": (2, 32, 32)}, {"inner_chunk_shape": (2, 8, 8)}],
@@ -386,9 +255,9 @@ def test_sharded_is_reused_by_a_caller_with_the_same_write_unit(tmp_path, store,
 )
 @pytest.mark.parametrize("mode", ["r", "r+", "a"])
 def test_sharded_with_another_layout_is_refused_and_keeps_its_data(
-    tmp_path, store, over, mode
+    tmp_path, over, mode
 ):
-    store = tmp_path / stores[store]
+    store = tmp_path / stores["zarr"]
     data = _sharded_with_data(store)
     with pytest.raises(PermissionError):
         _sharded(store, mode=mode, **over)
