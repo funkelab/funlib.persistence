@@ -219,3 +219,26 @@ def test_open_errors(tmp_path):
         CSRGraphDataBase(db.path, mode="r").write_node_arrays(
             np.array([1]), position=np.zeros((1, 3))
         )
+
+
+def _finalizer(path, part):
+    ids, pos, size, u, v, adj, lr = random_graph()
+    db = CSRGraphDataBase(path, mode="r+")
+    rows = np.arange(len(ids)) % 4 == part
+    # outside bulk_write_mode: every write finalizes, here from four processes
+    db.write_node_arrays(ids[rows], position=pos[rows], size=size[rows])
+
+
+def test_processes_that_each_finalize_do_not_collide(tmp_path):
+    path = tmp_path / "g.csr"
+    create(path)
+    procs = [
+        mp.get_context("spawn").Process(target=_finalizer, args=(path, k))
+        for k in range(4)
+    ]
+    for p in procs:
+        p.start()
+    for p in procs:
+        p.join()
+    assert all(p.exitcode == 0 for p in procs)
+    assert CSRGraphDataBase(path, mode="r").num_nodes == len(random_graph()[0])

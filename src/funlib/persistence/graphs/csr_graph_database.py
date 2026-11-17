@@ -22,6 +22,7 @@ process does that. Reads see the arrays of the last finalize.
 
 from __future__ import annotations
 
+import fcntl
 import json
 import logging
 import os
@@ -659,6 +660,13 @@ class CSRGraphDataBase(GraphDataBase):
         for segment in self._segments.values():
             segment.close()
         self._segments = {}
+        # one finalize at a time: a second process waits, then finds the
+        # segments the first one merged gone
+        with open(self.path / "finalize.lock", "w") as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            self._finalize()
+
+    def _finalize(self) -> None:
         paths = self._pending()
         if not paths:
             return
@@ -691,7 +699,7 @@ class CSRGraphDataBase(GraphDataBase):
             edges = self._merge("edge", ["u", "v"], existing, edge_batches)
         self._build(ids, nodes, edges, sort_nodes)
         for path in paths:
-            path.unlink()
+            path.unlink(missing_ok=True)
 
     def _build(self, ids, nodes, edges, sort_nodes: bool) -> None:
         position = nodes[self.position_attribute].reshape(len(ids), -1).astype(float)
