@@ -1,3 +1,5 @@
+from typing import Any
+
 import dask.array as da
 import numpy as np
 import pytest
@@ -520,7 +522,7 @@ def test_scheduler_is_honoured_on_reads(scheduler):
     # with None or "threads" dask may use any threads; only the result is asserted
 
 
-COMPLETE_METADATA = {
+COMPLETE_METADATA: dict[str, Any] = {
     "offset": (0, 0),
     "voxel_size": (1, 1),
     "axis_names": ["y", "x"],
