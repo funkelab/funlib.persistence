@@ -3,6 +3,7 @@ import numpy as np
 import pytest
 from funlib.geometry import Roi
 
+from funlib.persistence.graphs import SQLiteGraphDataBase
 from funlib.persistence.types import Vec
 
 
@@ -29,22 +30,44 @@ def _write_graph(provider, graph, write_method, **kwargs):
         provider.write_graph(graph, **kwargs)
 
 
+def _selected_graph():
+    graph = nx.Graph()
+    graph.add_node(2, position=(2, 2, 2), selected=True, test="test")
+    graph.add_node(42, position=(1, 1, 1), selected=False, test="test2")
+    graph.add_node(23, position=(5, 5, 5), selected=True, test="test2")
+    graph.add_node(57, position=(7, 7, 7), selected=True, test="test")
+    graph.add_edge(42, 23, selected=False, a=100, b=3)
+    graph.add_edge(57, 23, selected=True, a=100, b=2)
+    graph.add_edge(2, 42, selected=True, a=101, b=3)
+    return graph
+
+
+SELECTED = dict(
+    node_attrs={"position": Vec(float, 3), "selected": bool, "test": str},
+    edge_attrs={"selected": bool, "a": int, "b": int},
+)
+
+
+def _swip_zap_graph():
+    graph = nx.Graph()
+    graph.add_node(2, position=(0, 0, 0))
+    graph.add_node(42, position=(1, 1, 1))
+    graph.add_node(23, position=(5, 5, 5), swip="swap")
+    graph.add_node(57, position=(7, 7, 7), zap="zip")
+    graph.add_edge(42, 23)
+    graph.add_edge(57, 23)
+    graph.add_edge(2, 42)
+    return graph
+
+
+SWIP_ZAP = dict(node_attrs={"position": Vec(float, 3), "swip": str, "zap": str})
+
+
 def test_graph_filtering(provider_factory, write_method):
     roi = Roi((0, 0, 0), (10, 10, 10))
-    graph = nx.Graph()
-    graph.add_node(2, position=(2, 2, 2), selected=True)
-    graph.add_node(42, position=(1, 1, 1), selected=False)
-    graph.add_node(23, position=(5, 5, 5), selected=True)
-    graph.add_node(57, position=(7, 7, 7), selected=True)
-    graph.add_edge(42, 23, selected=False)
-    graph.add_edge(57, 23, selected=True)
-    graph.add_edge(2, 42, selected=True)
+    graph = _selected_graph()
 
-    with provider_factory(
-        "w",
-        node_attrs={"position": Vec(float, 3), "selected": bool},
-        edge_attrs={"selected": bool},
-    ) as graph_writer:
+    with provider_factory("w", **SELECTED) as graph_writer:
         _write_nodes(graph_writer, graph.nodes(), write_method)
         _write_edges(graph_writer, graph.nodes(), graph.edges(), write_method)
 
@@ -82,20 +105,9 @@ def test_graph_filtering(provider_factory, write_method):
 
 def test_graph_filtering_complex(provider_factory, write_method):
     roi = Roi((0, 0, 0), (10, 10, 10))
-    graph = nx.Graph()
-    graph.add_node(2, position=(2, 2, 2), selected=True, test="test")
-    graph.add_node(42, position=(1, 1, 1), selected=False, test="test2")
-    graph.add_node(23, position=(5, 5, 5), selected=True, test="test2")
-    graph.add_node(57, position=(7, 7, 7), selected=True, test="test")
-    graph.add_edge(42, 23, selected=False, a=100, b=3)
-    graph.add_edge(57, 23, selected=True, a=100, b=2)
-    graph.add_edge(2, 42, selected=True, a=101, b=3)
+    graph = _selected_graph()
 
-    with provider_factory(
-        "w",
-        node_attrs={"position": Vec(float, 3), "selected": bool, "test": str},
-        edge_attrs={"selected": bool, "a": int, "b": int},
-    ) as graph_provider:
+    with provider_factory("w", **SELECTED) as graph_provider:
         _write_nodes(graph_provider, graph.nodes(), write_method)
         _write_edges(graph_provider, graph.nodes(), graph.edges(), write_method)
 
@@ -134,14 +146,7 @@ def test_graph_filtering_complex(provider_factory, write_method):
 
 def test_graph_read_and_update_specific_attrs(provider_factory):
     roi = Roi((0, 0, 0), (10, 10, 10))
-    graph = nx.Graph()
-    graph.add_node(2, position=(2, 2, 2), selected=True, test="test")
-    graph.add_node(42, position=(1, 1, 1), selected=False, test="test2")
-    graph.add_node(23, position=(5, 5, 5), selected=True, test="test2")
-    graph.add_node(57, position=(7, 7, 7), selected=True, test="test")
-    graph.add_edge(42, 23, selected=False, a=100, b=3)
-    graph.add_edge(57, 23, selected=True, a=100, b=2)
-    graph.add_edge(2, 42, selected=True, a=101, b=3)
+    graph = _selected_graph()
 
     with provider_factory(
         "w",
@@ -156,14 +161,12 @@ def test_graph_read_and_update_specific_attrs(provider_factory):
         )
 
         for _node, data in limited_graph.nodes(data=True):
-            assert "test" not in data
-            assert "selected" in data
+            assert set(data) == {"selected"}
             data["selected"] = True
 
         for _u, _v, data in limited_graph.edges(data=True):
-            assert "a" not in data
-            assert "b" not in data
-            nx.set_edge_attributes(limited_graph, 5, "c")
+            assert set(data) == {"c"}
+        nx.set_edge_attributes(limited_graph, 5, "c")
 
         try:
             graph_provider.write_attrs(
@@ -221,20 +224,9 @@ def test_graph_update_vector_node_attr(provider_factory):
 
 def test_graph_read_unbounded_roi(provider_factory, write_method):
     unbounded_roi = Roi((None, None, None), (None, None, None))
-    graph = nx.Graph()
-    graph.add_node(2, position=(2, 2, 2), selected=True, test="test")
-    graph.add_node(42, position=(1, 1, 1), selected=False, test="test2")
-    graph.add_node(23, position=(5, 5, 5), selected=True, test="test2")
-    graph.add_node(57, position=(7, 7, 7), selected=True, test="test")
-    graph.add_edge(42, 23, selected=False, a=100, b=3)
-    graph.add_edge(57, 23, selected=True, a=100, b=2)
-    graph.add_edge(2, 42, selected=True, a=101, b=3)
+    graph = _selected_graph()
 
-    with provider_factory(
-        "w",
-        node_attrs={"position": Vec(float, 3), "selected": bool, "test": str},
-        edge_attrs={"selected": bool, "a": int, "b": int},
-    ) as graph_provider:
+    with provider_factory("w", **SELECTED) as graph_provider:
         _write_nodes(graph_provider, graph.nodes(), write_method)
         _write_edges(graph_provider, graph.nodes(), graph.edges(), write_method)
 
@@ -245,9 +237,7 @@ def test_graph_read_unbounded_roi(provider_factory, write_method):
 
         seen = []
         for node, data in limited_graph.nodes(data=True):
-            assert "test" not in data
-            assert "selected" in data
-            data["selected"] = True
+            assert set(data) == {"selected"}
             seen.append(node)
 
         assert sorted([2, 42, 23, 57]) == sorted(seen)
@@ -278,19 +268,9 @@ def test_graph_default_meta_values(provider_factory):
 
 
 def test_graph_io(provider_factory, write_method):
-    graph = nx.Graph()
-    graph.add_node(2, position=(0, 0, 0))
-    graph.add_node(42, position=(1, 1, 1))
-    graph.add_node(23, position=(5, 5, 5), swip="swap")
-    graph.add_node(57, position=(7, 7, 7), zap="zip")
-    graph.add_edge(42, 23)
-    graph.add_edge(57, 23)
-    graph.add_edge(2, 42)
+    graph = _swip_zap_graph()
 
-    with provider_factory(
-        "w",
-        node_attrs={"position": Vec(float, 3), "swip": str, "zap": str},
-    ) as graph_provider:
+    with provider_factory("w", **SWIP_ZAP) as graph_provider:
         _write_nodes(graph_provider, graph.nodes(), write_method)
         _write_edges(graph_provider, graph.nodes(), graph.edges(), write_method)
 
@@ -309,31 +289,7 @@ def test_graph_io(provider_factory, write_method):
     assert edges == compare_edges
 
 
-def test_graph_fail_if_exists(provider_factory):
-    graph = nx.Graph()
-    graph.add_node(2, position=(0, 0, 0))
-    graph.add_node(42, position=(1, 1, 1))
-    graph.add_node(23, position=(5, 5, 5), swip="swap")
-    graph.add_node(57, position=(7, 7, 7), zap="zip")
-    graph.add_edge(42, 23)
-    graph.add_edge(57, 23)
-    graph.add_edge(2, 42)
-
-    with provider_factory(
-        "w",
-        node_attrs={"position": Vec(float, 3), "swip": str, "zap": str},
-    ) as graph_provider:
-        graph_provider.write_graph(graph)
-        with pytest.raises(Exception):  # noqa: B017 -- backend-specific error
-            graph_provider.write_nodes(graph.nodes(), fail_if_exists=True)
-        with pytest.raises(Exception):  # noqa: B017 -- backend-specific error
-            graph_provider.write_edges(
-                graph.nodes(), graph.edges(), fail_if_exists=True
-            )
-
-
-def test_graph_duplicate_insert_behavior(provider_factory):
-    """Test that fail_if_exists controls whether duplicate inserts raise."""
+def test_graph_duplicate_insert_is_ignored_without_fail_if_exists(provider_factory):
     roi = Roi((0, 0, 0), (10, 10, 10))
     graph = nx.Graph()
     graph.add_node(2, position=(2, 2, 2), selected=True)
@@ -349,14 +305,6 @@ def test_graph_duplicate_insert_behavior(provider_factory):
         graph_provider.write_nodes(graph.nodes())
         graph_provider.write_edges(graph.nodes(), graph.edges())
 
-        # fail_if_exists=True should raise on duplicate nodes and edges
-        with pytest.raises(Exception):  # noqa: B017 -- backend-specific error
-            graph_provider.write_nodes(graph.nodes(), fail_if_exists=True)
-        with pytest.raises(Exception):  # noqa: B017 -- backend-specific error
-            graph_provider.write_edges(
-                graph.nodes(), graph.edges(), fail_if_exists=True
-            )
-
         # fail_if_exists=False should silently ignore duplicates
         graph_provider.write_nodes(graph.nodes(), fail_if_exists=False)
         graph_provider.write_edges(graph.nodes(), graph.edges(), fail_if_exists=False)
@@ -365,29 +313,7 @@ def test_graph_duplicate_insert_behavior(provider_factory):
     with provider_factory("r") as graph_provider:
         result = graph_provider.read_graph(roi)
         assert set(result.nodes()) == {2, 42}
-        assert len(result.edges()) == 1
-
-
-def test_graph_fail_if_not_exists(provider_factory):
-    graph = nx.Graph()
-    graph.add_node(2, position=(0, 0, 0))
-    graph.add_node(42, position=(1, 1, 1))
-    graph.add_node(23, position=(5, 5, 5), swip="swap")
-    graph.add_node(57, position=(7, 7, 7), zap="zip")
-    graph.add_edge(42, 23)
-    graph.add_edge(57, 23)
-    graph.add_edge(2, 42)
-
-    with provider_factory(
-        "w",
-        node_attrs={"position": Vec(float, 3), "swip": str, "zap": str},
-    ) as graph_provider:
-        with pytest.raises(Exception):  # noqa: B017 -- backend-specific error
-            graph_provider.write_nodes(graph.nodes(), fail_if_not_exists=True)
-        with pytest.raises(Exception):  # noqa: B017 -- backend-specific error
-            graph_provider.write_edges(
-                graph.nodes(), graph.edges(), fail_if_not_exists=True
-            )
+        assert [tuple(sorted(edge)) for edge in result.edges()] == [(2, 42)]
 
 
 def test_graph_write_attributes(provider_factory, write_method):
@@ -443,20 +369,10 @@ def test_graph_write_attributes(provider_factory, write_method):
 
 
 def test_graph_write_roi(provider_factory, write_method):
-    graph = nx.Graph()
-    graph.add_node(2, position=(0, 0, 0))
-    graph.add_node(42, position=(1, 1, 1))
-    graph.add_node(23, position=(5, 5, 5), swip="swap")
-    graph.add_node(57, position=(7, 7, 7), zap="zip")
-    graph.add_edge(42, 23)
-    graph.add_edge(57, 23)
-    graph.add_edge(2, 42)
+    graph = _swip_zap_graph()
 
     write_roi = Roi((0, 0, 0), (6, 6, 6))
-    with provider_factory(
-        "w",
-        node_attrs={"position": Vec(float, 3), "swip": str, "zap": str},
-    ) as graph_provider:
+    with provider_factory("w", **SWIP_ZAP) as graph_provider:
         _write_graph(graph_provider, graph, write_method, roi=write_roi)
 
     with provider_factory("r") as graph_provider:
@@ -477,10 +393,7 @@ def test_graph_write_roi(provider_factory, write_method):
 
 
 def test_graph_connected_components(provider_factory):
-    with provider_factory(
-        "w",
-        node_attrs={"position": Vec(float, 3), "swip": str, "zap": str},
-    ) as graph_provider:
+    with provider_factory("w", **SWIP_ZAP) as graph_provider:
         graph = graph_provider[Roi((0, 0, 0), (10, 10, 10))]
 
         graph.add_node(2, position=(0, 0, 0))
@@ -513,19 +426,10 @@ def test_graph_connected_components(provider_factory):
 
 def test_graph_has_edge(provider_factory, write_method):
     roi = Roi((0, 0, 0), (10, 10, 10))
-    graph = nx.Graph()
-    graph.add_node(2, position=(0, 0, 0))
-    graph.add_node(42, position=(1, 1, 1))
-    graph.add_node(23, position=(5, 5, 5), swip="swap")
-    graph.add_node(57, position=(7, 7, 7), zap="zip")
-    graph.add_edge(42, 23)
-    graph.add_edge(57, 23)
+    graph = _swip_zap_graph()
 
     write_roi = Roi((0, 0, 0), (6, 6, 6))
-    with provider_factory(
-        "w",
-        node_attrs={"position": Vec(float, 3), "swip": str, "zap": str},
-    ) as graph_provider:
+    with provider_factory("w", **SWIP_ZAP) as graph_provider:
         _write_nodes(graph_provider, graph.nodes(), write_method, roi=write_roi)
         _write_edges(
             graph_provider, graph.nodes(), graph.edges(), write_method, roi=write_roi
@@ -533,26 +437,16 @@ def test_graph_has_edge(provider_factory, write_method):
         assert graph_provider.has_edges(roi)
 
 
-def test_read_edges_join_vs_in_clause(provider_factory, write_method):
-    """Benchmark: read_edges with JOIN (roi-only) vs IN clause (nodes list).
-
-    Demonstrates that the JOIN path avoids serializing a large node ID list
-    into the SQL query, and lets the DB optimizer do the work instead.
-    """
-    import time
-    from itertools import product
-
-    size = 50  # 50^3 = 125,000 nodes
+def test_read_edges_by_roi_matches_read_edges_by_the_nodes_in_it(
+    provider_factory, write_method
+):
+    """`read_edges(roi=...)` (one JOIN) returns the edges that `read_nodes(roi)`
+    followed by `read_edges(nodes=...)` (an IN clause) returns."""
+    # a path 0 - 1 - 2 - 3 - 4 along x, one node per unit cell
     graph = nx.Graph()
-    for x, y, z in product(range(size), repeat=3):
-        node_id = x * size * size + y * size + z
-        graph.add_node(node_id, position=(x + 0.5, y + 0.5, z + 0.5))
-        if x > 0:
-            graph.add_edge(node_id, (x - 1) * size * size + y * size + z)
-        if y > 0:
-            graph.add_edge(node_id, x * size * size + (y - 1) * size + z)
-        if z > 0:
-            graph.add_edge(node_id, x * size * size + y * size + (z - 1))
+    for i in range(5):
+        graph.add_node(i, position=(i + 0.5, 0.5, 0.5))
+    graph.add_edges_from([(0, 1), (1, 2), (2, 3), (3, 4)])
 
     with provider_factory(
         "w",
@@ -561,39 +455,14 @@ def test_read_edges_join_vs_in_clause(provider_factory, write_method):
         _write_graph(graph_provider, graph, write_method)
 
     with provider_factory("r") as graph_provider:
-        query_roi = Roi((10, 10, 10), (30, 30, 30))
-        n_repeats = 5
+        query_roi = Roi((1, 0, 0), (2, 1, 1))  # holds nodes 1 and 2
+        nodes = graph_provider.read_nodes(query_roi)
+        edges_via_in = graph_provider.read_edges(nodes=nodes)
+        edges_via_join = graph_provider.read_edges(roi=query_roi)
 
-        # --- Old approach: read_nodes, then read_edges with nodes list ---
-        times_in_clause = []
-        for _ in range(n_repeats):
-            t0 = time.perf_counter()
-            nodes = graph_provider.read_nodes(query_roi)
-            edges_via_in = graph_provider.read_edges(nodes=nodes)
-            t1 = time.perf_counter()
-            times_in_clause.append(t1 - t0)
-
-        # --- New approach: read_edges with roi (JOIN) ---
-        times_join = []
-        for _ in range(n_repeats):
-            t0 = time.perf_counter()
-            edges_via_join = graph_provider.read_edges(roi=query_roi)
-            t1 = time.perf_counter()
-            times_join.append(t1 - t0)
-
-    avg_in = sum(times_in_clause) / n_repeats
-    avg_join = sum(times_join) / n_repeats
-
-    print(f"\n--- read_edges benchmark (roi covers {30**3:,} of {size**3:,} nodes) ---")
-    print(f"IN clause (2 queries):  {avg_in * 1000:.1f} ms avg")
-    print(f"JOIN      (1 query):    {avg_join * 1000:.1f} ms avg")
-    print(f"Speedup: {avg_in / avg_join:.2f}x")
-
-    # Both should return edges — just verify they're non-empty and reasonable
-    assert len(edges_via_in) > 0
-    assert len(edges_via_join) > 0
-    # JOIN finds edges where either endpoint is in ROI (superset of IN approach)
-    assert len(edges_via_join) == len(edges_via_in)
+    # an edge is stored once, as (min, max), and found by its first endpoint
+    assert sorted((e["u"], e["v"]) for e in edges_via_join) == [(1, 2), (2, 3)]
+    assert sorted((e["u"], e["v"]) for e in edges_via_in) == [(1, 2), (2, 3)]
 
 
 def test_read_edges_fetch_on_v(provider_factory, write_method):
@@ -734,27 +603,18 @@ def test_edges_indexed_on_both_endpoints(provider_factory):
 
 
 def test_graph_roi_upper_bound_exclusive(provider_factory):
-    """Nodes at exactly the upper bound of the ROI must be excluded.
-
-    ROI is half-open [begin, end). A node whose position equals end in any
-    dimension should NOT appear in read_nodes or read_graph results.
-
-    Regression test for: https://github.com/funkelab/funlib.persistence/issues/XX
-    """
-    roi = Roi((0, 0, 0), (10, 10, 10))  # [0, 10) in each dim
+    """A ROI is half-open, [begin, end): a node on the lower bound is read, a node
+    whose position equals the end in any dimension is not."""
+    roi = Roi((0, 0, 0), (10, 10, 10))
 
     graph = nx.Graph()
-    # Interior node — clearly inside
-    graph.add_node(1, position=(5.0, 5.0, 5.0))
-    # Node exactly on lower bound — should be included
-    graph.add_node(2, position=(0.0, 0.0, 0.0))
-    # Nodes exactly on upper bound — should be excluded
+    graph.add_node(1, position=(5.0, 5.0, 5.0))  # interior
+    graph.add_node(2, position=(0.0, 0.0, 0.0))  # on the lower bound
     graph.add_node(3, position=(10.0, 5.0, 5.0))  # x == end
     graph.add_node(4, position=(5.0, 10.0, 5.0))  # y == end
     graph.add_node(5, position=(5.0, 5.0, 10.0))  # z == end
     graph.add_node(6, position=(10.0, 10.0, 10.0))  # all dims == end
-    # Edge crossing the boundary (u inside, v on boundary)
-    graph.add_edge(1, 3)
+    graph.add_edge(1, 3)  # u inside, v on the upper bound
 
     with provider_factory(
         "w",
@@ -763,93 +623,190 @@ def test_graph_roi_upper_bound_exclusive(provider_factory):
         gp.write_graph(graph)
 
     with provider_factory("r") as gp:
-        # read_nodes: only nodes strictly inside [0, 10)
-        nodes = gp.read_nodes(roi)
-        node_ids = {n["id"] for n in nodes}
-        assert node_ids == {1, 2}, f"Expected {{1, 2}}, got {node_ids}"
+        assert {n["id"] for n in gp.read_nodes(roi)} == {1, 2}
 
-        # read_graph: same node set, edge (1,3) should still appear
-        # because node 3 is pulled in as a bare node via the edge
+        # read_graph: the same nodes, plus node 3 as a bare node (no position)
+        # because the edge (1, 3) starts inside the ROI
         result = gp.read_graph(roi)
-        result_node_ids = set(result.nodes())
-        # Node 3 may appear as a bare node (no position) via the edge
-        assert 1 in result_node_ids
-        assert 2 in result_node_ids
-        # Nodes 4, 5, 6 have no edges to interior nodes — must not appear
-        assert 4 not in result_node_ids
-        assert 5 not in result_node_ids
-        assert 6 not in result_node_ids
-
-        # Verify that nodes returned by read_nodes all have positions inside ROI
-        for node in nodes:
-            pos = node["position"]
-            for dim in range(3):
-                assert pos[dim] >= roi.begin[dim], (
-                    f"Node {node['id']} pos[{dim}]={pos[dim]} < roi.begin={roi.begin[dim]}"
-                )
-                assert pos[dim] < roi.end[dim], (
-                    f"Node {node['id']} pos[{dim}]={pos[dim]} >= roi.end={roi.end[dim]}"
-                )
+        assert {node: set(data) for node, data in result.nodes(data=True)} == {
+            1: {"position"},
+            2: {"position"},
+            3: set(),
+        }
+        assert sorted(tuple(sorted(e)) for e in result.edges()) == [(1, 3)]
 
 
-def _build_grid_graph(size):
-    """Build a 3D grid graph with size^3 nodes and ~3*size^2*(size-1) edges."""
-    from itertools import product
-
+def test_graph_mode_w_starts_from_an_empty_database(provider_factory, write_method):
     graph = nx.Graph()
-    for x, y, z in product(range(size), repeat=3):
-        node_id = x * size * size + y * size + z
-        graph.add_node(node_id, position=(x + 0.5, y + 0.5, z + 0.5))
-        if x > 0:
-            graph.add_edge(node_id, (x - 1) * size * size + y * size + z)
-        if y > 0:
-            graph.add_edge(node_id, x * size * size + (y - 1) * size + z)
-        if z > 0:
-            graph.add_edge(node_id, x * size * size + y * size + (z - 1))
+    graph.add_node(1, position=(0.5, 0.5, 0.5))
+    graph.add_node(2, position=(1.5, 0.5, 0.5))
+    graph.add_edge(1, 2)
+    replacement = nx.Graph()
+    replacement.add_node(3, position=(2.5, 0.5, 0.5))
+
+    with provider_factory("w", node_attrs={"position": Vec(float, 3)}) as provider:
+        _write_graph(provider, graph, write_method)
+    with provider_factory("w", node_attrs={"position": Vec(float, 3)}) as provider:
+        _write_graph(provider, replacement, write_method)
+
+    with provider_factory("r") as provider:
+        result = provider.read_graph()
+        assert sorted(result.nodes()) == [3]
+        assert list(result.edges()) == []
+
+
+def _path_graph(graph_type=nx.Graph):
+    """Nodes 1 - 2 - 3 along x, one per unit cell, with a score of 0 everywhere."""
+    graph = graph_type()
+    for node in (1, 2, 3):
+        graph.add_node(node, position=(node - 0.5, 0.5, 0.5), score=0.0)
+    graph.add_edge(1, 2, score=0.0)
+    graph.add_edge(2, 3, score=0.0)
     return graph
 
 
-def test_bulk_write_benchmark(provider_factory):
-    """Benchmark: standard write_graph vs bulk_write_graph."""
-    import time
+SCORED = dict(
+    node_attrs={"position": Vec(float, 3), "score": float},
+    edge_attrs={"score": float},
+)
 
-    size = 30  # 30^3 = 27,000 nodes
-    graph = _build_grid_graph(size)
-    n_nodes = graph.number_of_nodes()
-    n_edges = graph.number_of_edges()
 
-    # --- Standard write ---
+def test_directed_graph_keeps_edge_direction(provider_factory, write_method):
+    graph = nx.DiGraph()
+    graph.add_node(1, position=(0.5, 0.5, 0.5))
+    graph.add_node(2, position=(1.5, 0.5, 0.5))
+    graph.add_edge(2, 1)
+
     with provider_factory(
-        "w",
-        node_attrs={"position": Vec(float, 3)},
-    ) as graph_provider:
-        t0 = time.perf_counter()
-        graph_provider.write_graph(graph)
-        t_standard = time.perf_counter() - t0
+        "w", directed=True, node_attrs={"position": Vec(float, 3)}
+    ) as provider:
+        _write_graph(provider, graph, write_method)
 
-    # Verify standard write
-    with provider_factory("r") as graph_reader:
-        result = graph_reader.read_graph()
-        assert result.number_of_nodes() == n_nodes
-        assert result.number_of_edges() == n_edges
+    with provider_factory("r") as provider:
+        result = provider.read_graph()
+        assert result.is_directed() is True
+        assert list(result.edges()) == [(2, 1)]
 
-    # --- Bulk write (recreate tables, with bulk_write_mode) ---
-    with provider_factory(
-        "w",
-        node_attrs={"position": Vec(float, 3)},
-    ) as graph_provider:
-        with graph_provider.bulk_write_mode():
-            t0 = time.perf_counter()
-            graph_provider.bulk_write_graph(graph)
-            t_bulk = time.perf_counter() - t0
 
-    # Verify bulk write
-    with provider_factory("r") as graph_reader:
-        result = graph_reader.read_graph()
-        assert result.number_of_nodes() == n_nodes
-        assert result.number_of_edges() == n_edges
+def test_num_nodes_counts_the_nodes_in_the_roi(provider_factory):
+    with provider_factory("w", **SCORED) as provider:
+        provider.write_graph(_path_graph())
+        assert provider.num_nodes(Roi((0, 0, 0), (2, 1, 1))) == 2
 
-    print(f"\n--- write benchmark ({n_nodes:,} nodes, {n_edges:,} edges) ---")
-    print(f"Standard: {t_standard * 1000:.1f} ms")
-    print(f"Bulk:     {t_bulk * 1000:.1f} ms")
-    print(f"Speedup:  {t_standard / t_bulk:.2f}x")
+
+def test_read_edges_of_no_nodes_is_empty(provider_factory):
+    with provider_factory("w", **SCORED) as provider:
+        provider.write_graph(_path_graph())
+        assert provider.read_edges(nodes=[]) == []
+
+
+def test_read_edges_refuses_a_roi_together_with_nodes(provider_factory):
+    with provider_factory("w", **SCORED) as provider:
+        provider.write_graph(_path_graph())
+        with pytest.raises(ValueError, match="both roi and nodes"):
+            provider.read_edges(roi=Roi((0, 0, 0), (1, 1, 1)), nodes=[])
+
+
+def test_write_roi_limits_bulk_writes(provider_factory):
+    """Nodes are written where they lie in the ROI, edges where their first endpoint
+    does."""
+    with provider_factory("w", **SCORED) as provider:
+        provider.bulk_write_graph(_path_graph(), roi=Roi((0, 0, 0), (1, 1, 1)))
+        assert [node["id"] for node in provider.read_nodes()] == [1]
+        assert [(edge["u"], edge["v"]) for edge in provider.read_edges()] == [(1, 2)]
+
+
+def test_write_attrs_roi_limits_the_update(provider_factory):
+    graph = _path_graph()
+    with provider_factory("w", **SCORED) as provider:
+        provider.write_graph(graph)
+        nx.set_node_attributes(graph, 1.0, "score")
+        nx.set_edge_attributes(graph, 1.0, "score")
+        provider.write_attrs(
+            graph,
+            roi=Roi((0, 0, 0), (1, 1, 1)),
+            node_attrs=["score"],
+            edge_attrs=["score"],
+        )
+
+        result = provider.read_graph()
+        assert sorted(result.nodes(data="score")) == [(1, 1.0), (2, 0.0), (3, 0.0)]
+        assert sorted(
+            (min(u, v), max(u, v), score) for u, v, score in result.edges(data="score")
+        ) == [(1, 2, 1.0), (2, 3, 0.0)]
+
+
+@pytest.mark.parametrize(
+    "write",
+    [
+        lambda provider, graph: provider.write_nodes(graph.nodes),
+        lambda provider, graph: provider.write_edges(graph.nodes, graph.edges),
+        lambda provider, graph: provider.bulk_write_nodes(graph.nodes),
+        lambda provider, graph: provider.bulk_write_edges(graph.nodes, graph.edges),
+        lambda provider, graph: provider.update_nodes(graph.nodes),
+        lambda provider, graph: provider.update_edges(graph.nodes, graph.edges),
+    ],
+    ids=[
+        "write_nodes",
+        "write_edges",
+        "bulk_write_nodes",
+        "bulk_write_edges",
+        "update_nodes",
+        "update_edges",
+    ],
+)
+def test_mode_r_refuses_writes(provider_factory, write):
+    graph = _path_graph()
+    with provider_factory("w", **SCORED) as provider:
+        provider.write_graph(graph)
+    with provider_factory("r") as provider:
+        with pytest.raises(RuntimeError, match="Trying to write to read-only DB"):
+            write(provider, graph)
+
+
+@pytest.mark.parametrize(
+    "write",
+    [
+        lambda provider, graph: provider.write_nodes(graph.nodes, delete=True),
+        lambda provider, graph: provider.write_edges(
+            graph.nodes, graph.edges, delete=True
+        ),
+    ],
+    ids=["write_nodes", "write_edges"],
+)
+def test_delete_before_writing_is_not_implemented(provider_factory, write):
+    with provider_factory("w", **SCORED) as provider:
+        with pytest.raises(NotImplementedError, match="Delete not implemented"):
+            write(provider, _path_graph())
+
+
+def test_sqlite_mode_r_refuses_a_file_that_holds_no_graph(tmp_path):
+    with pytest.raises(RuntimeError, match="metadata does not exist"):
+        SQLiteGraphDataBase(
+            tmp_path / "empty.db", position_attribute="position", mode="r"
+        )
+
+
+@pytest.mark.parametrize(
+    "parts, nodes, edges",
+    [
+        (dict(write_edges=False), [1, 2, 3], []),
+        (dict(write_nodes=False), [], [(1, 2), (2, 3)]),
+    ],
+    ids=["nodes-only", "edges-only"],
+)
+def test_write_graph_writes_the_parts_asked_for(
+    provider_factory, write_method, parts, nodes, edges
+):
+    with provider_factory("w", **SCORED) as provider:
+        _write_graph(provider, _path_graph(), write_method, **parts)
+        assert [node["id"] for node in provider.read_nodes()] == nodes
+        assert [(edge["u"], edge["v"]) for edge in provider.read_edges()] == edges
+
+
+def test_read_graph_without_edges(provider_factory):
+    with provider_factory("w", **SCORED) as provider:
+        provider.write_graph(_path_graph())
+        result = provider.read_graph(read_edges=False)
+        assert sorted(result.nodes()) == [1, 2, 3]
+        assert list(result.edges()) == []

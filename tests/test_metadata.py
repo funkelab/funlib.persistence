@@ -7,7 +7,9 @@ from funlib.geometry import Coordinate
 
 from funlib.persistence.arrays.datasets import prepare_ds
 from funlib.persistence.arrays.metadata import (
+    MetaData,
     MetaDataFormat,
+    get_default_metadata_format,
     set_default_metadata_format,
 )
 
@@ -91,8 +93,16 @@ def test_empty_metadata():
     assert metadata.types == ["space", "space", "space", "space", "space"]
 
 
-def test_default_metadata_format(tmp_path):
+@pytest.fixture
+def simple_default_metadata_format():
+    """The "simple" format is the process default for the length of one test."""
+    before = get_default_metadata_format()
     set_default_metadata_format(metadata_formats["simple"])
+    yield
+    set_default_metadata_format(before)
+
+
+def test_default_metadata_format(tmp_path, simple_default_metadata_format):
     metadata = metadata_formats["simple"].parse(
         (10, 2, 100, 100, 100),
         json.loads(open(fixtures_dir / metadata_jsons["simple"]).read()),
@@ -116,3 +126,45 @@ def test_default_metadata_format(tmp_path):
     assert zarr_attrs["extras/axes"] == ["sample^", "channel^", "t", "y", "x"]
     assert zarr_attrs["extras/units"] == ["nm", "nm", "nm"]
     assert zarr_attrs["types"] == ["sample", "channel", "time", "space", "space"]
+
+
+@pytest.mark.parametrize(
+    "data, key, value",
+    [
+        ({"offset": [100, 200, 400]}, "offset", [100, 200, 400]),
+        ({"metadata": {"offset": [100, 200, 400]}}, "metadata/offset", [100, 200, 400]),
+        ({"axes": [{"offset": 0}, {"offset": 1}]}, "axes/{dim}/offset", [0, 1]),
+        (
+            {"arrays": [{"name": "a", "offset": [1, 1]}, {"offset": [2, 2]}]},
+            "arrays/0/offset",
+            [1, 1],
+        ),
+        ({"offsets": [[1, 1], [2, 2]]}, "offsets/1", [2, 2]),
+        ({"axes": [{"unit": "nm"}, {}]}, "axes/{dim}/unit", ["nm", None]),
+        ({"offset": [100, 200, 400]}, "voxel_size", None),
+    ],
+    ids=[
+        "plain",
+        "nested",
+        "per-dimension",
+        "list-index",
+        "list-index-last",
+        "per-dimension-missing",
+        "absent",
+    ],
+)
+def test_fetch(data, key, value):
+    assert MetaDataFormat().fetch(data, key) == value
+
+
+def test_ome_metadata_carries_a_neutral_entry_for_each_channel_axis():
+    metadata = MetaData(
+        (2, 4, 6, 8),
+        offset=(2, 4, 6),
+        voxel_size=(1, 2, 3),
+        units=["nm", "nm", "nm"],
+        types=["channel", "space", "space", "space"],
+    )
+    assert metadata.ome_scale == [1, 1, 2, 3]
+    assert metadata.ome_translate == [0, 2, 2, 2]
+    assert metadata.ome_units == [None, "nm", "nm", "nm"]

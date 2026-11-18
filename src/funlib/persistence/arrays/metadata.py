@@ -1,3 +1,4 @@
+import os
 import warnings
 from collections.abc import Mapping, Sequence
 from pathlib import Path
@@ -389,15 +390,27 @@ class MetaDataFormat(BaseModel):
 
 DEFAULT_METADATA_FORMAT = MetaDataFormat()
 LOCAL_PATHS = [Path("pyproject.toml"), Path("funlib_persistence.toml")]
-USER_PATHS = [
-    Path.home() / ".config" / "funlib_persistence" / "funlib_persistence.toml"
-]
-GLOBAL_PATHS = [Path("/etc/funlib_persistence/funlib_persistence.toml")]
+GLOBAL_CONFIG_ENV = "FUNLIB_PERSISTENCE_GLOBAL_CONFIG"
+
+
+def config_paths() -> list[Path]:
+    """The config files `read_config` looks for, highest precedence first. They are
+    resolved on every call: the local files against the working directory, the user
+    file against the home directory, and the machine-wide file from the
+    ``FUNLIB_PERSISTENCE_GLOBAL_CONFIG`` environment variable, which defaults to
+    ``/etc/funlib_persistence/funlib_persistence.toml``."""
+    user = Path.home() / ".config" / "funlib_persistence" / "funlib_persistence.toml"
+    machine = Path(
+        os.environ.get(
+            GLOBAL_CONFIG_ENV, "/etc/funlib_persistence/funlib_persistence.toml"
+        )
+    )
+    return [*LOCAL_PATHS, user, machine]
 
 
 def read_config() -> dict | None:
     config: dict[str, str] = {}
-    for path in (LOCAL_PATHS + USER_PATHS + GLOBAL_PATHS)[::-1]:
+    for path in config_paths()[::-1]:
         if path.exists():
             with open(path) as f:
                 conf = toml.load(f)

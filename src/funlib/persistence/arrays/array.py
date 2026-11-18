@@ -361,7 +361,7 @@ class Array(Freezable):
         elif callable(lazy_op):
             self.data = lazy_op(self.data)
         else:
-            raise Exception(
+            raise TypeError(
                 f"LazyOp {lazy_op} is not a supported lazy_op. "
                 f"Supported lazy_ops are: {LazyOp}"
             )

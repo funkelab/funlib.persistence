@@ -99,7 +99,8 @@ datasets store `resolution` instead of `voxel_size` does not have to pass a
 `MetaDataFormat` on every call. At import, the library reads these files,
 later entries overriding earlier ones:
 
-1. `/etc/funlib_persistence/funlib_persistence.toml`
+1. `/etc/funlib_persistence/funlib_persistence.toml`, or the file named by
+   the `FUNLIB_PERSISTENCE_GLOBAL_CONFIG` environment variable
 2. `~/.config/funlib_persistence/funlib_persistence.toml`
 3. `funlib_persistence.toml` in the working directory
 4. `pyproject.toml` in the working directory, table `[tool.funlib_persistence]`
@@ -118,4 +119,5 @@ units_attr = "units"
 
 A standalone `funlib_persistence.toml` holds the same keys at the top
 level. `configure_library()` re-reads the files, for a process that changes
-directory after import.
+directory, home directory or `FUNLIB_PERSISTENCE_GLOBAL_CONFIG` after import:
+the paths are resolved on each call.

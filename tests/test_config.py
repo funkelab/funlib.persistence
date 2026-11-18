@@ -1,83 +1,102 @@
-from pathlib import Path
 from textwrap import dedent
-from unittest.mock import mock_open
 
 import pytest
 
-from funlib.persistence.arrays.metadata import configure_library, read_config
+from funlib.persistence.arrays.metadata import (
+    configure_library,
+    get_default_metadata_format,
+    read_config,
+    set_default_metadata_format,
+)
+
+
+def _settings(offset_attr):
+    return dedent(
+        f"""
+        offset_attr = "{offset_attr}"
+        voxel_size_attr = "resolution"
+        axis_names_attr = "axes"
+        units_attr = "units"
+        """
+    )
 
 
 @pytest.fixture
-def mock_path_exists(mocker):
-    return mocker.patch("pathlib.Path.exists", autospec=True)
-
-
-@pytest.fixture
-def mock_file_open(mocker):
-    return mocker.patch("builtins.open", new_callable=mock_open)
-
-
-def test_local_config(mock_path_exists, mock_file_open):
-    mock_path_exists.side_effect = lambda p: p == Path("pyproject.toml")
-    mock_file_open.return_value.read.return_value = dedent(
-        """
-        [tool.funlib_persistence]
-        offset_attr = "test_offset"
-        voxel_size_attr = "resolution"
-        axis_names_attr = "axes"
-        units_attr = "units"
-        """
+def write_config(tmp_path, monkeypatch):
+    """A machine with no config files: an empty working directory, an empty home and
+    a machine-wide path that does not exist yet. Returns a function that writes the
+    config file of one location, with `offset_attr` set to the location's name."""
+    cwd, home, etc = tmp_path / "cwd", tmp_path / "home", tmp_path / "etc"
+    cwd.mkdir()
+    (home / ".config" / "funlib_persistence").mkdir(parents=True)
+    etc.mkdir()
+    monkeypatch.chdir(cwd)
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv(
+        "FUNLIB_PERSISTENCE_GLOBAL_CONFIG", str(etc / "funlib_persistence.toml")
     )
-
-    config = read_config()
-    assert config == {
-        "offset_attr": "test_offset",
-        "voxel_size_attr": "resolution",
-        "axis_names_attr": "axes",
-        "units_attr": "units",
+    files = {
+        "pyproject": (cwd / "pyproject.toml", "[tool.funlib_persistence]"),
+        "local": (cwd / "funlib_persistence.toml", ""),
+        "user": (
+            home / ".config" / "funlib_persistence" / "funlib_persistence.toml",
+            "",
+        ),
+        "global": (etc / "funlib_persistence.toml", ""),
     }
-    configure_library()
+
+    def write(location):
+        path, header = files[location]
+        path.write_text(header + _settings(location))
+
+    return write
 
 
-def test_user_config(mock_path_exists, mock_file_open):
-    mock_path_exists.side_effect = lambda p: (
-        p == Path.home() / ".config" / "funlib_persistence" / "funlib_persistence.toml"
-    )
-    mock_file_open.return_value.read.return_value = dedent(
-        """
-        offset_attr = "test_offset"
-        voxel_size_attr = "resolution"
-        axis_names_attr = "axes"
-        units_attr = "units"
-        """
-    )
+def test_read_config_without_files_is_empty(write_config):
+    assert read_config() == {}
 
-    config = read_config()
-    assert config == {
-        "offset_attr": "test_offset",
+
+@pytest.mark.parametrize("location", ["pyproject", "local", "user", "global"])
+def test_read_config(write_config, location):
+    write_config(location)
+    assert read_config() == {
+        "offset_attr": location,
         "voxel_size_attr": "resolution",
         "axis_names_attr": "axes",
         "units_attr": "units",
     }
 
 
-def test_global_config(mock_path_exists, mock_file_open):
-    mock_path_exists.side_effect = lambda p: (
-        p == Path("/etc/funlib_persistence/funlib_persistence.toml")
-    )
-    mock_file_open.return_value.read.return_value = dedent(
-        """
-        offset_attr = "test_offset"
-        voxel_size_attr = "resolution"
-        axis_names_attr = "axes"
-        units_attr = "units"
-        """
-    )
-
-    config = read_config()
-    assert config == {
-        "offset_attr": "test_offset",
+@pytest.mark.parametrize(
+    "locations, winner",
+    [
+        (["global", "user"], "user"),
+        (["user", "local"], "local"),
+        (["local", "pyproject"], "pyproject"),
+    ],
+)
+def test_read_config_precedence(write_config, locations, winner):
+    for location in locations:
+        write_config(location)
+    assert read_config() == {
+        "offset_attr": winner,
         "voxel_size_attr": "resolution",
         "axis_names_attr": "axes",
         "units_attr": "units",
     }
+
+
+def test_configure_library_sets_the_default_metadata_format(write_config):
+    write_config("local")
+    before = get_default_metadata_format()
+    try:
+        configure_library()
+        configured = get_default_metadata_format()
+        assert (
+            configured.offset_attr,
+            configured.voxel_size_attr,
+            configured.axis_names_attr,
+            configured.units_attr,
+        ) == ("local", "resolution", "axes", "units")
+    finally:
+        set_default_metadata_format(before)
