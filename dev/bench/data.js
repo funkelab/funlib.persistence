@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1795026420957,
+  "lastUpdate": 1795027428959,
   "repoUrl": "https://github.com/funkelab/funlib.persistence",
   "entries": {
     "funlib.persistence": [
@@ -103,6 +103,41 @@ window.BENCHMARK_DATA = {
           {
             "name": "pytest wall time",
             "value": 41.242,
+            "unit": "s",
+            "extra": "`uv run pytest` in the tests job"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "William Patton",
+            "username": "pattonw",
+            "email": "wllmpttn24@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "aad7cba9a337a12d70506610ad8858fcd3e0c8b6",
+          "message": "Merge pull request #53 from funkelab/tests/quality\n\nTests: specification-style rewrite; lazy_op TypeError; config paths resolved per call",
+          "timestamp": "2026-11-18T18:42:33Z",
+          "url": "https://github.com/funkelab/funlib.persistence/commit/aad7cba9a337a12d70506610ad8858fcd3e0c8b6"
+        },
+        "date": 1795027428636,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "import funlib.persistence (cold)",
+            "value": 656.362,
+            "range": "± 17.392",
+            "unit": "ms",
+            "extra": "interpreter startup 8.6 ms subtracted; n=10"
+          },
+          {
+            "name": "pytest wall time",
+            "value": 12.802,
             "unit": "s",
             "extra": "`uv run pytest` in the tests job"
           }
