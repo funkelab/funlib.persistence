@@ -1,3 +1,5 @@
+from typing import Any
+
 import dask.array as da
 import numpy as np
 import pytest
@@ -571,3 +573,27 @@ def test_an_array_takes_no_new_attributes():
     a = Array(np.zeros((2, 2)), (0, 0), (1, 1))
     with pytest.raises(TypeError, match="is frozen"):
         a.bogus = 1
+
+
+COMPLETE_METADATA: dict[str, Any] = {
+    "offset": (0, 0),
+    "voxel_size": (1, 1),
+    "axis_names": ["y", "x"],
+    "units": ["nm", "nm"],
+    "types": ["space", "space"],
+}
+
+
+def test_strict_metadata_accepts_an_array_with_every_field():
+    array = Array(np.zeros((4, 4)), strict_metadata=True, **COMPLETE_METADATA)
+
+    assert array.axis_names == ["y", "x"]
+    assert array.units == ["nm", "nm"]
+
+
+@pytest.mark.parametrize("missing", sorted(COMPLETE_METADATA))
+def test_strict_metadata_requires_every_field(missing):
+    given = {k: v for k, v in COMPLETE_METADATA.items() if k != missing}
+
+    with pytest.raises(ValueError, match="requires all metadata attributes"):
+        Array(np.zeros((4, 4)), strict_metadata=True, **given)
