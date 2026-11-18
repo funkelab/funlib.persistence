@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1794423822694,
+  "lastUpdate": 1795026334258,
   "repoUrl": "https://github.com/funkelab/funlib.persistence",
   "entries": {
     "funlib.persistence": [
@@ -33,6 +33,41 @@ window.BENCHMARK_DATA = {
           {
             "name": "pytest wall time",
             "value": 28.275,
+            "unit": "s",
+            "extra": "`uv run pytest` in the tests job"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "William Patton",
+            "username": "pattonw",
+            "email": "wllmpttn24@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "86e78601aa5f83d773a6be183e55bf8eff97b005",
+          "message": "Merge pull request #54 from funkelab/feat/csr-graph-database\n\nAdd a graph database in memory-mapped CSR arrays",
+          "timestamp": "2026-11-18T18:23:46Z",
+          "url": "https://github.com/funkelab/funlib.persistence/commit/86e78601aa5f83d773a6be183e55bf8eff97b005"
+        },
+        "date": 1795026333913,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "import funlib.persistence (cold)",
+            "value": 750.595,
+            "range": "± 4.927",
+            "unit": "ms",
+            "extra": "interpreter startup 10.1 ms subtracted; n=10"
+          },
+          {
+            "name": "pytest wall time",
+            "value": 48.581,
             "unit": "s",
             "extra": "`uv run pytest` in the tests job"
           }
