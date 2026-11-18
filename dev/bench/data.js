@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1795026334258,
+  "lastUpdate": 1795026420957,
   "repoUrl": "https://github.com/funkelab/funlib.persistence",
   "entries": {
     "funlib.persistence": [
@@ -68,6 +68,41 @@ window.BENCHMARK_DATA = {
           {
             "name": "pytest wall time",
             "value": 48.581,
+            "unit": "s",
+            "extra": "`uv run pytest` in the tests job"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "William Patton",
+            "username": "pattonw",
+            "email": "wllmpttn24@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "46255722eb353252c1f49ca78aeca6dfe29ec7d2",
+          "message": "Merge pull request #52 from funkelab/fix/strict-metadata\n\nstrict_metadata=True raises when a metadata field is missing",
+          "timestamp": "2026-11-18T18:25:23Z",
+          "url": "https://github.com/funkelab/funlib.persistence/commit/46255722eb353252c1f49ca78aeca6dfe29ec7d2"
+        },
+        "date": 1795026420389,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "import funlib.persistence (cold)",
+            "value": 655.736,
+            "range": "± 19.017",
+            "unit": "ms",
+            "extra": "interpreter startup 8.7 ms subtracted; n=10"
+          },
+          {
+            "name": "pytest wall time",
+            "value": 41.242,
             "unit": "s",
             "extra": "`uv run pytest` in the tests job"
           }
