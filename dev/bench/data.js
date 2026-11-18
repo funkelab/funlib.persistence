@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1795027428959,
+  "lastUpdate": 1795027657537,
   "repoUrl": "https://github.com/funkelab/funlib.persistence",
   "entries": {
     "funlib.persistence": [
@@ -138,6 +138,41 @@ window.BENCHMARK_DATA = {
           {
             "name": "pytest wall time",
             "value": 12.802,
+            "unit": "s",
+            "extra": "`uv run pytest` in the tests job"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Will",
+            "username": "pattonw",
+            "email": "wllmpttn24@gmail.com"
+          },
+          "committer": {
+            "name": "Will",
+            "username": "pattonw",
+            "email": "wllmpttn24@gmail.com"
+          },
+          "id": "94c12b0cc6e00af722bfc84db33dd65943a7cb11",
+          "message": "Bump version to 0.9.0\n\nCo-Authored-By: Claude Fable 5.2 <noreply@anthropic.com>",
+          "timestamp": "2026-11-18T18:44:51Z",
+          "url": "https://github.com/funkelab/funlib.persistence/commit/94c12b0cc6e00af722bfc84db33dd65943a7cb11"
+        },
+        "date": 1795027656988,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "import funlib.persistence (cold)",
+            "value": 610.753,
+            "range": "± 10.555",
+            "unit": "ms",
+            "extra": "interpreter startup 8.5 ms subtracted; n=10"
+          },
+          {
+            "name": "pytest wall time",
+            "value": 12.304,
             "unit": "s",
             "extra": "`uv run pytest` in the tests job"
           }
