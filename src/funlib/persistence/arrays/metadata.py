@@ -236,11 +236,11 @@ class MetaData:
             [
                 d is None
                 for d in [
-                    self.offset,
-                    self.voxel_size,
-                    self.axis_names,
-                    self.units,
-                    self.types,
+                    self._offset,
+                    self._voxel_size,
+                    self._axis_names,
+                    self._units,
+                    self._types,
                 ]
             ]
         ):
