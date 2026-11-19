@@ -841,7 +841,7 @@ class CSRGraphDataBase(GraphDataBase):
                 - np.repeat(first, size)
                 + np.repeat(begin, size)
             )
-        where = np.asarray(position[candidates]).reshape(len(candidates), -1)
+        where = np.asarray(position[candidates]).reshape(len(candidates), self.ndims)
         inside = ((where >= lo) & (where < hi)).all(axis=1)
         return candidates[inside]
 
