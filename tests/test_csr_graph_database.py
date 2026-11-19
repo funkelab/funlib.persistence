@@ -242,3 +242,22 @@ def test_processes_that_each_finalize_do_not_collide(tmp_path):
         p.join()
     assert all(p.exitcode == 0 for p in procs)
     assert CSRGraphDataBase(path, mode="r").num_nodes == len(random_graph()[0])
+
+
+@pytest.mark.parametrize("steps", [0, 2])
+def test_a_region_of_empty_cells_inside_the_graph_holds_nothing(tmp_path, steps):
+    """Two clusters of nodes with empty space between them: a read of the
+    space finds the cells of neither, and returns no node and no edge."""
+    rng = np.random.default_rng(0)
+    pos = np.concatenate([rng.uniform(0, 30, (20, 3)), rng.uniform(970, 1000, (20, 3))])
+    ids = np.arange(1, 41, dtype=np.uint64)
+    db = create(tmp_path / "g.csr")
+    with db.bulk_write_mode():
+        db.write_node_arrays(ids, position=pos, size=np.ones(40, dtype=np.int64))
+        db.write_edge_arrays(
+            ids[:-1], ids[1:], adj=np.ones(39, np.float32), lr=np.ones(39, np.float32)
+        )
+    nodes, edges = db.read_arrays(Roi((400, 400, 400), (100, 100, 100)), steps)
+    assert len(nodes["id"]) == 0
+    assert nodes["position"].shape == (0, 3)
+    assert len(edges["u"]) == 0
