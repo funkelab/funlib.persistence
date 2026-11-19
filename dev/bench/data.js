@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1795027657537,
+  "lastUpdate": 1795119763651,
   "repoUrl": "https://github.com/funkelab/funlib.persistence",
   "entries": {
     "funlib.persistence": [
@@ -173,6 +173,41 @@ window.BENCHMARK_DATA = {
           {
             "name": "pytest wall time",
             "value": 12.304,
+            "unit": "s",
+            "extra": "`uv run pytest` in the tests job"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "William Patton",
+            "username": "pattonw",
+            "email": "wllmpttn24@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "84663fa37720b4452ae428ce560702219bb67dec",
+          "message": "Merge pull request #55 from funkelab/fix/csr-empty-cells\n\nCSR: a region of empty cells inside the graph holds no nodes",
+          "timestamp": "2026-11-19T20:21:29Z",
+          "url": "https://github.com/funkelab/funlib.persistence/commit/84663fa37720b4452ae428ce560702219bb67dec"
+        },
+        "date": 1795119763317,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "import funlib.persistence (cold)",
+            "value": 844.07,
+            "range": "± 13.107",
+            "unit": "ms",
+            "extra": "interpreter startup 10.9 ms subtracted; n=10"
+          },
+          {
+            "name": "pytest wall time",
+            "value": 15.745,
             "unit": "s",
             "extra": "`uv run pytest` in the tests job"
           }
