@@ -1,6 +1,7 @@
 """Extra node attributes of a CSR graph, kept in directories of their own."""
 
 import hashlib
+import json
 import multiprocessing as mp
 from typing import Any
 
@@ -48,13 +49,21 @@ def vec_of(ids):
     return np.stack([ids, ids * 2, ids * 3], axis=1)
 
 
-def expanded(tmp_path, mode="r+", names=("vec", "label", "seen", "score"), **kwargs):
+def expanded(tmp_path, mode="r+", names=("vec", "label", "seen", "score")):
+    """The graph with the directory ``pred``; in mode r+ the attributes
+    ``names`` are declared up front, with the types of ``TYPES``."""
     return CSRGraphDataBase(
         tmp_path / "g.csr",
         mode=mode,
         node_attrs={k: TYPES[k] for k in names} if mode == "r+" else None,
-        extra_fields={k: tmp_path / "pred" for k in names},
-        **kwargs,
+        extra_fields=tmp_path / "pred",
+    )
+
+
+def opened(tmp_path, mode="r", folder="pred"):
+    """The graph opened with a directory, by its path alone."""
+    return CSRGraphDataBase(
+        tmp_path / "g.csr", mode=mode, extra_fields=tmp_path / folder
     )
 
 
@@ -173,12 +182,8 @@ def test_region_and_step_reads_return_extra_attributes(tmp_path):
 
 def _worker(root, part, parts, start):
     ids, _, _, _ = graph_arrays()
-    db = CSRGraphDataBase(
-        root / "g.csr",
-        mode="r+",
-        node_attrs={"vec": TYPES["vec"], "label": TYPES["label"]},
-        extra_fields={"vec": root / "pred", "label": root / "pred"},
-    )
+    # the path alone: every worker creates the attributes with its first write
+    db = CSRGraphDataBase(root / "g.csr", mode="r+", extra_fields=root / "pred")
     start.wait()
     with db.bulk_write_mode(worker=True):
         for block in np.array_split(ids[part::parts], 10):
@@ -187,9 +192,10 @@ def _worker(root, part, parts, start):
             )
 
 
-def test_several_processes_write_one_extra_directory(tmp_path):
+def test_several_processes_create_and_write_the_same_attributes(tmp_path):
     ids, _ = make_graph(tmp_path / "g.csr")
     before = snapshot(tmp_path / "g.csr")
+    assert not (tmp_path / "pred").exists()
     parts = 4
     ctx = mp.get_context("spawn")
     start = ctx.Barrier(parts)
@@ -203,8 +209,13 @@ def test_several_processes_write_one_extra_directory(tmp_path):
         p.join()
     assert [p.exitcode for p in procs] == [0] * parts
     assert len(list((tmp_path / "pred" / "segments").glob("*.npys"))) == parts
+    # they agreed on one declaration, the type of the values written
+    assert CSRGraphDataBase.stored_extra_fields(tmp_path / "pred") == {
+        "vec": Vec("float32", 3),
+        "label": "int32",
+    }
 
-    db = expanded(tmp_path, names=("vec", "label"))
+    db = opened(tmp_path, "r+")
     # until the finalize a read of the extra attributes is refused, a read
     # of the graph's own is not
     with pytest.raises(UnfinalizedWrites, match="pred has writes"):
@@ -217,6 +228,120 @@ def test_several_processes_write_one_extra_directory(tmp_path):
     assert nodes["label"].tolist() == (nodes["id"] % 9).tolist()
     assert list((tmp_path / "pred" / "segments").iterdir()) == []
     assert snapshot(tmp_path / "g.csr") == before
+
+
+def test_the_path_alone_opens_what_a_directory_holds(tmp_path):
+    ids, _ = make_graph(tmp_path / "g.csr")
+    with pytest.raises(ValueError, match="holds no extra node attributes.*'r\\+'"):
+        opened(tmp_path)
+    (tmp_path / "empty").mkdir()
+    with pytest.raises(ValueError, match="holds no extra node attributes"):
+        opened(tmp_path, folder="empty")
+    db = opened(tmp_path, "r+")  # a directory that does not exist yet
+    assert not (tmp_path / "pred").exists()
+    assert db.node_attrs == {"position": Vec("float64", 3)}
+    assert len(db.read_arrays()[0]["id"]) == N
+
+    # the first write of a name creates it, with the type of its values
+    with db.bulk_write_mode():
+        db.write_node_arrays(
+            ids,
+            vec=vec_of(ids),
+            label=(ids % 9).astype(np.int16),
+            seen=ids % 2 == 0,
+        )
+    types: dict[str, AttributeType] = {
+        "vec": Vec("float32", 3),
+        "label": "int16",
+        "seen": "bool",
+    }
+    assert CSRGraphDataBase.stored_extra_fields(tmp_path / "pred") == types
+    assert db.node_attrs == {"position": Vec("float64", 3), **types}
+    stored = json.loads((tmp_path / "pred" / "meta.json").read_text())
+    assert stored["node_attrs"]["vec"] == {"dtype": "<f4", "size": 3}
+
+    # a reader names nothing and gives no type
+    pred = tmp_path / "pred"
+    for extra_fields in (pred, str(pred), [pred], (str(pred),)):
+        reader = CSRGraphDataBase(tmp_path / "g.csr", extra_fields=extra_fields)
+        assert reader.node_attrs == {"position": Vec("float64", 3), **types}
+        nodes, _ = reader.read_arrays(Roi((0, 0, 0), (50, 50, 50)))
+        assert nodes["label"].dtype == np.int16 and nodes["vec"].shape[1] == 3
+        assert nodes["label"].tolist() == (nodes["id"] % 9).tolist()
+    mapping: Any = {"vec": pred}
+    with pytest.raises(TypeError, match="a directory or a sequence of directories"):
+        CSRGraphDataBase(tmp_path / "g.csr", extra_fields=mapping)
+
+
+def test_a_later_write_has_the_type_that_was_recorded(tmp_path):
+    ids, _ = make_graph(tmp_path / "g.csr")
+    db = opened(tmp_path, "r+")
+    few = ids[:4]
+    db.write_node_arrays(few, vec=vec_of(few), label=np.ones(4, np.int32))
+    refused: list[tuple[dict[str, Any], str]] = [
+        ({"vec": vec_of(few).astype(np.float64)}, "'vec' is Vec.*float32.*, not Vec"),
+        ({"vec": vec_of(few)[:, :2]}, "'vec' is Vec.*size=3.*size=2"),
+        ({"vec": vec_of(few)[:, 0]}, "'vec' is Vec.*not float32"),
+        ({"label": np.ones(4, np.int64)}, "'label' is int32 in .*pred, not int64"),
+        ({"label": [1, 1, 1, 1]}, "'label' is int32 in .*pred, not int64"),
+    ]
+    for values, match in refused:
+        with pytest.raises(ValueError, match=match):
+            db.write_node_arrays(few, **values)
+    # values that cannot be an attribute at all
+    with pytest.raises(NotImplementedError, match="'name'.*not supported"):
+        db.write_node_arrays(few, name=np.array(["a", "b", "c", "d"]))
+    with pytest.raises(ValueError, match=r"'cube' has shape \(4, 2, 2\)"):
+        db.write_node_arrays(few, cube=np.zeros((4, 2, 2)))
+    with pytest.raises(ValueError, match=r"'label' has shape \(1,\).*each of the 4"):
+        db.write_node_arrays(few, label=np.ones(1, np.int32))
+    assert list((tmp_path / "pred" / "segments").glob("*.npys")) == []
+    assert sorted(CSRGraphDataBase.stored_extra_fields(tmp_path / "pred")) == [
+        "label",
+        "vec",
+    ]
+    # another handle that writes the same name has to agree with the record
+    other = opened(tmp_path, "r+")
+    with pytest.raises(ValueError, match="'label' is int32 in .*pred, not float64"):
+        other.write_node_arrays(few, label=np.ones(4))
+
+
+def test_node_attrs_may_declare_an_extra_attribute_and_is_never_needed(tmp_path):
+    ids, _ = make_graph(tmp_path / "g.csr")
+    fields = tmp_path / "pred"
+    db = CSRGraphDataBase(
+        tmp_path / "g.csr",
+        mode="r+",
+        node_attrs={"score": "float32", "position": Vec(float, 3)},
+        extra_fields=fields,
+    )
+    assert db.node_attrs["score"] == "float32"
+    assert CSRGraphDataBase.stored_extra_fields(fields) == {"score": "float32"}
+    # declared and never written: every node reads as missing
+    assert np.isnan(opened(tmp_path).read_arrays()[0]["score"]).all()
+    # nodes given as dictionaries are cast to the declared type
+    db.write_nodes({int(ids[0]): {"score": 0.1}})
+    assert by_id(db.read_arrays()[0], "score")[int(ids[0])] == np.float32(0.1)
+
+    # naming it again checks the recorded type; a reader cannot create one
+    other: list[dict[str, AttributeType]] = [
+        {"score": "float64"},
+        {"score": Vec("float32", 2)},
+    ]
+    for types in other:
+        with pytest.raises(ValueError, match="'score' is float32 in .*pred, not"):
+            CSRGraphDataBase(tmp_path / "g.csr", node_attrs=types, extra_fields=fields)
+    with pytest.raises(ValueError, match=r"\['nope'\] are neither in .* nor in its"):
+        CSRGraphDataBase(
+            tmp_path / "g.csr", node_attrs={"nope": int}, extra_fields=fields
+        )
+    with pytest.raises(NotImplementedError, match="not supported by the CSR backend"):
+        CSRGraphDataBase(
+            tmp_path / "g.csr", mode="r+", node_attrs={"t": str}, extra_fields=fields
+        )
+    # without extra_fields, a name the graph does not store is refused as before
+    with pytest.raises(ValueError, match="node attribute 'score' is not in"):
+        CSRGraphDataBase(tmp_path / "g.csr", node_attrs={"score": "float32"})
 
 
 def test_a_later_finalize_adds_to_the_values_that_are_there(tmp_path):
@@ -243,9 +368,9 @@ def test_a_later_finalize_adds_to_the_values_that_are_there(tmp_path):
     assert labels.shape == (N,) and not labels.any()
 
     # a run taken up again by another handle
-    other = expanded(tmp_path, names=("score",))
+    other = opened(tmp_path, "r+")
     other.write_node_arrays(c, score=np.full(len(c), 4.0))  # finalizes on its own
-    score = by_id(expanded(tmp_path, "r", ("score",)).read_arrays()[0], "score")
+    score = by_id(opened(tmp_path).read_arrays()[0], "score")
     assert not np.isnan(list(score.values())).any()
     assert all(score[i] == 4.0 for i in c.tolist())
 
@@ -260,7 +385,7 @@ def test_the_graph_is_read_only_through_a_handle_with_extra_fields(tmp_path):
     one = ids[:1]
     refused = [
         lambda: db.write_node_arrays(one, position=pos[:1]),
-        lambda: db.write_node_arrays(one, position=pos[:1], label=[1]),
+        lambda: db.write_node_arrays(one, position=pos[:1], label=np.ones(1, np.int32)),
         lambda: db.write_edge_arrays(ids[:1], ids[2:3], weight=[1.0]),
         lambda: db.write_nodes(graph.nodes, attributes=["position"]),
         lambda: db.write_edges(graph.nodes, graph.edges),
@@ -274,15 +399,15 @@ def test_the_graph_is_read_only_through_a_handle_with_extra_fields(tmp_path):
     for write in refused:
         with pytest.raises(GraphIsReadOnly, match="read-only through a handle"):
             write()
-    with pytest.raises(ValueError, match="unknown node attributes"):
-        db.write_node_arrays(one, nope=[1])
     db.finalize()
     assert snapshot(tmp_path / "g.csr") == before
     assert list((tmp_path / "pred" / "segments").glob("*.npys")) == []
     assert not db.read_arrays()[0]["label"].any()
     # a handle that only reads refuses every write
     with pytest.raises(RuntimeError, match="read-only DB"):
-        expanded(tmp_path, mode="r", names=("label",)).write_node_arrays(one, label=[1])
+        opened(tmp_path).write_node_arrays(one, label=np.ones(1, np.int32))
+    with pytest.raises(RuntimeError, match="read-only DB"):
+        opened(tmp_path).write_node_arrays(one, new=np.ones(1))
 
 
 def test_nodes_given_as_dictionaries_write_their_extra_attributes(tmp_path):
@@ -303,8 +428,9 @@ def test_nodes_given_as_dictionaries_write_their_extra_attributes(tmp_path):
         assert label == (node % 9 + 1 if here else 0)
         assert (vec[0] == node) if here and node % 2 else np.isnan(vec).all()
 
-    # without a region no position is needed; every extra attribute is taken
-    values = {int(i): {"label": 77} for i in ids[:3]}
+    # without a region no position is needed; left out, the attributes are
+    # the extra ones that exist
+    values = {int(i): {"label": 77, "unrelated": "x"} for i in ids[:3]}
     db.write_nodes(values)
     assert by_id(db.read_arrays()[0], "label")[int(ids[0])] == 77
     db.write_graph(nx.Graph([(int(ids[3]), int(ids[4]))]), write_edges=False)
@@ -314,11 +440,51 @@ def test_nodes_given_as_dictionaries_write_their_extra_attributes(tmp_path):
     assert by_id(db.read_arrays()[0], "label")[int(ids[5])] == 78
 
 
+def test_nodes_given_as_dictionaries_create_an_attribute_that_is_named(tmp_path):
+    ids, _ = make_graph(tmp_path / "g.csr")
+    db = opened(tmp_path, "r+")
+    a, b, c = (int(i) for i in ids[:3])
+    nodes: dict[int, dict[str, Any]] = {
+        a: {"count": 3, "weight": 0.5, "flag": True, "dir": (1.0, 0.0), "at": (1, 2)},
+        b: {"count": 4, "weight": 1.5, "flag": False, "dir": (0.0, 1.0)},
+        c: {"count": None},
+    }
+    db.write_nodes(nodes, attributes=["count", "weight", "flag", "dir", "at"])
+    assert CSRGraphDataBase.stored_extra_fields(tmp_path / "pred") == {
+        "count": "int64",
+        "weight": "float64",
+        "flag": "bool",
+        "dir": Vec("float64", 2),
+        "at": Vec("int64", 2),
+    }
+    read = db.read_arrays()[0]
+    assert by_id(read, "count")[a] == 3 and by_id(read, "weight")[b] == 1.5
+    assert by_id(read, "dir")[b] == [0.0, 1.0] and by_id(read, "at")[a] == [1, 2]
+    assert by_id(read, "count")[c] == 0
+
+    # a type that the values do not settle is not guessed
+    unclear: list[tuple[dict[int, dict[str, Any]], str]] = [
+        ({a: {"x": 1}, b: {"x": 0.5}}, r"kinds \['f', 'i'\]"),
+        ({a: {"x": (1, 2)}, b: {"x": (1, 2, 3)}}, "shapes"),
+        ({a: {"x": 1}, b: {"x": (1, 2)}}, "shapes"),
+        ({a: {"x": None}, b: {}}, "0 values"),
+        ({a: {"x": "word"}}, r"kinds \['U'\]"),
+        ({a: {"x": [[1, 2], [3, 4]]}}, "shapes"),
+    ]
+    for given, match in unclear:
+        with pytest.raises(ValueError, match=f"'x' is new.*{match}.*node_attrs"):
+            db.write_nodes(given, attributes=["x"])
+    assert "x" not in CSRGraphDataBase.stored_extra_fields(tmp_path / "pred")
+    # left out, attributes are those that exist: a new key is not created
+    db.write_nodes({a: {"count": 9, "y": 1}})
+    assert "y" not in db.node_attrs and by_id(db.read_arrays()[0], "count")[a] == 9
+
+
 def test_extra_fields_of_another_graph_are_refused(tmp_path):
     ids, pos = make_graph(tmp_path / "g.csr")
     db = expanded(tmp_path, names=("label",))
     db.write_node_arrays(ids, label=(ids % 9).astype(np.int32))
-    fields = {"label": tmp_path / "pred"}
+    fields = tmp_path / "pred"
 
     make_graph(tmp_path / "fewer.csr", n=N - 1)
     with pytest.raises(ValueError, match=f"a graph of {N} nodes; .* has {N - 1}"):
@@ -337,25 +503,25 @@ def test_extra_fields_of_another_graph_are_refused(tmp_path):
     plain = CSRGraphDataBase(tmp_path / "g.csr", mode="r+")
     plain.write_edge_arrays(ids[:1], ids[5:6], weight=np.ones(1, np.float32))
     assert plain.num_edges == N
-    nodes, edges = expanded(tmp_path, mode="r", names=("label",)).read_arrays()
+    nodes, edges = opened(tmp_path).read_arrays()
     assert nodes["label"].tolist() == (nodes["id"] % 9).tolist()
     assert len(edges["u"]) == N
     # a graph that changed under an open handle is noticed at the next write
     plain.write_node_arrays(np.array([10**9], dtype=np.uint64), position=pos[:1])
     with pytest.raises(ValueError, match=f"a graph of {N} nodes"):
-        db.write_node_arrays(ids[:1], label=[1])
+        db.write_node_arrays(ids[:1], label=np.ones(1, np.int32))
 
 
 def test_a_value_for_an_id_that_is_not_a_node_stops_the_finalize(tmp_path):
     ids, _ = make_graph(tmp_path / "g.csr")
-    db = expanded(tmp_path, names=("label",))
+    db = opened(tmp_path, "r+")
     db.write_node_arrays(ids[:5], label=np.full(5, 1, np.int32))
     stranger = np.array([ids[5], 10**12], dtype=np.uint64)
     with pytest.raises(ValueError, match=r"1 ids that are not nodes.*1000000000000"):
-        db.write_node_arrays(stranger, label=[2, 2])
+        db.write_node_arrays(stranger, label=np.full(2, 2, np.int32))
     # nothing was finalized: the arrays are as they were, the segment stays
     assert len(list((tmp_path / "pred" / "segments").glob("*.npys"))) == 1
-    reader = expanded(tmp_path, mode="r", names=("label",))
+    reader = opened(tmp_path)
     assert reader.read_arrays(node_attrs=["position"])[0]["id"].shape == (N,)
     with pytest.raises(UnfinalizedWrites):
         reader.read_arrays()
@@ -364,129 +530,112 @@ def test_a_value_for_an_id_that_is_not_a_node_stops_the_finalize(tmp_path):
     assert int(reader.read_arrays()[0]["label"].sum()) == 5
 
 
-@pytest.mark.parametrize(
-    "kwargs, error, match",
-    [
-        ({"mode": "w", "cell_size": 1.0}, ValueError, "mode 'w' creates the graph"),
-        ({"mode": "r"}, ValueError, r"\['label'\] are not in .*Open with mode 'r\+'"),
-        ({"mode": "r+"}, ValueError, r"\['label'\] are new in .*types in node_attrs"),
-        (
-            {"mode": "r+", "node_attrs": {"label": str}},
-            NotImplementedError,
-            "not supported by the CSR backend",
-        ),
-        (
-            {"mode": "r+", "extra_fields": {"position": "x"}},
-            ValueError,
-            r"\['position'\] are node attributes of .* itself",
-        ),
-        (
-            {"mode": "r+", "extra_fields": {"label": "g.csr"}},
-            ValueError,
-            "outside the graph's directory",
-        ),
-    ],
-)
-def test_extra_fields_that_cannot_be_opened_are_refused(
-    tmp_path, monkeypatch, kwargs, error, match
-):
+def test_extra_fields_that_cannot_be_opened_are_refused(tmp_path):
     make_graph(tmp_path / "g.csr")
-    before = snapshot(tmp_path / "g.csr")
-    monkeypatch.chdir(tmp_path)
-    given: dict[str, Any] = {"extra_fields": {"label": "pred"}, **kwargs}
-    with pytest.raises(error, match=match):
-        CSRGraphDataBase("g.csr", **given)
-    assert snapshot(tmp_path / "g.csr") == before
-    assert not (tmp_path / "pred" / "meta.json").exists()
-
-
-def test_a_declared_type_has_to_be_the_stored_one(tmp_path):
-    ids, _ = make_graph(tmp_path / "g.csr")
-    expanded(tmp_path, names=("vec", "label")).close()
-    fields = {"vec": tmp_path / "pred", "label": tmp_path / "pred"}
-    other: list[dict[str, AttributeType]] = [
-        {"vec": Vec("float32", 4)},
-        {"label": "int64"},
+    make_graph(tmp_path / "h.csr")
+    (tmp_path / "other").mkdir()
+    (tmp_path / "other" / "meta.json").write_text('{"version": 1}')
+    graph, pred = tmp_path / "g.csr", tmp_path / "pred"
+    before = {f: snapshot(tmp_path / f) for f in ("g.csr", "h.csr", "other")}
+    refused: list[tuple[dict[str, Any], str]] = [
+        ({"mode": "w", "cell_size": 1.0}, "mode 'w' creates the graph"),
+        ({"extra_fields": graph}, "outside the graph's directory"),
+        ({"extra_fields": [pred, tmp_path / "x" / ".." / "pred"]}, "is given twice"),
+        # a directory that holds something else
+        ({"extra_fields": tmp_path / "h.csr"}, "not a directory of extra node attr"),
+        ({"extra_fields": tmp_path / "other"}, "not a directory of extra node attr"),
     ]
-    for types in other:
-        with pytest.raises(ValueError, match="in .*pred, not"):
-            CSRGraphDataBase(tmp_path / "g.csr", node_attrs=types, extra_fields=fields)
-    # stored attributes are still checked against the graph
-    with pytest.raises(ValueError, match="node attribute 'nope' is not in"):
-        CSRGraphDataBase(
-            tmp_path / "g.csr", node_attrs={"nope": int}, extra_fields=fields
-        )
-    db = CSRGraphDataBase(
-        tmp_path / "g.csr",
-        node_attrs={"position": Vec(float, 3), **{k: TYPES[k] for k in fields}},
-        extra_fields=fields,
-    )
-    assert list(db.node_attrs) == ["position", "vec", "label"]
-    with pytest.raises(ValueError, match=r"'label' has shape \(1,\).*each of the 3"):
-        expanded(tmp_path, names=("label",)).write_node_arrays(ids[:3], label=[1])
+    for kwargs, match in refused:
+        given: dict[str, Any] = {"mode": "r+", "extra_fields": pred, **kwargs}
+        with pytest.raises(ValueError, match=match):
+            CSRGraphDataBase(graph, **given)
+    assert {f: snapshot(tmp_path / f) for f in before} == before
+    assert not pred.exists()
 
-
-def test_a_graph_that_was_never_finalized_takes_no_extra_fields(tmp_path):
     CSRGraphDataBase(
-        tmp_path / "g.csr",
+        tmp_path / "never.csr",
         mode="w",
         node_attrs={"position": Vec(float, 3)},
         cell_size=10.0,
     )
     with pytest.raises(ValueError, match="was never finalized"):
-        expanded(tmp_path, names=("label",))
+        CSRGraphDataBase(tmp_path / "never.csr", mode="r+", extra_fields=pred)
 
 
-def test_a_directory_that_holds_something_else_is_not_taken_for_extra_fields(tmp_path):
-    make_graph(tmp_path / "g.csr")
-    make_graph(tmp_path / "h.csr")
-    (tmp_path / "other").mkdir()
-    (tmp_path / "other" / "meta.json").write_text('{"version": 1}')
-    for folder in (tmp_path / "h.csr", tmp_path / "other"):
-        before = snapshot(folder)
-        with pytest.raises(ValueError, match="not a directory of extra node attr"):
-            CSRGraphDataBase(
-                tmp_path / "g.csr",
-                mode="r+",
-                node_attrs={"label": int},
-                extra_fields={"label": folder},
-            )
-        assert snapshot(folder) == before
-
-
-def test_attributes_in_several_directories_and_several_in_one(tmp_path):
+def test_an_attribute_held_twice_is_refused_when_the_graph_is_opened(tmp_path):
     ids, _ = make_graph(tmp_path / "g.csr")
-    a, b = tmp_path / "model_a", tmp_path / "deep" / "model_b"
-    db = CSRGraphDataBase(
-        tmp_path / "g.csr",
-        mode="r+",
-        node_attrs={"vec": TYPES["vec"], "label": "int32", "score": float},
-        extra_fields={"vec": a, "label": a, "score": b},
+    graph, a, b = tmp_path / "g.csr", tmp_path / "a", tmp_path / "b"
+    for folder, value in ((a, 1), (b, 2)):
+        db = CSRGraphDataBase(graph, mode="r+", extra_fields=folder)
+        db.write_node_arrays(ids, label=np.full(N, value, np.int32))
+    for mode in ("r", "r+"):
+        with pytest.raises(ValueError, match="'label' is held by .*a and by .*b"):
+            CSRGraphDataBase(graph, mode=mode, extra_fields=[a, b])
+    # an attribute that the graph itself stores
+    with pytest.raises(GraphIsReadOnly, match="cannot write the node attributes"):
+        db.write_node_arrays(ids, position=np.zeros((N, 3)))
+    meta = json.loads((a / "meta.json").read_text())
+    meta["node_attrs"]["position"] = meta["node_attrs"]["label"]
+    (a / "meta.json").write_text(json.dumps(meta))
+    with pytest.raises(ValueError, match="'position' of .*a is also stored in .*g.csr"):
+        CSRGraphDataBase(graph, extra_fields=a)
+
+
+def test_several_directories_are_read_together_and_written_where_a_name_is(tmp_path):
+    ids, _ = make_graph(tmp_path / "g.csr")
+    graph, a, b = tmp_path / "g.csr", tmp_path / "model_a", tmp_path / "deep" / "b"
+    one = CSRGraphDataBase(graph, mode="r+", extra_fields=a)
+    with one.bulk_write_mode():
+        one.write_node_arrays(ids, vec=vec_of(ids))
+        one.write_node_arrays(ids, label=(ids % 9).astype(np.int32))
+    CSRGraphDataBase(graph, mode="r+", extra_fields=b).write_node_arrays(
+        ids, score=ids / 2
     )
-    with db.bulk_write_mode():
-        db.write_node_arrays(ids, vec=vec_of(ids), score=ids / 2)
-        db.write_node_arrays(ids, label=(ids % 9).astype(np.int32))
     assert CSRGraphDataBase.stored_extra_fields(a) == {
         "vec": Vec("float32", 3),
         "label": "int32",
     }
     assert CSRGraphDataBase.stored_extra_fields(b) == {"score": "float64"}
-    assert CSRGraphDataBase.stored_extra_fields(tmp_path / "g.csr") == {}
+    assert CSRGraphDataBase.stored_extra_fields(graph) == {}
     assert CSRGraphDataBase.stored_extra_fields(tmp_path / "missing") == {}
     assert not CSRGraphDataBase.is_database(a)
 
-    # a handle sees the attributes it names, under the directory it names
-    one = CSRGraphDataBase(tmp_path / "g.csr", extra_fields={"label": a, "score": b})
-    assert list(one.node_attrs) == ["position", "label", "score"]
-    nodes, _ = one.read_arrays()
-    assert "vec" not in nodes
+    both = CSRGraphDataBase(graph, mode="r+", extra_fields=[a, str(b)])
+    assert list(both.node_attrs) == ["position", "vec", "label", "score"]
+    nodes, _ = both.read_arrays()
     assert nodes["label"].tolist() == (nodes["id"] % 9).tolist()
     assert nodes["score"].tolist() == (nodes["id"] / 2).tolist()
+
+    # a new attribute has no directory to go into when several are open
+    with pytest.raises(ValueError, match=r"\['fresh'\] are new .* 2 extra directories"):
+        both.write_node_arrays(ids, fresh=np.ones(N))
+    with pytest.raises(ValueError, match=r"\['fresh'\] are new .* 2 extra directories"):
+        both.write_nodes({int(ids[0]): {"fresh": 1}}, attributes=["fresh"])
+    with pytest.raises(ValueError, match=r"\['fresh'\] are new .* 2 extra directories"):
+        CSRGraphDataBase(
+            graph, mode="r+", node_attrs={"fresh": int}, extra_fields=[a, b]
+        )
+    assert "fresh" not in CSRGraphDataBase.stored_extra_fields(a)
+    assert "fresh" not in CSRGraphDataBase.stored_extra_fields(b)
+
+    # attributes that exist are written into the directory that holds them;
     # pending writes in one directory do not stop a read of the other
-    with db.bulk_write_mode(worker=True):
-        db.write_node_arrays(ids[:1], score=np.array([0.5]))
-    assert len(db.read_arrays(node_attrs=["vec", "label"])[0]["id"]) == N
-    with pytest.raises(UnfinalizedWrites, match="model_b"):
-        db.read_block(Roi((0, 0, 0), (100, 100, 100)))
-    db.finalize()
-    assert by_id(db.read_arrays()[0], "score")[int(ids[0])] == 0.5
+    with both.bulk_write_mode(worker=True):
+        both.write_node_arrays(
+            ids[:1], score=np.array([0.5]), label=np.array([8], np.int32)
+        )
+        both.finalize()
+        both.write_node_arrays(ids[:1], score=np.array([0.25]))
+    assert (
+        by_id(both.read_arrays(node_attrs=["vec", "label"])[0], "label")[int(ids[0])]
+        == 8
+    )
+    with pytest.raises(UnfinalizedWrites, match="deep/b"):
+        both.read_block(Roi((0, 0, 0), (100, 100, 100)))
+    both.finalize()
+    assert by_id(both.read_arrays()[0], "score")[int(ids[0])] == 0.25
+    # an attribute another handle created since is found by the next write
+    one.write_node_arrays(ids[:2], late=np.ones(2, np.float32))
+    both.write_node_arrays(ids[2:4], late=np.full(2, 2, np.float32))
+    late = by_id(CSRGraphDataBase(graph, extra_fields=[a, b]).read_arrays()[0], "late")
+    assert [late[int(i)] for i in ids[:4]] == [1.0, 1.0, 2.0, 2.0]

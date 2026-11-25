@@ -282,22 +282,48 @@ class CSRGraphDataBase(GraphDataBase):
 
         extra_fields:
 
-            Node attributes of this graph that are kept in other
-            directories: attribute name to directory. The graph is opened
-            as it is (mode ``"r"`` or ``"r+"``) and the extra attributes
-            are read with it and written through it::
+            One directory, or several, that hold node attributes of this
+            graph outside the graph's own directory. The graph is opened as
+            it is (mode ``"r"`` or ``"r+"``); every attribute the
+            directories hold is read with it, with the type its directory
+            records, and written through it::
 
-                g = CSRGraphDataBase(path, mode="r+", extra_fields={
-                    "embedding": "pred/modelA", "label": "pred/modelA"},
-                    node_attrs={"embedding": Vec("float32", 64), "label": "int32"})
+                g = CSRGraphDataBase(path, mode="r+", extra_fields="pred/modelA")
                 g.write_node_arrays(ids, embedding=e, label=l)   # in bulk_write_mode
                 g.read_arrays(roi, node_attrs=["position", "embedding"])
 
-            A directory holds any number of attributes; a handle sees those
-            it names. An attribute that its directory does not hold yet is
-            created, in mode ``"r+"``, with the type ``node_attrs`` gives
-            it. Extra attributes are read like stored ones (same regions,
-            steps, filters) and listed by :attr:`node_attrs`.
+            The path is enough: no attribute is named and no type is given.
+            ``meta.json`` in each directory says what it holds. Extra
+            attributes are read like stored ones (same regions, steps,
+            filters) and listed by :attr:`node_attrs`. An attribute that
+            two of the directories hold, or that the graph itself stores,
+            is refused when the graph is opened. A directory that is empty
+            or does not exist is created by the first write in mode
+            ``"r+"`` and is an error in mode ``"r"``.
+
+            **A new attribute is created by the first write that names
+            it**, with the type of the values written:
+            ``write_node_arrays(ids, embedding=e)`` with ``e`` a float32
+            array of shape ``(N, 64)`` declares a float32 vector of 64. The
+            declaration is recorded in the directory's ``meta.json`` under
+            its lock, so processes that create one attribute at once agree
+            on it. From then on an array written to it has that dtype and
+            vector size, or the write raises; nothing is cast. The writes
+            that take nodes as dictionaries (``write_nodes``,
+            ``bulk_write_nodes``, ``write_attrs``) create an attribute that
+            ``attributes`` names from the values the nodes carry: numbers
+            of one kind (bool, int or float, stored as bool, int64 or
+            float64) and one length; anything else raises. Values for an
+            attribute that exists are cast to its type. ``node_attrs`` is
+            never needed for an extra attribute. It may name one with a
+            type, to create it up front in mode ``"r+"`` (float32 rather
+            than the float64 Python numbers give), or to have the type that
+            is recorded checked.
+
+            **A new attribute goes into the one directory that is open.**
+            With several directories open, a write that names an attribute
+            none of them holds raises: open the graph with the directory it
+            is to go into.
 
             **The graph is read-only through such a handle.** Writes of
             edges, of nodes with stored attributes, and ``drop_edges``
@@ -355,14 +381,22 @@ class CSRGraphDataBase(GraphDataBase):
         node_attrs: dict[str, AttributeType] | None = None,
         edge_attrs: dict[str, AttributeType] | None = None,
         cell_size: float | Iterable[float] | None = None,
-        extra_fields: Mapping[str, Path | str] | None = None,
+        extra_fields: Path | str | Sequence[Path | str] | None = None,
     ):
         if directed:
             raise NotImplementedError("the CSR backend stores undirected graphs")
         self.path = Path(path)
         self.mode = mode
         self.directed = False
-        self.extra_fields = {k: Path(v) for k, v in (extra_fields or {}).items()}
+        if isinstance(extra_fields, Mapping):
+            raise TypeError(
+                "extra_fields is a directory or a sequence of directories; the "
+                "attributes and their types are read from each directory"
+            )
+        if isinstance(extra_fields, str | Path):
+            extra_fields = [extra_fields]
+        self.extra_fields = [Path(folder) for folder in extra_fields or ()]
+        self._extra_dirs: list[_ExtraFields] = []
         self._extra: dict[str, _ExtraFields] = {}
         if self.extra_fields and mode not in self.read_modes:
             raise ValueError(
@@ -421,8 +455,8 @@ class CSRGraphDataBase(GraphDataBase):
                 (edge_attrs, self.meta["edge_attrs"], "edge"),
             ):
                 for name, attr_type in (given or {}).items():
-                    if what == "node" and name in self.extra_fields:
-                        continue  # checked against its own directory below
+                    if what == "node" and self.extra_fields and name not in stored:
+                        continue  # an extra attribute: see _open_extra_fields
                     if name not in stored:
                         raise ValueError(
                             f"{what} attribute {name!r} is not in {self.path}; "
@@ -491,59 +525,108 @@ class CSRGraphDataBase(GraphDataBase):
                 f"{self.path} was never finalized; extra fields belong to a "
                 "graph whose nodes are written"
             )
-        taken = sorted(set(self.extra_fields) & set(self.meta["node_attrs"]))
-        if taken:
-            raise ValueError(
-                f"{taken} are node attributes of {self.path} itself and cannot "
-                "be extra fields"
-            )
-        folders: dict[Path, _ExtraFields] = {}
-        for name, folder in self.extra_fields.items():
+        seen: set[Path] = set()
+        for folder in self.extra_fields:
             key = folder.resolve()
             if key == self.path.resolve():
                 raise ValueError("extra fields are kept outside the graph's directory")
-            if key not in folders:
-                folders[key] = _ExtraFields(folder)
-            self._extra[name] = folders[key]
-        for extra in folders.values():
-            names = [n for n, e in self._extra.items() if e is extra]
-            specs = {n: _spec(given[n]) for n in names if n in given}
-            held = {} if extra.meta is None else extra.meta["node_attrs"]
-            new = [n for n in names if n not in held]
-            if new and self.mode == "r":
+            if key in seen:
+                raise ValueError(f"{folder} is given twice in extra_fields")
+            seen.add(key)
+            extra = _ExtraFields(folder)
+            if extra.meta is None and self.mode == "r":
                 raise ValueError(
-                    f"node attributes {new} are not in {extra.path}; it has "
-                    f"{sorted(held)}. Open with mode 'r+' to create them"
+                    f"{folder} holds no extra node attributes. Open the graph "
+                    "with mode 'r+' to write the first"
                 )
-            untyped = [n for n in new if n not in specs]
-            if untyped:
-                raise ValueError(
-                    f"{untyped} are new in {extra.path}: give their types in node_attrs"
-                )
-            if new:
-                extra.path.mkdir(parents=True, exist_ok=True)
-                with _locked(extra.path):
-                    extra.reload()  # another process may have declared them
-                    if extra.meta is None:
-                        extra.meta = {
-                            "version": EXTRA_FORMAT_VERSION,
-                            "extends": self._extends(),
-                            "node_attrs": {},
-                            "arrays": {},
-                        }
-                    for name in new:
-                        extra.meta["node_attrs"].setdefault(name, specs[name])
-                    extra.write()
+            self._extra_dirs.append(extra)
+        self._map_extra_fields()
+        # node_attrs may name extra attributes: to create them up front, or
+        # to have the recorded type checked
+        named = {
+            name: _spec(attr_type)
+            for name, attr_type in given.items()
+            if name not in self.meta["node_attrs"]
+        }
+        new = {name: spec for name, spec in named.items() if name not in self._extra}
+        if new and self.mode == "r":
+            raise ValueError(
+                f"node attributes {sorted(new)} are neither in {self.path} nor "
+                f"in its extra fields, which hold {sorted(self._extra)}"
+            )
+        if new:
+            self._declare_extra(new)
+        for name, spec in named.items():
+            self._same_spec(name, spec)
+
+    def _map_extra_fields(self) -> None:
+        """Which directory holds each extra attribute, from what the
+        directories say now. A name held twice is refused."""
+        found: dict[str, _ExtraFields] = {}
+        for extra in self._extra_dirs:
+            if extra.meta is None:
+                continue
             self._check_extends(extra)
-            for name, spec in specs.items():
-                if spec != extra.stored["node_attrs"][name]:
+            for name in extra.meta["node_attrs"]:
+                if name in self.meta["node_attrs"]:
                     raise ValueError(
-                        f"node attribute {name!r} is {extra.stored['node_attrs'][name]} "
-                        f"in {extra.path}, not {spec}"
+                        f"node attribute {name!r} of {extra.path} is also stored "
+                        f"in {self.path} itself"
                     )
+                if name in found:
+                    raise ValueError(
+                        f"node attribute {name!r} is held by {found[name].path} "
+                        f"and by {extra.path}"
+                    )
+                found[name] = extra
+        self._extra = found
+
+    def _same_spec(self, name: str, spec: dict[str, Any]) -> None:
+        extra = self._extra[name]
+        recorded = extra.stored["node_attrs"][name]
+        if spec != recorded:
+            raise ValueError(
+                f"node attribute {name!r} is {self._types({name: recorded})[name]} "
+                f"in {extra.path}, not {self._types({name: spec})[name]}"
+            )
+
+    def _declare_extra(self, specs: Mapping[str, dict[str, Any]]) -> None:
+        """Record new extra attributes in the one directory that is open.
+        Another process may declare the same ones at the same time: the
+        first to hold the lock writes them, the others find them."""
+        if self.mode == "r":
+            raise RuntimeError("Trying to write to read-only DB")
+        if len(self._extra_dirs) != 1:
+            raise ValueError(
+                f"{sorted(specs)} are new node attributes and "
+                f"{len(self._extra_dirs)} extra directories are open: open the "
+                "graph with the one directory they are to go into"
+            )
+        (extra,) = self._extra_dirs
+        extra.path.mkdir(parents=True, exist_ok=True)
+        with _locked(extra.path):
+            extra.reload()
+            if extra.meta is None:
+                extra.meta = {
+                    "version": EXTRA_FORMAT_VERSION,
+                    "extends": self._extends(),
+                    "node_attrs": {},
+                    "arrays": {},
+                }
+            added = False
+            for name, spec in specs.items():
+                if name not in extra.meta["node_attrs"]:
+                    extra.meta["node_attrs"][name] = spec
+                    added = True
+            if added:
+                extra.write()
+        self._map_extra_fields()
+        self._arrays = None
+        for name, spec in specs.items():
+            self._same_spec(name, spec)
 
     def _extra_folders(self) -> list[_ExtraFields]:
-        return list({id(e): e for e in self._extra.values()}.values())
+        return self._extra_dirs
 
     def _node_specs(self) -> dict[str, dict[str, Any]]:
         """Every node attribute this handle reads: stored, then extra."""
@@ -553,12 +636,12 @@ class CSRGraphDataBase(GraphDataBase):
         return specs
 
     def _refuse(self, what: str) -> None:
-        if self._extra:
+        if self._extra_dirs:
             raise GraphIsReadOnly(
                 f"{what}: {self.path} is read-only through a handle opened with "
-                "extra_fields; only the extra node attributes "
-                f"{sorted(self._extra)} are written. Open the graph without "
-                "extra_fields to change it"
+                "extra_fields; only extra node attributes are written, into "
+                f"{[str(e.path) for e in self._extra_dirs]}. Open the graph "
+                "without extra_fields to change it"
             )
 
     def _split_extra(
@@ -566,42 +649,107 @@ class CSRGraphDataBase(GraphDataBase):
     ) -> list[tuple[_ExtraFields, list[str]]]:
         """Extra attribute names by the directory that holds them."""
         attrs = list(attrs)
-        stored = [a for a in attrs if a in self.meta["node_attrs"]]
-        if stored:
-            self._refuse(f"cannot write the node attributes {stored}")
-        unknown = [a for a in attrs if a not in self._extra]
-        if unknown:
-            raise ValueError(f"unknown node attributes {unknown}")
         return [
             (extra, [a for a in attrs if self._extra[a] is extra])
-            for extra in self._extra_folders()
+            for extra in self._extra_dirs
             if any(self._extra[a] is extra for a in attrs)
         ]
 
+    def _extra_names(self, attrs: Iterable[str], specs) -> None:
+        """Refuse stored attributes; create the extra ones that are new,
+        with ``specs(names)`` giving the types of those; check the rest."""
+        attrs = list(attrs)
+        stored = [a for a in attrs if a in self.meta["node_attrs"]]
+        if stored:
+            self._refuse(f"cannot write the node attributes {stored}")
+        new = [a for a in attrs if a not in self._extra]
+        if new:
+            for extra in self._extra_dirs:
+                extra.reload()  # another process may have created them
+            self._map_extra_fields()
+            new = [a for a in attrs if a not in self._extra]
+        if new:
+            self._declare_extra(specs(new))
+
+    @staticmethod
+    def _spec_of_values(name: str, values: np.ndarray) -> dict[str, Any]:
+        """The type an array of values, one entry per node, declares."""
+        if values.dtype.kind not in "fiub":
+            raise NotImplementedError(
+                f"node attribute {name!r}: attributes of type {values.dtype} are "
+                "not supported by the CSR backend"
+            )
+        if values.ndim not in (1, 2) or (values.ndim == 2 and values.shape[1] < 1):
+            raise ValueError(
+                f"node attribute {name!r} has shape {values.shape}; expected "
+                "(N,) for a scalar or (N, k) for a vector"
+            )
+        size = values.shape[1] if values.ndim == 2 else 0
+        return {"dtype": values.dtype.newbyteorder("<").str, "size": size}
+
     def _write_extra_arrays(self, ids: np.ndarray, attrs: Mapping[str, Any]) -> None:
         ids = np.asarray(ids)
-        for extra, names in self._split_extra(attrs):
+        arrays = {name: np.asarray(values) for name, values in attrs.items()}
+        for name, values in arrays.items():
+            if values.ndim == 0 or len(values) != len(ids):
+                raise ValueError(
+                    f"node attribute {name!r} has shape {values.shape}; "
+                    f"expected one entry for each of the {len(ids)} ids"
+                )
+        given = {
+            name: self._spec_of_values(name, values)
+            for name, values in arrays.items()
+            if name not in self.meta["node_attrs"]
+        }
+        self._extra_names(arrays, lambda new: {name: given[name] for name in new})
+        for name, spec in given.items():
+            self._same_spec(name, spec)
+        for extra, names in self._split_extra(arrays):
             records = np.empty(len(ids), dtype=extra.record_dtype(names))
             records["id"] = ids
             for name in names:
-                values = np.asarray(attrs[name])
-                if values.ndim == 0 or len(values) != len(ids):
-                    raise ValueError(
-                        f"node attribute {name!r} has shape {values.shape}; "
-                        f"expected one entry for each of the {len(ids)} ids"
-                    )
-                records[name] = values
+                records[name] = arrays[name]
             self._segment("nodes", extra.path).append(records)
 
     def _write_extra_rows(self, nodes, roi: Roi | None, attributes) -> None:
+        # left out, the extra attributes that exist are written; a new one
+        # is named
         names = list(self._extra) if attributes is None else list(attributes)
+        kept = []
+        for node_id, data in nodes.items():
+            if roi is not None:
+                position = self._position(data)
+                if position is None or not roi.contains(tuple(position)):
+                    continue
+            kept.append((node_id, data))
+
+        def infer(new: list[str]) -> dict[str, dict[str, Any]]:
+            specs = {}
+            for name in new:
+                values = [
+                    np.asarray(d[name]) for _, d in kept if d.get(name) is not None
+                ]
+                kinds = {v.dtype.kind for v in values}
+                shapes = {v.shape for v in values}
+                if (
+                    len(kinds) != 1
+                    or len(shapes) != 1
+                    or not kinds <= set("fiub")
+                    or len(next(iter(shapes))) > 1
+                ):
+                    raise ValueError(
+                        f"node attribute {name!r} is new and its type cannot be "
+                        f"told from the values of the nodes ({len(values)} "
+                        f"values, kinds {sorted(kinds)}, shapes {sorted(shapes)}): "
+                        "give its type in node_attrs when the graph is opened"
+                    )
+                specs[name] = self._spec_of_values(name, np.stack(values))
+            return specs
+
+        self._extra_names(names, infer)
         for extra, own in self._split_extra(names):
             groups: dict[tuple[str, ...], list[tuple]] = {}
-            for node_id, data in nodes.items():
-                if roi is not None:
-                    position = self._position(data)
-                    if position is None or not roi.contains(tuple(position)):
-                        continue
+            for node_id, data in kept:
                 present = tuple(a for a in own if data.get(a) is not None)
                 if not present:
                     continue
@@ -871,9 +1019,9 @@ class CSRGraphDataBase(GraphDataBase):
             name: np.load(folder / f"{name}.npy", mmap_mode="r")
             for name in self._array_names()
         }
-        for extra in self._extra_folders():
+        for extra in self._extra_dirs:
             extra.reload()
-            self._check_extends(extra)
+        self._map_extra_fields()
         for name, extra in self._extra.items():
             arrays[f"node_{name}"] = self._extra_array(extra, name, len(arrays["ids"]))
         self._arrays = arrays
@@ -916,7 +1064,7 @@ class CSRGraphDataBase(GraphDataBase):
         """Append nodes given as arrays: ``ids`` and one array per attribute
         (the position among them). Through a handle with ``extra_fields``:
         values of extra attributes for nodes of the graph, no position."""
-        if self._extra:
+        if self._extra_dirs:
             self._write_extra_arrays(ids, attrs)
             self._after_write()
             return
@@ -970,7 +1118,7 @@ class CSRGraphDataBase(GraphDataBase):
             )
 
     def bulk_write_nodes(self, nodes, roi: Roi | None = None, attributes=None) -> None:
-        if self._extra:
+        if self._extra_dirs:
             self._write_extra_rows(nodes, roi, attributes)
             self._after_write()
             return
@@ -1210,8 +1358,8 @@ class CSRGraphDataBase(GraphDataBase):
         self._segments = {}
         # one finalize at a time: a second process waits, then finds the
         # segments the first one merged gone
-        if self._extra:
-            for extra in self._extra_folders():
+        if self._extra_dirs:
+            for extra in self._extra_dirs:
                 with _locked(extra.path):
                     self._finalize_extra(extra)
             self._arrays = None

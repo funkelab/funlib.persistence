@@ -103,37 +103,61 @@ values = compute(nodes, edges)[nodes["own"]]
 
 Values computed on a finished graph, such as an embedding per node, do not
 have to go into the graph's directory. The graph is opened with
-`extra_fields`, a mapping from attribute name to the directory that holds
-it, and the extra attributes are written and read through the database
-like stored ones:
+`extra_fields`, the directory that holds them, and the extra attributes are
+written and read through the database like stored ones:
 
 ```python
 from funlib.persistence.graphs import CSRGraphDataBase
-from funlib.persistence.types import Vec
 
-g = CSRGraphDataBase(
-    "fragments.csr",
-    mode="r+",
-    extra_fields={"embedding": "pred/model_a", "label": "pred/model_a"},
-    node_attrs={"embedding": Vec("float32", 64), "label": "int32"},
-)
+g = CSRGraphDataBase("fragments.csr", mode="r+", extra_fields="pred/model_a")
 with g.bulk_write_mode():
     for roi in blocks:
         nodes, edges = g.read_block(roi, num_steps=2, node_attrs=["position"])
         own = nodes["own"]
-        e, l = model(nodes, edges)
+        e, l = model(nodes, edges)          # float32 (N, 64) and int32 (N,)
         g.write_node_arrays(nodes["id"][own], embedding=e[own], label=l[own])
 
+g = CSRGraphDataBase("fragments.csr", extra_fields="pred/model_a")
 nodes, edges = g.read_arrays(roi, node_attrs=["position", "embedding"])
 ```
 
-A directory holds any number of attributes, and a handle can name
-attributes from several directories. An attribute its directory does not
-hold yet is created when the graph is opened with mode `"r+"`, with the
-type `node_attrs` gives it; later the type may be left out. `g.node_attrs`
-lists the extra attributes after the stored ones, and `read_arrays`,
-`read_block`, `read_nodes` and `read_graph` return them by name, for the
-same regions and steps.
+The path is enough. No attribute is named and no type is given: `meta.json`
+in the directory records what it holds, and opening the graph with it
+exposes every attribute there with its recorded type. `g.node_attrs` lists
+the extra attributes after the stored ones, and `read_arrays`, `read_block`,
+`read_nodes` and `read_graph` return them by name, for the same regions and
+steps. `CSRGraphDataBase.stored_extra_fields(path)` tells what a directory
+holds without opening a graph.
+
+`extra_fields` also takes several directories,
+`extra_fields=["pred/model_a", "pred/model_b"]`, and exposes the attributes
+of all of them. An attribute that two of them hold, or that the graph itself
+stores, is refused when the graph is opened. A directory that is empty or
+does not exist yet is created by the first write in mode `"r+"`; in mode
+`"r"` it is an error.
+
+**A new attribute is created by the first write that names it**, with the
+type of the values written: `embedding=e` with `e` a float32 array of shape
+`(N, 64)` declares a float32 vector of 64. The declaration is recorded in the
+directory's `meta.json` under the directory's lock, so worker processes that
+create the same attribute at the same moment agree on it. From then on an
+array written to the attribute has that dtype and vector size, or the write
+raises `ValueError`; nothing is cast. The writes that take nodes as
+dictionaries (`write_nodes`, `bulk_write_nodes`, `write_attrs`) create an
+attribute named in `attributes` from the values the nodes carry, when those
+are numbers of one kind (bool, int or float, stored as bool, int64 or
+float64) and one length; otherwise they raise and ask for a type. Values for
+an attribute that exists are cast to its type.
+
+`node_attrs` is never needed for an extra attribute. It may name one with a
+type, `node_attrs={"score": "float32"}`, to create it up front in mode
+`"r+"`, for example float32 where Python numbers would give float64, or to
+have the recorded type checked.
+
+**A new attribute goes into the one directory that is open.** With several
+directories open, a write that names an attribute none of them holds raises:
+open the graph with the directory it is to go into. Attributes that exist
+are written into the directory that holds them.
 
 **The graph is read-only through such a handle.** Nothing in the graph's
 directory is created, changed or locked. Writing edges, writing nodes with
