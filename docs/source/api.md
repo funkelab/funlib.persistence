@@ -62,16 +62,4 @@ The graph databases are importable from `funlib.persistence.graphs`.
 .. autoclass:: funlib.persistence.graphs.csr_graph_database.CSRGraphDataBase
    :members:
    :show-inheritance:
-
-.. automodule:: funlib.persistence.graphs.node_arrays
-
-.. autoclass:: funlib.persistence.graphs.node_arrays.NodeArrays
-   :members:
-
-.. autoclass:: funlib.persistence.graphs.node_arrays.NodeArraysWriter
-   :members:
-
-.. autofunction:: funlib.persistence.graphs.node_arrays.write_node_arrays
-
-.. autofunction:: funlib.persistence.graphs.node_arrays.finalize_node_arrays
 ```
