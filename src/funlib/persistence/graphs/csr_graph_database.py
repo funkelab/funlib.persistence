@@ -983,23 +983,48 @@ class CSRGraphDataBase(GraphDataBase):
         node_attrs: list[str] | None = None,
         edge_attrs: list[str] | None = None,
         step_edges: Sequence[str] | None = None,
+        edge_ends: str = "both",
     ) -> tuple[dict[str, np.ndarray], dict[str, np.ndarray]]:
         """The nodes in ``roi``, every node within ``num_steps`` edges of
         them, and the edges among those nodes, as arrays.
+
+        ``edge_ends`` says which ends of an edge have to be among the nodes
+        read for the edge to be returned:
+
+        ``"both"`` (the default)
+            The edges among the nodes read. Every ``u`` and ``v`` is an
+            ``id`` in ``nodes``, so the result is a graph on its own. An
+            edge that leaves the nodes read is not returned.
+        ``"u"``
+            The edges whose smaller-id end is among the nodes read: the
+            rule of :meth:`read_edges` and :meth:`read_graph`, here and in
+            the SQL backends. With ``num_steps=0`` the edges are those of
+            ``read_edges(roi)``. A block sees the edges that leave it, and
+            blocks that tile a graph see every edge once.
+        ``"either"``
+            The edges with at least one end among the nodes read: the
+            rule of ``read_edges(roi, fetch_on_v=True)``.
+
+        With ``"u"`` and ``"either"`` an edge can name a node that is not in
+        ``nodes``; its attributes were not read.
 
         ``step_edges`` names the edge attributes that make an edge a step:
         an edge is followed when any of them is set on it (not NaN). They
         are float attributes: an integer or bool attribute has no unset
         value and is refused. ``None`` follows every edge; an empty
-        sequence names no attribute, so no edge is followed. The edges
-        returned are all those among the nodes read, whichever were
-        followed.
+        sequence names no attribute, so no edge is followed. Which edges
+        are returned is the matter of ``edge_ends`` alone, not of which
+        were followed.
 
         Returns ``(nodes, edges)``. ``nodes`` has ``id``, ``step`` (0 for a
         node in the region, else the step that first reached it) and the
         requested attributes; ``edges`` has ``u``, ``v`` (ids, ``u < v``,
         each edge once) and the requested attributes. All attributes are
         returned when none are named."""
+        if edge_ends not in ("both", "u", "either"):
+            raise ValueError(
+                f"edge_ends is {edge_ends!r}; it is one of 'both', 'u', 'either'"
+            )
         arrays = self._readable()
         node_attrs = list(self.meta["node_attrs"]) if node_attrs is None else node_attrs
         edge_attrs = list(self.meta["edge_attrs"]) if edge_attrs is None else edge_attrs
@@ -1039,6 +1064,11 @@ class CSRGraphDataBase(GraphDataBase):
             ]
         nodes = self._node_columns(arrays, selected, node_attrs)
         nodes["step"] = step
+        if edge_ends != "both":
+            # the rule of read_edges, applied to the nodes read
+            return nodes, self._edge_columns(
+                arrays, selected, edge_ends == "either", edge_attrs
+            )
         at, owner = _gather(indptr, selected)
         other = np.asarray(nbr[at])
         where = np.searchsorted(selected, other)
@@ -1060,6 +1090,7 @@ class CSRGraphDataBase(GraphDataBase):
         node_attrs: list[str] | None = None,
         edge_attrs: list[str] | None = None,
         step_edges: Sequence[str] | None = None,
+        edge_ends: str = "both",
     ) -> tuple[dict[str, np.ndarray], dict[str, np.ndarray]]:
         """A block with its surroundings, as arrays: what a computation that
         writes one value per node of ``roi`` reads.
@@ -1072,14 +1103,16 @@ class CSRGraphDataBase(GraphDataBase):
         Returns ``(nodes, edges)`` as :meth:`read_arrays` does, with one more
         array in ``nodes``: ``own``, true for the nodes inside ``roi``.
         ``step`` is 0 for the block's own nodes and for those the context
-        reached; the steps are counted from there.
+        reached; the steps are counted from there. ``edge_ends`` is that of
+        :meth:`read_arrays`: it applies to all the nodes read, the
+        surroundings included.
         """
         if num_steps < 0:
             raise ValueError("num_steps must be >= 0")
         wanted = list(self.meta["node_attrs"]) if node_attrs is None else node_attrs
         if context is None:
             nodes, edges = self.read_arrays(
-                roi, num_steps, wanted, edge_attrs, step_edges
+                roi, num_steps, wanted, edge_attrs, step_edges, edge_ends
             )
             nodes["own"] = nodes["step"] == 0
             return nodes, edges
@@ -1095,6 +1128,7 @@ class CSRGraphDataBase(GraphDataBase):
             list(dict.fromkeys([*wanted, position])),
             edge_attrs,
             step_edges,
+            edge_ends,
         )
         at = np.asarray(nodes[position], dtype=float).reshape(len(nodes["id"]), -1)
         own = nodes["step"] == 0
@@ -1197,7 +1231,9 @@ class CSRGraphDataBase(GraphDataBase):
         fetch_on_v: bool = False,
     ) -> list[dict[str, Any]]:
         """Edges whose smaller endpoint (``u``) is in ``roi`` or in
-        ``nodes``; with ``fetch_on_v`` also those whose larger one is."""
+        ``nodes``; with ``fetch_on_v`` also those whose larger one is.
+        :meth:`read_arrays` returns the same edges as arrays with
+        ``edge_ends="u"`` and ``edge_ends="either"``."""
         if roi is not None and nodes is not None:
             raise ValueError(
                 "read_edges does not support both roi and nodes at the same time. "

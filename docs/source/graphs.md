@@ -70,7 +70,23 @@ nodes, edges = db.read_arrays(Roi((0, 0, 0), (100, 100, 100)), num_steps=1)
 
 `read_arrays` returns the nodes in the ROI, every node within `num_steps`
 edges of them, and the edges among the nodes read. `step_edges` names the
-edge attributes that make an edge a step.
+float edge attributes that make an edge a step: an edge is followed when
+one of them is set on it.
+
+By default an edge is returned when both of its ends are among the nodes
+read, so the arrays are a graph on their own. That is not the rule of
+`read_graph`, which also returns the edges that leave the ROI.
+`edge_ends` selects the rule:
+
+| `edge_ends` | an edge is returned when | same edges as |
+|---|---|---|
+| `"both"` (default) | both ends are among the nodes read | |
+| `"u"` | its smaller-id end is among the nodes read | `read_graph(roi)`, `read_edges(roi)` on every backend |
+| `"either"` | at least one end is among the nodes read | `read_graph(roi, fetch_on_v=True)` |
+
+With `"u"` or `"either"` an edge can name a node whose attributes were not
+read. Code that reads one backend as arrays and another through
+`read_graph` asks for `edge_ends="u"` to get the same edges from both.
 
 `read_block` is the read of a computation that writes one value per node of
 a block: the nodes of the ROI, marked `own`, with the nodes within a

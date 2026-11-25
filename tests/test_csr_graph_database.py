@@ -540,3 +540,99 @@ def test_a_database_is_told_from_other_directories(tmp_path):
     assert not CSRGraphDataBase.is_database(other)
     (other / "meta.json").write_text("not json")
     assert not CSRGraphDataBase.is_database(other)
+
+
+def pairs(edges):
+    return sorted(zip(edges["u"].tolist(), edges["v"].tolist(), strict=True))
+
+
+@pytest.mark.parametrize(
+    "edge_ends, fetch_on_v", [("u", False), ("either", True)], ids=["u", "either"]
+)
+def test_an_array_read_returns_the_edges_read_graph_returns_from_sqlite(
+    tmp_path, edge_ends, fetch_on_v
+):
+    """The scenario of volara#111: nodes 1 and 2 inside the roi, node 3
+    outside, edges (1, 3) and (2, 3)."""
+    ids = np.array([1, 2, 3], dtype=np.uint64)
+    pos = np.array([[10.0, 10, 10], [30, 30, 30], [90, 90, 90]])
+    u, v = np.array([1, 2], dtype=np.uint64), np.array([3, 3], dtype=np.uint64)
+    score = np.array([0.5, 0.75], dtype=np.float32)
+    roi = Roi((0, 0, 0), (50, 50, 50))
+
+    sqlite = SQLiteGraphDataBase(
+        tmp_path / "g.db",
+        position_attribute="position",
+        mode="w",
+        node_attrs={"position": Vec(float, 3)},
+        edge_attrs={"score": float},
+    )
+    graph = nx.Graph()
+    graph.add_nodes_from(
+        (int(i), {"position": tuple(p)}) for i, p in zip(ids, pos.tolist(), strict=True)
+    )
+    graph.add_edges_from(
+        (int(a), int(b), {"score": float(s)})
+        for a, b, s in zip(u, v, score, strict=True)
+    )
+    sqlite.write_graph(graph)
+    csr = CSRGraphDataBase.from_arrays(
+        tmp_path / "g.csr", ids, {"position": pos}, u, v, {"score": score}, cell_size=20
+    )
+
+    def listed(db, region):
+        graph = db.read_graph(region, fetch_on_v=fetch_on_v)
+        return sorted((min(e), max(e)) for e in graph.edges)
+
+    expected = listed(sqlite, roi)
+    assert expected == [(1, 3), (2, 3)]
+    assert listed(csr, roi) == expected
+
+    nodes, edges = csr.read_arrays(roi, edge_ends=edge_ends)
+    assert sorted(nodes["id"].tolist()) == [1, 2]  # node 3 is named, not read
+    assert pairs(edges) == expected
+    assert sorted(edges["score"].tolist()) == [0.5, 0.75]
+    nodes, edges = csr.read_block(roi, edge_ends=edge_ends)
+    assert pairs(edges) == expected and nodes["own"].all()
+
+    # the default is unchanged: only the edges among the nodes read
+    assert pairs(csr.read_arrays(roi)[1]) == pairs(csr.read_block(roi)[1]) == []
+
+    # from the other side, node 3 is the larger end of both edges
+    outside = Roi((50, 50, 50), (50, 50, 50))
+    expected = [(1, 3), (2, 3)] if fetch_on_v else []
+    assert listed(sqlite, outside) == listed(csr, outside) == expected
+    assert pairs(csr.read_arrays(outside, edge_ends=edge_ends)[1]) == expected
+
+
+@pytest.mark.parametrize("fetch_on_v", [False, True])
+def test_edge_ends_is_the_rule_of_read_edges_on_any_region(filled, fetch_on_v):
+    db, _ = filled
+    edge_ends = "either" if fetch_on_v else "u"
+
+    def scored(edges):
+        order = np.lexsort((edges["v"], edges["u"]))
+        return dict(zip(pairs(edges), edges["adj"][order].tolist(), strict=True))
+
+    for roi in (
+        Roi((0, 0, 0), (120, 120, 120)),
+        Roi((100, -50, 37), (33, 400, 80)),
+        Roi((1000, 1000, 1000), (10, 10, 10)),
+        None,
+    ):
+        listed = db.read_edges(roi, fetch_on_v=fetch_on_v)
+        _, edges = db.read_arrays(roi, edge_ends=edge_ends)
+        assert scored(edges) == {(e["u"], e["v"]): e["adj"] for e in listed}
+    # with steps, the rule applies to every node read
+    roi = Roi((0, 0, 0), (120, 120, 120))
+    nodes, edges = db.read_arrays(roi, num_steps=1, edge_ends=edge_ends)
+    listed = db.read_edges(
+        nodes=[{"id": i} for i in nodes["id"].tolist()], fetch_on_v=fetch_on_v
+    )
+    assert pairs(edges) == sorted((e["u"], e["v"]) for e in listed)
+    assert set(pairs(db.read_arrays(roi, num_steps=1)[1])) < set(pairs(edges))
+
+
+def test_an_unknown_edge_ends_is_refused(tmp_path):
+    with pytest.raises(ValueError, match="edge_ends is 'v'; it is one of"):
+        chain(tmp_path).read_arrays(edge_ends="v")
