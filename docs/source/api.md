@@ -58,4 +58,16 @@ The graph databases are importable from `funlib.persistence.graphs`.
 .. autoclass:: funlib.persistence.graphs.pgsql_graph_database.PgSQLGraphDatabase
    :members:
    :show-inheritance:
+
+.. autoclass:: funlib.persistence.graphs.csr_graph_database.CSRGraphDataBase
+   :members:
+   :show-inheritance:
+
+.. autoclass:: funlib.persistence.graphs.node_arrays.NodeArrays
+   :members:
+
+.. autoclass:: funlib.persistence.graphs.node_arrays.NodeArraysWriter
+   :members:
+
+.. autofunction:: funlib.persistence.graphs.node_arrays.write_node_arrays
 ```

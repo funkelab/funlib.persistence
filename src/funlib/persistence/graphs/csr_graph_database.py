@@ -23,18 +23,19 @@ process does that. Reads see the arrays of the last finalize.
 from __future__ import annotations
 
 import fcntl
+import hashlib
 import json
 import logging
 import os
 import shutil
 import uuid
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping, Sequence
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
 import numpy as np
-from funlib.geometry import Roi
+from funlib.geometry import Coordinate, Roi
 from networkx import Graph
 
 from ..types import Vec
@@ -290,6 +291,80 @@ class CSRGraphDataBase(GraphDataBase):
         stored_roi = self.meta.get("total_roi")
         self.total_roi = None if stored_roi is None else Roi(*stored_roi)
 
+    @staticmethod
+    def is_database(path: Path | str) -> bool:
+        """Whether ``path`` is the directory of a CSR graph database."""
+        meta = Path(path) / "meta.json"
+        if not meta.is_file():
+            return False
+        try:
+            stored = json.loads(meta.read_text())
+        except ValueError:
+            return False
+        return isinstance(stored, dict) and "generation" in stored
+
+    @classmethod
+    def from_arrays(
+        cls,
+        path: Path | str,
+        ids: np.ndarray,
+        node_attrs: Mapping[str, np.ndarray],
+        u: np.ndarray | None = None,
+        v: np.ndarray | None = None,
+        edge_attrs: Mapping[str, np.ndarray] | None = None,
+        *,
+        cell_size: float | Iterable[float],
+        position_attribute: str = "position",
+        node_types: Mapping[str, AttributeType] | None = None,
+        edge_types: Mapping[str, AttributeType] | None = None,
+        total_roi: Roi | None = None,
+    ) -> CSRGraphDataBase:
+        """Create a database at ``path`` from a whole graph held in arrays,
+        replacing what is there, and return it open for reading and writing.
+
+        ``ids`` are the node ids, ``node_attrs`` one array per node attribute
+        (the position among them), ``u`` and ``v`` the endpoint ids of the
+        edges and ``edge_attrs`` one array per edge attribute.
+
+        An attribute is stored in the dtype of its array, a 2-D array as a
+        vector, unless ``node_types`` or ``edge_types`` names another type
+        for it; the array is cast to that type.
+        """
+        edge_attrs = dict(edge_attrs or {})
+        if (u is None) != (v is None):
+            raise ValueError("edges need both u and v")
+        if u is None and edge_attrs:
+            raise ValueError("edge attributes were given without edges")
+
+        def types(columns, given) -> dict[str, AttributeType]:
+            unknown = sorted(set(given or {}) - set(columns))
+            if unknown:
+                raise ValueError(f"types were given for {unknown}, which have no array")
+            out: dict[str, AttributeType] = {}
+            for name, column in columns.items():
+                if given and name in given:
+                    out[name] = given[name]
+                    continue
+                column = np.asarray(column)
+                dtype = column.dtype.name
+                out[name] = dtype if column.ndim == 1 else Vec(dtype, column.shape[1])
+            return out
+
+        db = cls(
+            path,
+            position_attribute=position_attribute,
+            mode="w",
+            total_roi=total_roi,
+            node_attrs=types(node_attrs, node_types),
+            edge_attrs=types(edge_attrs, edge_types),
+            cell_size=cell_size,
+        )
+        with db.bulk_write_mode():
+            db.write_node_arrays(np.asarray(ids), **node_attrs)
+            if u is not None and v is not None:
+                db.write_edge_arrays(u, v, **edge_attrs)
+        return db
+
     # -- metadata -----------------------------------------------------------
 
     def _write_meta(self) -> None:
@@ -322,6 +397,14 @@ class CSRGraphDataBase(GraphDataBase):
     @property
     def num_edges(self) -> int:
         return self.meta["num_edges"]
+
+    @property
+    def digest(self) -> str:
+        """What identifies the content of the database: the sha256 of its
+        ``meta.json``, which names the set of arrays last built. It changes
+        with every :meth:`finalize` that had something to merge, and is the
+        same for every copy of the directory."""
+        return hashlib.sha256((self.path / "meta.json").read_bytes()).hexdigest()
 
     def close(self) -> None:
         for segment in self._segments.values():
@@ -859,9 +942,15 @@ class CSRGraphDataBase(GraphDataBase):
         num_steps: int = 0,
         node_attrs: list[str] | None = None,
         edge_attrs: list[str] | None = None,
+        step_edges: Sequence[str] | None = None,
     ) -> tuple[dict[str, np.ndarray], dict[str, np.ndarray]]:
         """The nodes in ``roi``, every node within ``num_steps`` edges of
         them, and the edges among those nodes, as arrays.
+
+        ``step_edges`` names the edge attributes that make an edge a step:
+        an edge is followed when any of them is set on it (not NaN). Left
+        out, every edge is followed. The edges returned are all those among
+        the nodes read, whichever were followed.
 
         Returns ``(nodes, edges)``. ``nodes`` has ``id``, ``step`` (0 for a
         node in the region, else the step that first reached it) and the
@@ -873,6 +962,9 @@ class CSRGraphDataBase(GraphDataBase):
         edge_attrs = list(self.meta["edge_attrs"]) if edge_attrs is None else edge_attrs
         if arrays is None:
             arrays = self._empty()
+        for name in step_edges or ():
+            if name not in self.meta["edge_attrs"]:
+                raise ValueError(f"unknown edge attribute {name!r}")
         indptr, nbr = arrays["indptr"], arrays["nbr"]
         selected = self._rows_in(arrays, roi)
         step = np.zeros(len(selected), dtype=np.int16)
@@ -881,6 +973,11 @@ class CSRGraphDataBase(GraphDataBase):
             if len(frontier) == 0:
                 break
             at, _ = _gather(indptr, frontier)
+            if step_edges:
+                followed = np.zeros(len(at), dtype=bool)
+                for name in step_edges:
+                    followed |= self._present(np.asarray(arrays[f"edge_{name}"][at]))
+                at = at[followed]
             reached = np.unique(np.asarray(nbr[at]))
             frontier = reached[~np.isin(reached, selected, assume_unique=True)]
             if len(frontier) == 0:
@@ -904,6 +1001,57 @@ class CSRGraphDataBase(GraphDataBase):
         edges = {"u": u[once], "v": v[once]}
         for name in edge_attrs:
             edges[name] = np.asarray(arrays[f"edge_{name}"][at[once]])
+        return nodes, edges
+
+    def read_block(
+        self,
+        roi: Roi,
+        context: Sequence[float] | float | None = None,
+        num_steps: int = 0,
+        node_attrs: list[str] | None = None,
+        edge_attrs: list[str] | None = None,
+        step_edges: Sequence[str] | None = None,
+    ) -> tuple[dict[str, np.ndarray], dict[str, np.ndarray]]:
+        """A block with its surroundings, as arrays: what a computation that
+        writes one value per node of ``roi`` reads.
+
+        The block's own nodes are those inside ``roi``. The surroundings
+        are every node within ``context`` of the box (one distance or one
+        per dimension, rounded up to whole units), and every node within
+        ``num_steps`` edges of any of those, wherever it lies.
+
+        Returns ``(nodes, edges)`` as :meth:`read_arrays` does, with one more
+        array in ``nodes``: ``own``, true for the nodes inside ``roi``.
+        """
+        if num_steps < 0:
+            raise ValueError("num_steps must be >= 0")
+        wanted = list(self.meta["node_attrs"]) if node_attrs is None else node_attrs
+        if context is None:
+            nodes, edges = self.read_arrays(
+                roi, num_steps, wanted, edge_attrs, step_edges
+            )
+            nodes["own"] = nodes["step"] == 0
+            return nodes, edges
+        grow = np.ceil(np.broadcast_to(np.asarray(context, dtype=float), (self.ndims,)))
+        if (grow < 0).any():
+            raise ValueError("context must be >= 0")
+        amount = Coordinate(int(g) for g in grow)
+        position = self.position_attribute
+        nodes, edges = self.read_arrays(
+            roi.grow(amount, amount),
+            num_steps,
+            list(dict.fromkeys([*wanted, position])),
+            edge_attrs,
+            step_edges,
+        )
+        at = np.asarray(nodes[position], dtype=float).reshape(len(nodes["id"]), -1)
+        own = nodes["step"] == 0
+        bounds = self._bounds(roi)
+        if bounds is not None:
+            own &= ((at >= bounds[0]) & (at < bounds[1])).all(axis=1)
+        nodes["own"] = own
+        if position not in wanted:
+            del nodes[position]
         return nodes, edges
 
     def _empty(self) -> dict[str, np.ndarray]:

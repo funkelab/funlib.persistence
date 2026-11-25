@@ -261,3 +261,156 @@ def test_a_region_of_empty_cells_inside_the_graph_holds_nothing(tmp_path, steps)
     assert len(nodes["id"]) == 0
     assert nodes["position"].shape == (0, 3)
     assert len(edges["u"]) == 0
+
+
+def test_from_arrays_writes_a_whole_graph_in_the_dtypes_of_its_arrays(tmp_path):
+    ids, pos, size, u, v, adj, lr = random_graph()
+    vectors = np.arange(len(ids) * 2, dtype=np.float32).reshape(-1, 2)
+    db = CSRGraphDataBase.from_arrays(
+        tmp_path / "g.csr",
+        ids,
+        {"position": pos, "size": size, "vec": vectors},
+        u,
+        v,
+        {"adj": adj, "lr": lr},
+        cell_size=40.0,
+    )
+    assert (db.num_nodes, db.num_edges) == (len(ids), len(u))
+    assert db.node_attrs == {
+        "position": Vec("float64", 3),
+        "size": "int64",
+        "vec": Vec("float32", 2),
+    }
+    assert db.edge_attrs == {"adj": "float32", "lr": "float32"}
+    nodes, edges = CSRGraphDataBase(tmp_path / "g.csr").read_arrays()
+    order = np.argsort(ids)
+    back = np.argsort(nodes["id"])
+    assert nodes["id"][back].tolist() == ids[order].tolist()
+    assert nodes["vec"][back].tolist() == vectors[order].tolist()
+    assert sorted(zip(edges["u"].tolist(), edges["v"].tolist(), strict=True)) == sorted(
+        zip(u.tolist(), v.tolist(), strict=True)
+    )
+
+
+def test_from_arrays_stores_an_attribute_in_the_type_named_for_it(tmp_path):
+    ids, pos, size, u, v, adj, _ = random_graph(n=50, m=100)
+    db = CSRGraphDataBase.from_arrays(
+        tmp_path / "g.csr",
+        ids,
+        {"position": pos, "size": size},
+        u,
+        v,
+        {"adj": adj.astype(np.float64)},
+        cell_size=40.0,
+        node_types={"size": "int32"},
+        edge_types={"adj": "float32"},
+    )
+    assert db.node_attrs["size"] == "int32" and db.edge_attrs == {"adj": "float32"}
+    # written again, it replaces what was there
+    again = CSRGraphDataBase.from_arrays(
+        tmp_path / "g.csr", ids[:5], {"position": pos[:5]}, cell_size=40.0
+    )
+    assert (again.num_nodes, again.num_edges) == (5, 0)
+
+
+@pytest.mark.parametrize(
+    "kwargs, match",
+    [
+        ({"u": np.array([1], dtype=np.uint64)}, "both u and v"),
+        ({"edge_attrs": {"adj": np.zeros(1)}}, "without edges"),
+        ({"node_types": {"nope": "int32"}}, r"types were given for \['nope'\]"),
+    ],
+)
+def test_from_arrays_refuses_arguments_that_do_not_fit(tmp_path, kwargs, match):
+    ids, pos, *_ = random_graph(n=10, m=10)
+    with pytest.raises(ValueError, match=match):
+        CSRGraphDataBase.from_arrays(
+            tmp_path / "g.csr", ids, {"position": pos}, cell_size=40.0, **kwargs
+        )
+
+
+def chain(tmp_path):
+    """Nodes 1..6 on a line, 10 apart; 1-2-3-4-5-6 joined by ``adj``, and a
+    long edge 1-6 that carries only ``lr``."""
+    ids = np.arange(1, 7, dtype=np.uint64)
+    pos = np.stack([np.zeros(6), np.zeros(6), np.arange(6) * 10.0 + 5], axis=1)
+    u = np.array([1, 2, 3, 4, 5, 1], dtype=np.uint64)
+    v = np.array([2, 3, 4, 5, 6, 6], dtype=np.uint64)
+    adj = np.array([0.1, 0.2, 0.3, 0.4, 0.5, np.nan], dtype=np.float32)
+    lr = np.array([np.nan] * 5 + [0.9], dtype=np.float32)
+    return CSRGraphDataBase.from_arrays(
+        tmp_path / "chain.csr",
+        ids,
+        {"position": pos},
+        u,
+        v,
+        {"adj": adj, "lr": lr},
+        cell_size=10.0,
+    )
+
+
+def test_steps_follow_only_the_edges_named(tmp_path):
+    db = chain(tmp_path)
+    first = Roi((-5, -5, 0), (10, 10, 10))  # node 1 alone
+    every, _ = db.read_arrays(first, num_steps=1)
+    assert sorted(every["id"].tolist()) == [1, 2, 6]
+    adj, edges = db.read_arrays(first, num_steps=1, step_edges=["adj"])
+    assert sorted(adj["id"].tolist()) == [1, 2]
+    lr, _ = db.read_arrays(first, num_steps=1, step_edges=["lr"])
+    assert sorted(lr["id"].tolist()) == [1, 6]
+    either, edges = db.read_arrays(first, num_steps=1, step_edges=["adj", "lr"])
+    assert sorted(either["id"].tolist()) == [1, 2, 6]
+    # the edges among the nodes read are returned, followed or not
+    two, edges = db.read_arrays(first, num_steps=5, step_edges=["adj"])
+    assert len(two["id"]) == 6 and len(edges["u"]) == 6
+    with pytest.raises(ValueError, match="unknown edge attribute 'nope'"):
+        db.read_arrays(first, num_steps=1, step_edges=["nope"])
+
+
+def test_read_block_marks_the_nodes_of_the_block_among_its_surroundings(tmp_path):
+    db = chain(tmp_path)
+    block = Roi((-5, -5, 20), (10, 10, 20))  # nodes 3 and 4
+
+    def own(nodes):
+        return sorted(nodes["id"][nodes["own"]].tolist())
+
+    alone, edges = db.read_block(block)
+    assert sorted(alone["id"].tolist()) == own(alone) == [3, 4]
+    assert len(edges["u"]) == 1
+
+    near, edges = db.read_block(block, context=[0, 0, 10], node_attrs=[])
+    assert sorted(near["id"].tolist()) == [2, 3, 4, 5] and own(near) == [3, 4]
+    assert "position" not in near and len(edges["u"]) == 3
+
+    stepped, _ = db.read_block(block, num_steps=1, step_edges=["adj"])
+    assert sorted(stepped["id"].tolist()) == [2, 3, 4, 5] and own(stepped) == [3, 4]
+
+    # steps start from the nodes the context reached
+    both, _ = db.read_block(block, context=10.0, num_steps=1)
+    assert sorted(both["id"].tolist()) == [1, 2, 3, 4, 5, 6] and own(both) == [3, 4]
+    assert both["step"][both["id"] == 2].tolist() == [0]
+
+    with pytest.raises(ValueError, match="num_steps must be >= 0"):
+        db.read_block(block, num_steps=-1)
+    with pytest.raises(ValueError, match="context must be >= 0"):
+        db.read_block(block, context=-1)
+
+
+def test_a_database_is_told_from_other_directories_and_names_its_content(tmp_path):
+    db = chain(tmp_path)
+    assert CSRGraphDataBase.is_database(db.path)
+    assert not CSRGraphDataBase.is_database(tmp_path)
+    assert not CSRGraphDataBase.is_database(tmp_path / "missing")
+    other = tmp_path / "other"
+    other.mkdir()
+    (other / "meta.json").write_text('{"version": 1}')
+    assert not CSRGraphDataBase.is_database(other)
+    (other / "meta.json").write_text("not json")
+    assert not CSRGraphDataBase.is_database(other)
+
+    before = db.digest
+    assert CSRGraphDataBase(db.path).digest == before
+    db.write_node_arrays(
+        np.array([7], dtype=np.uint64), position=np.array([[0.0, 0.0, 65.0]])
+    )
+    assert db.digest != before
