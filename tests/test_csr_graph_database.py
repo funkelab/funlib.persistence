@@ -470,6 +470,33 @@ def test_steps_follow_only_the_edges_named(tmp_path):
     assert len(two["id"]) == 6 and len(edges["u"]) == 6
     with pytest.raises(ValueError, match="unknown edge attribute 'nope'"):
         db.read_arrays(first, num_steps=1, step_edges=["nope"])
+    # no attribute named: no edge is a step (None is what follows every edge)
+    none, edges = db.read_arrays(first, num_steps=3, step_edges=[])
+    assert none["id"].tolist() == [1] and len(edges["u"]) == 0
+    none, _ = db.read_block(first, num_steps=3, step_edges=())
+    assert none["id"].tolist() == [1]
+
+
+def test_steps_cannot_be_named_by_an_attribute_that_is_never_unset(tmp_path):
+    # an integer reads 0 where it was never written, which is a value like
+    # any other: following "the edges that have it" would follow every edge
+    ids = np.arange(1, 4, dtype=np.uint64)
+    pos = np.stack([np.zeros(3), np.zeros(3), np.arange(3) * 10.0 + 5], axis=1)
+    db = CSRGraphDataBase.from_arrays(
+        tmp_path / "g.csr",
+        ids,
+        {"position": pos},
+        ids[:-1],
+        ids[1:],
+        {"kind": np.array([1, 0], dtype=np.int8), "flag": np.array([True, False])},
+        cell_size=10.0,
+    )
+    first = Roi((-5, -5, 0), (10, 10, 10))
+    for name, dtype in (("kind", "int8"), ("flag", "bool")):
+        with pytest.raises(ValueError, match=f"'{name}' is {dtype}; only a float"):
+            db.read_arrays(first, num_steps=1, step_edges=[name])
+        with pytest.raises(ValueError, match="only a float"):
+            db.read_block(first, num_steps=1, step_edges=[name])
 
 
 def test_read_block_marks_the_nodes_of_the_block_among_its_surroundings(tmp_path):
@@ -497,8 +524,9 @@ def test_read_block_marks_the_nodes_of_the_block_among_its_surroundings(tmp_path
 
     with pytest.raises(ValueError, match="num_steps must be >= 0"):
         db.read_block(block, num_steps=-1)
-    with pytest.raises(ValueError, match="context must be >= 0"):
-        db.read_block(block, context=-1)
+    for negative in (-1, -0.5, [0, 0, -0.25], float("nan")):
+        with pytest.raises(ValueError, match="context must be >= 0"):
+            db.read_block(block, context=negative)
 
 
 def test_a_database_is_told_from_other_directories(tmp_path):

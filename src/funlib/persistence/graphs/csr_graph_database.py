@@ -988,9 +988,12 @@ class CSRGraphDataBase(GraphDataBase):
         them, and the edges among those nodes, as arrays.
 
         ``step_edges`` names the edge attributes that make an edge a step:
-        an edge is followed when any of them is set on it (not NaN). Left
-        out, every edge is followed. The edges returned are all those among
-        the nodes read, whichever were followed.
+        an edge is followed when any of them is set on it (not NaN). They
+        are float attributes: an integer or bool attribute has no unset
+        value and is refused. ``None`` follows every edge; an empty
+        sequence names no attribute, so no edge is followed. The edges
+        returned are all those among the nodes read, whichever were
+        followed.
 
         Returns ``(nodes, edges)``. ``nodes`` has ``id``, ``step`` (0 for a
         node in the region, else the step that first reached it) and the
@@ -1005,6 +1008,12 @@ class CSRGraphDataBase(GraphDataBase):
         for name in step_edges or ():
             if name not in self.meta["edge_attrs"]:
                 raise ValueError(f"unknown edge attribute {name!r}")
+            dtype = np.dtype(self.meta["edge_attrs"][name]["dtype"])
+            if dtype.kind != "f":
+                raise ValueError(
+                    f"step_edges: edge attribute {name!r} is {dtype.name}; only "
+                    "a float attribute can be unset on an edge"
+                )
         indptr, nbr = arrays["indptr"], arrays["nbr"]
         selected = self._rows_in(arrays, roi)
         step = np.zeros(len(selected), dtype=np.int16)
@@ -1013,7 +1022,7 @@ class CSRGraphDataBase(GraphDataBase):
             if len(frontier) == 0:
                 break
             at, _ = _gather(indptr, frontier)
-            if step_edges:
+            if step_edges is not None:
                 followed = np.zeros(len(at), dtype=bool)
                 for name in step_edges:
                     followed |= self._present(np.asarray(arrays[f"edge_{name}"][at]))
@@ -1062,6 +1071,8 @@ class CSRGraphDataBase(GraphDataBase):
 
         Returns ``(nodes, edges)`` as :meth:`read_arrays` does, with one more
         array in ``nodes``: ``own``, true for the nodes inside ``roi``.
+        ``step`` is 0 for the block's own nodes and for those the context
+        reached; the steps are counted from there.
         """
         if num_steps < 0:
             raise ValueError("num_steps must be >= 0")
@@ -1072,9 +1083,10 @@ class CSRGraphDataBase(GraphDataBase):
             )
             nodes["own"] = nodes["step"] == 0
             return nodes, edges
-        grow = np.ceil(np.broadcast_to(np.asarray(context, dtype=float), (self.ndims,)))
-        if (grow < 0).any():
+        distance = np.broadcast_to(np.asarray(context, dtype=float), (self.ndims,))
+        if not (distance >= 0).all():  # before rounding: ceil(-0.5) is -0
             raise ValueError("context must be >= 0")
+        grow = np.ceil(distance)
         amount = Coordinate(int(g) for g in grow)
         position = self.position_attribute
         nodes, edges = self.read_arrays(
