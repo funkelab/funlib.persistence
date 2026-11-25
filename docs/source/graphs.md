@@ -146,8 +146,17 @@ raises `ValueError`; nothing is cast. The writes that take nodes as
 dictionaries (`write_nodes`, `bulk_write_nodes`, `write_attrs`) create an
 attribute named in `attributes` from the values the nodes carry, when those
 are numbers of one kind (bool, int or float, stored as bool, int64 or
-float64) and one length; otherwise they raise and ask for a type. Values for
-an attribute that exists are cast to its type.
+float64) and one length; otherwise they raise and ask for a type. When no
+node carries a value (an empty block) nothing is written and nothing is
+created. A value for an attribute that exists is stored in the recorded type
+or refused, never changed: a float for an integer or a bool, an integer for
+a bool, and a sequence of another length than the vector raise. A Python
+float takes the recorded float width and an integer the recorded integer
+width, or becomes a float.
+
+A write that is refused records nothing: none of the attributes it names is
+created. `id`, `step` and `own` are not names of attributes, because the
+reads return arrays of those names.
 
 `node_attrs` is never needed for an extra attribute. It may name one with a
 type, `node_attrs={"score": "float32"}`, to create it up front in mode
@@ -164,7 +173,8 @@ directory is created, changed or locked. Writing edges, writing nodes with
 stored attributes, and `drop_edges` raise `GraphIsReadOnly`. The node
 writes (`write_node_arrays`, `write_attrs`, `write_nodes`,
 `bulk_write_nodes`) take extra attributes only, for nodes that exist, and
-need no position.
+need no position, unless a `roi` is given: then every node carries its
+position (read the graph with it), and a node without one raises.
 
 Writing is the database's: each handle appends to a segment file of its own
 in the extra directory, and `finalize()`, or leaving `bulk_write_mode` in
@@ -212,6 +222,14 @@ What to know:
   its directory has segments. A read that names other attributes does not,
   so a worker reads the graph (`node_attrs=[...]` without the attribute it
   is writing) while the run is under way.
+- With several directories open, `finalize()` merges every one. A directory
+  that fails does not keep the others from being merged; one error is raised
+  as it is, several as an `ExceptionGroup`. A directory with nothing to
+  merge, or that does not exist yet, is left alone.
+- A finalize removes `node_<attr>-*.npy` files in the directory that its
+  `meta.json` does not name, which a finalize that was killed can leave.
+- An error raised inside `bulk_write_mode` is the one that reaches the
+  caller; what was written before it is still merged.
 - Finalize holds the node ids and the attributes it rebuilds in memory.
 - A handle sees the arrays of the finalize it last loaded; open the graph
   again to see what another process finalized since.

@@ -295,11 +295,47 @@ def test_a_later_write_has_the_type_that_was_recorded(tmp_path):
         db.write_node_arrays(few, cube=np.zeros((4, 2, 2)))
     with pytest.raises(ValueError, match=r"'label' has shape \(1,\).*each of the 4"):
         db.write_node_arrays(few, label=np.ones(1, np.int32))
+    # the names the reads use for arrays of their own
+    for name in ("id", "step", "own"):
+        with pytest.raises(ValueError, match=f"'{name}'.* are not names of node attr"):
+            db.write_node_arrays(few, **{name: np.ones(4, np.float32)})
+        with pytest.raises(ValueError, match="are not names of node attr"):
+            db.write_nodes({int(few[0]): {name: 1}}, attributes=[name])
+        with pytest.raises(ValueError, match="are not names of node attr"):
+            CSRGraphDataBase(
+                tmp_path / "g.csr",
+                mode="r+",
+                node_attrs={name: "float32"},
+                extra_fields=tmp_path / "pred",
+            )
+    # a call that is refused for one attribute declares none of the others
+    with pytest.raises(ValueError, match="'label' is int32 in .*pred, not int64"):
+        db.write_node_arrays(few, fresh=np.ones(4), label=np.ones(4, np.int64))
+    with pytest.raises(ValueError, match="'cube' has shape"):
+        db.write_node_arrays(few, fresh=np.ones(4), cube=np.zeros((4, 2, 2)))
+    with pytest.raises(ValueError, match="each of the 4"):
+        db.write_node_arrays(few, fresh=np.ones(4), short=np.ones(1))
+    with pytest.raises(ValueError, match="'label' is int32"):
+        db.write_nodes(
+            {int(few[0]): {"fresh": 1, "label": 0.5}}, attributes=["fresh", "label"]
+        )
     assert list((tmp_path / "pred" / "segments").glob("*.npys")) == []
     assert sorted(CSRGraphDataBase.stored_extra_fields(tmp_path / "pred")) == [
         "label",
         "vec",
     ]
+    nodes, _ = opened(tmp_path).read_arrays()
+    assert sorted(nodes) == ["id", "label", "position", "step", "vec"]
+    assert nodes["id"].dtype == np.uint64 and sorted(nodes["id"]) == sorted(ids)
+    # a directory that holds such a name (written by an earlier version) is
+    # refused when it is opened, not read with the node ids overwritten
+    meta = json.loads((tmp_path / "pred" / "meta.json").read_text())
+    poisoned = tmp_path / "poisoned"
+    poisoned.mkdir()
+    meta["node_attrs"]["id"] = {"dtype": "<f4", "size": 0}
+    (poisoned / "meta.json").write_text(json.dumps(meta))
+    with pytest.raises(ValueError, match="holds a node attribute named 'id'"):
+        opened(tmp_path, folder="poisoned")
     # another handle that writes the same name has to agree with the record
     other = opened(tmp_path, "r+")
     with pytest.raises(ValueError, match="'label' is int32 in .*pred, not float64"):
@@ -428,6 +464,41 @@ def test_nodes_given_as_dictionaries_write_their_extra_attributes(tmp_path):
         assert label == (node % 9 + 1 if here else 0)
         assert (vec[0] == node) if here and node % 2 else np.isnan(vec).all()
 
+    # with a region the nodes carry their position: one that has none is not
+    # silently left out
+    bare = db.read_graph(roi, node_attrs=["label"])
+    with pytest.raises(ValueError, match="carries no 'position'.*without a roi"):
+        db.write_attrs(bare, roi=roi, node_attrs=["label"])
+    assert list((tmp_path / "pred" / "segments").glob("*.npys")) == []
+
+    # a value is stored in the recorded type or refused, never changed:
+    # label is int32, vec a float32 vector of 3
+    one = int(ids[0])
+    before = {k: by_id(db.read_arrays()[0], k)[one] for k in ("label", "vec")}
+    changed: list[dict[str, Any]] = [
+        {"label": 1.7},
+        {"label": np.float32(2.0)},
+        {"label": (1, 2)},
+        {"label": "3"},
+        {"vec": (9.0,)},
+        {"vec": (1.0, 2.0)},
+        {"vec": 9.0},
+        {"vec": ("a", "b", "c")},
+    ]
+    for values in changed:
+        with pytest.raises(ValueError, match="is not stored as that without chang"):
+            db.write_nodes({one: values}, attributes=list(values))
+    with pytest.raises(OverflowError):
+        db.write_nodes({one: {"label": 2**40}}, attributes=["label"])
+    after = {k: by_id(db.read_arrays()[0], k)[one] for k in before}
+    np.testing.assert_equal(after, before)
+    assert list((tmp_path / "pred" / "segments").glob("*.npys")) == []
+    # numbers of the recorded kind are stored in its width; an integer is a
+    # float without loss
+    db.write_nodes({one: {"label": np.int64(5), "vec": (1, 2.5, np.float64(3))}})
+    read = db.read_arrays()[0]
+    assert by_id(read, "label")[one] == 5 and by_id(read, "vec")[one] == [1, 2.5, 3]
+
     # without a region no position is needed; left out, the attributes are
     # the extra ones that exist
     values = {int(i): {"label": 77, "unrelated": "x"} for i in ids[:3]}
@@ -467,7 +538,6 @@ def test_nodes_given_as_dictionaries_create_an_attribute_that_is_named(tmp_path)
         ({a: {"x": 1}, b: {"x": 0.5}}, r"kinds \['f', 'i'\]"),
         ({a: {"x": (1, 2)}, b: {"x": (1, 2, 3)}}, "shapes"),
         ({a: {"x": 1}, b: {"x": (1, 2)}}, "shapes"),
-        ({a: {"x": None}, b: {}}, "0 values"),
         ({a: {"x": "word"}}, r"kinds \['U'\]"),
         ({a: {"x": [[1, 2], [3, 4]]}}, "shapes"),
     ]
@@ -475,9 +545,24 @@ def test_nodes_given_as_dictionaries_create_an_attribute_that_is_named(tmp_path)
         with pytest.raises(ValueError, match=f"'x' is new.*{match}.*node_attrs"):
             db.write_nodes(given, attributes=["x"])
     assert "x" not in CSRGraphDataBase.stored_extra_fields(tmp_path / "pred")
+    # no node carries a value (an empty block): nothing is written, nothing
+    # is created, and nothing is raised, whoever writes first
+    for nothing in ({}, {a: {"x": None}, b: {}}):
+        db.write_nodes(nothing, attributes=["x"])
+    db.write_attrs(nx.Graph(), node_attrs=["x"])
+    assert "x" not in CSRGraphDataBase.stored_extra_fields(tmp_path / "pred")
+    assert list((tmp_path / "pred" / "segments").glob("*.npys")) == []
     # left out, attributes are those that exist: a new key is not created
     db.write_nodes({a: {"count": 9, "y": 1}})
     assert "y" not in db.node_attrs and by_id(db.read_arrays()[0], "count")[a] == 9
+    # flag is a bool: a number is not one
+    for value in (1, 0.5):
+        with pytest.raises(ValueError, match="'flag' is bool, one value"):
+            db.write_nodes({a: {"flag": value}}, attributes=["flag"])
+    db.write_nodes({a: {"flag": False, "weight": 2, "count": True}})
+    read = db.read_arrays()[0]
+    assert by_id(read, "flag")[a] is False and by_id(read, "weight")[a] == 2.0
+    assert by_id(read, "count")[a] == 1
 
 
 def test_extra_fields_of_another_graph_are_refused(tmp_path):
@@ -639,3 +724,79 @@ def test_several_directories_are_read_together_and_written_where_a_name_is(tmp_p
     both.write_node_arrays(ids[2:4], late=np.full(2, 2, np.float32))
     late = by_id(CSRGraphDataBase(graph, extra_fields=[a, b]).read_arrays()[0], "late")
     assert [late[int(i)] for i in ids[:4]] == [1.0, 1.0, 2.0, 2.0]
+
+
+def test_a_finalize_with_nothing_to_merge_does_nothing(tmp_path):
+    """A main process that opens the graph and finalizes after workers that
+    had nothing to write: the directory may not exist yet."""
+    make_graph(tmp_path / "g.csr")
+    db = opened(tmp_path, "r+")
+    db.finalize()
+    with db.bulk_write_mode():
+        pass
+    db.write_nodes({}, attributes=["label"])
+    db.write_attrs(nx.Graph(), node_attrs=["label"])
+    assert not (tmp_path / "pred").exists()
+    # an error inside the block is the one that is raised
+    with pytest.raises(KeyError, match="mine"):
+        with db.bulk_write_mode():
+            raise KeyError("mine")
+    with pytest.raises(ValueError, match="'step'.* are not names of node attr"):
+        with db.bulk_write_mode():
+            db.write_node_arrays(np.zeros(0, np.uint64), step=np.zeros(0))
+    assert not (tmp_path / "pred").exists()
+
+
+def test_every_directory_is_finalized_and_the_errors_come_together(tmp_path, caplog):
+    ids, _ = make_graph(tmp_path / "g.csr")
+    graph = tmp_path / "g.csr"
+    folders = [tmp_path / name for name in ("a", "b", "c")]
+    for k, folder in enumerate(folders):
+        CSRGraphDataBase(graph, mode="r+", extra_fields=folder).write_node_arrays(
+            ids[:1], **{f"x{k}": np.ones(1)}
+        )
+    stranger = np.array([10**12], dtype=np.uint64)
+    db = CSRGraphDataBase(graph, mode="r+", extra_fields=folders)
+    with db.bulk_write_mode(worker=True):
+        db.write_node_arrays(stranger, x0=np.ones(1))
+        db.write_node_arrays(ids[1:2], x1=np.full(1, 2.0))
+    # one directory fails: the others are merged all the same
+    with pytest.raises(ValueError, match="ids that are not nodes.*nothing was final"):
+        db.finalize()
+    assert list((folders[1] / "segments").glob("*.npys")) == []
+    assert len(list((folders[0] / "segments").glob("*.npys"))) == 1
+    assert by_id(db.read_arrays(node_attrs=["x1"])[0], "x1")[int(ids[1])] == 2.0
+    # two fail: both errors are raised, the third directory is merged
+    with db.bulk_write_mode(worker=True):
+        db.write_node_arrays(stranger, x1=np.ones(1))
+        db.write_node_arrays(ids[2:3], x2=np.full(1, 3.0))
+    with pytest.raises(ExceptionGroup, match="2 extra directories") as raised:
+        db.finalize()
+    assert [type(e) for e in raised.value.exceptions] == [ValueError, ValueError]
+    assert by_id(db.read_arrays(node_attrs=["x2"])[0], "x2")[int(ids[2])] == 3.0
+    # the error of the block is not replaced by that of the finalize
+    with pytest.raises(KeyError, match="mine"):
+        with db.bulk_write_mode():
+            raise KeyError("mine")
+    assert "finalize of" in caplog.text
+
+
+def test_an_array_that_no_record_names_is_removed_by_the_next_finalize(tmp_path):
+    """What a finalize leaves that was killed after it saved an array and
+    before it recorded it."""
+    ids, _ = make_graph(tmp_path / "g.csr")
+    db = opened(tmp_path, "r+")
+    db.write_node_arrays(ids[:2], label=np.ones(2, np.int32))
+    pred = tmp_path / "pred"
+    (kept,) = pred.glob("node_label-*.npy")
+    np.save(pred / "node_label-0123456789ab.npy", np.zeros(N, np.int32))
+    np.save(pred / "node_gone-0123456789ab.npy", np.zeros(N))
+    (pred / "notes.npy").write_bytes(b"not ours")
+    assert by_id(opened(tmp_path).read_arrays()[0], "label")[int(ids[0])] == 1
+    db.finalize()  # nothing to merge: nothing is touched
+    assert len(list(pred.glob("node_*.npy"))) == 3
+    db.write_node_arrays(ids[2:3], label=np.ones(1, np.int32))
+    (now,) = pred.glob("node_*.npy")
+    assert now.name.startswith("node_label-") and now != kept
+    assert (pred / "notes.npy").exists()
+    assert int(opened(tmp_path).read_arrays()[0]["label"].sum()) == 3
