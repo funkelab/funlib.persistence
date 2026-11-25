@@ -329,6 +329,111 @@ def test_from_arrays_refuses_arguments_that_do_not_fit(tmp_path, kwargs, match):
         )
 
 
+def one_per(n, dtype=np.float32):
+    return np.ones(n, dtype=dtype)
+
+
+@pytest.mark.parametrize(
+    "change, error, match",
+    [
+        # a text attribute cannot be stored (was a TypeError from numpy)
+        (
+            {"node_attrs": {"name": np.array(["a"] * 10)}},
+            NotImplementedError,
+            "node attribute 'name'.*not supported by the CSR backend",
+        ),
+        ({"node_types": {"size": str}}, NotImplementedError, "not supported"),
+        # an array that is not one entry per node or edge is not spread
+        (
+            {"node_attrs": {"size": np.array([9])}},
+            ValueError,
+            r"node attribute 'size' has shape \(1,\).*each of the 10 nodes",
+        ),
+        (
+            {"node_attrs": {"size": np.arange(3)}},
+            ValueError,
+            r"node attribute 'size' has shape \(3,\)",
+        ),
+        (
+            {"edge_attrs": {"adj": one_per(1)}},
+            ValueError,
+            r"edge attribute 'adj' has shape \(1,\).*each of the 9 edges",
+        ),
+        ({"node_attrs": {"size": np.int64(9)}}, ValueError, r"has shape \(\)"),
+        ({"v": np.arange(2, 5)}, ValueError, "u and v have shapes"),
+        ({"ids": np.ones((10, 1))}, ValueError, "ids has shape"),
+        (
+            {"node_types": {"size": Vec(int, 2)}},
+            ValueError,
+            "does not fit its type",
+        ),
+        # one that only fails while the arrays are built
+        ({"cell_size": 1e-6}, ValueError, "more grid cells than a Morton code"),
+    ],
+)
+def test_from_arrays_that_fails_keeps_the_database_that_was_there(
+    tmp_path, change, error, match
+):
+    path = tmp_path / "g.csr"
+    ids = np.arange(1, 11, dtype=np.uint64)
+    pos = np.stack([np.zeros(10), np.zeros(10), np.arange(10) * 10.0], axis=1)
+    given = {
+        "ids": ids,
+        "node_attrs": {"position": pos, "size": np.arange(10)},
+        "u": ids[:-1],
+        "v": ids[1:],
+        "edge_attrs": {"adj": one_per(9)},
+        "cell_size": 10.0,
+    }
+    CSRGraphDataBase.from_arrays(path, **given)
+    for name, value in change.items():
+        if name in ("node_attrs", "edge_attrs"):
+            given[name] = {**given[name], **value}
+        else:
+            given[name] = value
+    with pytest.raises(error, match=match):
+        CSRGraphDataBase.from_arrays(path, **given)
+    # the earlier graph is whole, and nothing is left beside it
+    before = CSRGraphDataBase(path)
+    assert (before.num_nodes, before.num_edges) == (10, 9)
+    nodes, edges = before.read_arrays()
+    assert sorted(nodes["size"].tolist()) == list(range(10))
+    assert edges["adj"].tolist() == [1.0] * 9
+    assert [p.name for p in tmp_path.iterdir()] == ["g.csr"]
+
+
+def test_from_arrays_replaces_a_database_only_when_the_new_one_is_complete(tmp_path):
+    path = tmp_path / "deep" / "g.csr"
+    ids, pos, size, u, v, adj, _ = random_graph(n=50, m=100)
+    first = CSRGraphDataBase.from_arrays(
+        path, ids, {"position": pos, "size": size}, u, v, {"adj": adj}, cell_size=40.0
+    )
+    held = first.read_arrays()[0]["id"]
+    second = CSRGraphDataBase.from_arrays(
+        path, ids[:5], {"position": pos[:5]}, cell_size=40.0
+    )
+    assert second.path == path and second.mode == "r+"
+    assert (second.num_nodes, second.num_edges) == (5, 0)
+    assert second.node_attrs == {"position": Vec("float64", 3)}
+    assert len(held) == 50  # a read taken before the replacement stays valid
+    # the handle returned accepts further writes
+    second.write_node_arrays(ids[5:6], position=pos[5:6])
+    assert CSRGraphDataBase(path).num_nodes == 6
+    assert [p.name for p in path.parent.iterdir()] == ["g.csr"]
+
+
+def test_a_database_is_not_removed_by_a_constructor_that_refuses_its_types(tmp_path):
+    db = chain(tmp_path)
+    with pytest.raises(NotImplementedError, match="not supported by the CSR backend"):
+        CSRGraphDataBase(
+            db.path,
+            mode="w",
+            node_attrs={"position": Vec(float, 3), "name": str},
+            cell_size=10.0,
+        )
+    assert CSRGraphDataBase(db.path).num_nodes == 6
+
+
 def chain(tmp_path):
     """Nodes 1..6 on a line, 10 apart; 1-2-3-4-5-6 joined by ``adj``, and a
     long edge 1-6 that carries only ``lr``."""

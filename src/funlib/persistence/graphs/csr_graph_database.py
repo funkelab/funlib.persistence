@@ -38,6 +38,7 @@ from funlib.geometry import Coordinate, Roi
 from networkx import Graph
 
 from ..types import Vec
+from ._files import replace_directory, scratch_beside
 from .graph_database import AttributeType, GraphDataBase
 
 logger = logging.getLogger(__name__)
@@ -238,6 +239,9 @@ class CSRGraphDataBase(GraphDataBase):
             if cell_size is None:
                 raise ValueError("cell_size is required to create a CSR database")
             sizes = np.broadcast_to(np.asarray(cell_size, dtype=float), (ndims,))
+            # every argument is checked before what is at the path is removed
+            node_specs = {k: _spec(v) for k, v in node_attrs.items()}
+            edge_specs = {k: _spec(v) for k, v in (edge_attrs or {}).items()}
             if self.path.exists():
                 shutil.rmtree(self.path)
             self.path.mkdir(parents=True)
@@ -245,8 +249,8 @@ class CSRGraphDataBase(GraphDataBase):
                 "version": FORMAT_VERSION,
                 "position_attribute": position_attribute,
                 "ndims": ndims,
-                "node_attrs": {k: _spec(v) for k, v in node_attrs.items()},
-                "edge_attrs": {k: _spec(v) for k, v in (edge_attrs or {}).items()},
+                "node_attrs": node_specs,
+                "edge_attrs": edge_specs,
                 "cell_size": sizes.tolist(),
                 "total_roi": None
                 if total_roi is None
@@ -323,46 +327,91 @@ class CSRGraphDataBase(GraphDataBase):
 
         ``ids`` are the node ids, ``node_attrs`` one array per node attribute
         (the position among them), ``u`` and ``v`` the endpoint ids of the
-        edges and ``edge_attrs`` one array per edge attribute.
+        edges and ``edge_attrs`` one array per edge attribute. Every array
+        has one entry per node, or per edge: an array of another length is
+        refused, a single value is not spread over the graph.
 
         An attribute is stored in the dtype of its array, a 2-D array as a
         vector, unless ``node_types`` or ``edge_types`` names another type
         for it; the array is cast to that type.
+
+        The database is built in a directory beside ``path`` and moved to
+        ``path`` when it is complete. A call that fails, for whatever
+        reason, leaves what was at ``path`` as it was.
         """
-        edge_attrs = dict(edge_attrs or {})
+        path = Path(path)
+        ids = np.asarray(ids)
+        if ids.ndim != 1:
+            raise ValueError(f"ids has shape {ids.shape}; expected one id per node")
         if (u is None) != (v is None):
             raise ValueError("edges need both u and v")
         if u is None and edge_attrs:
             raise ValueError("edge attributes were given without edges")
+        num_edges = 0
+        if u is not None and v is not None:
+            u, v = np.asarray(u), np.asarray(v)
+            if u.ndim != 1 or u.shape != v.shape:
+                raise ValueError(
+                    f"u and v have shapes {u.shape} and {v.shape}; expected one "
+                    "entry per edge in each"
+                )
+            num_edges = len(u)
 
-        def types(columns, given) -> dict[str, AttributeType]:
-            unknown = sorted(set(given or {}) - set(columns))
+        def columns(what, given, count, named) -> tuple[dict, dict]:
+            arrays = {name: np.asarray(a) for name, a in (given or {}).items()}
+            unknown = sorted(set(named or {}) - set(arrays))
             if unknown:
                 raise ValueError(f"types were given for {unknown}, which have no array")
-            out: dict[str, AttributeType] = {}
-            for name, column in columns.items():
-                if given and name in given:
-                    out[name] = given[name]
-                    continue
-                column = np.asarray(column)
-                dtype = column.dtype.name
-                out[name] = dtype if column.ndim == 1 else Vec(dtype, column.shape[1])
-            return out
+            types: dict[str, AttributeType] = {}
+            for name, array in arrays.items():
+                if array.ndim not in (1, 2) or len(array) != count:
+                    raise ValueError(
+                        f"{what} attribute {name!r} has shape {array.shape}; "
+                        f"expected one entry for each of the {count} {what}s"
+                    )
+                if named and name in named:
+                    types[name] = named[name]
+                elif array.dtype.kind not in "fiub":
+                    raise NotImplementedError(
+                        f"{what} attribute {name!r}: attributes of type "
+                        f"{array.dtype} are not supported by the CSR backend"
+                    )
+                elif array.ndim == 1:
+                    types[name] = array.dtype.name
+                else:
+                    types[name] = Vec(array.dtype.name, array.shape[1])
+                size = _spec(types[name])["size"]
+                if (array.shape[1] if array.ndim == 2 else 0) != size:
+                    raise ValueError(
+                        f"{what} attribute {name!r} has shape {array.shape}, which "
+                        f"does not fit its type {types[name]}"
+                    )
+            return arrays, types
 
-        db = cls(
-            path,
-            position_attribute=position_attribute,
-            mode="w",
-            total_roi=total_roi,
-            node_attrs=types(node_attrs, node_types),
-            edge_attrs=types(edge_attrs, edge_types),
-            cell_size=cell_size,
-        )
-        with db.bulk_write_mode():
-            db.write_node_arrays(np.asarray(ids), **node_attrs)
-            if u is not None and v is not None:
-                db.write_edge_arrays(u, v, **edge_attrs)
-        return db
+        node_arrays, node_kinds = columns("node", node_attrs, len(ids), node_types)
+        edge_arrays, edge_kinds = columns("edge", edge_attrs, num_edges, edge_types)
+
+        scratch = scratch_beside(path, "writing")
+        try:
+            db = cls(
+                scratch,
+                position_attribute=position_attribute,
+                mode="w",
+                total_roi=total_roi,
+                node_attrs=node_kinds,
+                edge_attrs=edge_kinds,
+                cell_size=cell_size,
+            )
+            with db.bulk_write_mode():
+                db.write_node_arrays(ids, **node_arrays)
+                if u is not None and v is not None:
+                    db.write_edge_arrays(u, v, **edge_arrays)
+            db.close()
+        except BaseException:
+            shutil.rmtree(scratch, ignore_errors=True)
+            raise
+        replace_directory(scratch, path)
+        return cls(path, mode="r+")
 
     # -- metadata -----------------------------------------------------------
 
