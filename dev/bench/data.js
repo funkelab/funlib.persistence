@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1795119763651,
+  "lastUpdate": 1795623060868,
   "repoUrl": "https://github.com/funkelab/funlib.persistence",
   "entries": {
     "funlib.persistence": [
@@ -208,6 +208,41 @@ window.BENCHMARK_DATA = {
           {
             "name": "pytest wall time",
             "value": 15.745,
+            "unit": "s",
+            "extra": "`uv run pytest` in the tests job"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "William Patton",
+            "username": "pattonw",
+            "email": "wllmpttn24@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "290a4faba868e94fa6566098735c301edb760a72",
+          "message": "Merge pull request #56 from funkelab/release/v0.9.1\n\nBump version to 0.9.1",
+          "timestamp": "2026-11-25T16:09:49Z",
+          "url": "https://github.com/funkelab/funlib.persistence/commit/290a4faba868e94fa6566098735c301edb760a72"
+        },
+        "date": 1795623060545,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "import funlib.persistence (cold)",
+            "value": 781.637,
+            "range": "± 10.376",
+            "unit": "ms",
+            "extra": "interpreter startup 10.4 ms subtracted; n=10"
+          },
+          {
+            "name": "pytest wall time",
+            "value": 14.689,
             "unit": "s",
             "extra": "`uv run pytest` in the tests job"
           }
