@@ -108,7 +108,7 @@ directory of memory-mapped arrays keyed by node id:
 ```python
 from funlib.persistence.graphs import NodeArrays, NodeArraysWriter
 
-with NodeArraysWriter("embedding.nodes", {"embedding": 64}) as out:
+with NodeArraysWriter("embedding.nodes", {"embedding": 64}, source="model 3") as out:
     for roi in blocks:
         nodes, edges = db.read_block(roi, num_steps=2)
         own = nodes["own"]
@@ -120,3 +120,60 @@ found, values = NodeArrays("embedding.nodes").read(nodes["id"])
 A node belongs to one block: a node id written twice is refused. A node
 that was never written is not `found` and reads as NaN (0 for an integer).
 `write_node_arrays` writes values that are already in memory in one call.
+`source` is free text about where the values come from; the store does not
+interpret it. Which graph a store belongs to is for the caller to record,
+for example in the registry that names both.
+
+The store appears at its path when the `with` block is left without an
+error, whole, and replaces what was there. It is built in a scratch
+directory of its own beside the path, so a writer that fails changes
+nothing, and two writers to one path cannot damage each other: the one that
+finishes last stays.
+
+### Several writers
+
+In a blockwise task each worker process writes the nodes of its own blocks.
+The store follows the model of `CSRGraphDataBase` for this: a writer opened
+with `worker=True` appends to a segment file of its own, and one call
+merges the segments into the store when the workers are done.
+
+```python
+from funlib.persistence.graphs import NodeArraysWriter, finalize_node_arrays
+
+# in each worker process
+with NodeArraysWriter("embedding.nodes", {"embedding": 64}, worker=True) as out:
+    for roi in my_blocks:
+        nodes, edges = db.read_block(roi, num_steps=2)
+        own = nodes["own"]
+        out.append(nodes["id"][own], embedding=model(nodes, edges)[own])
+
+# in one process, when the workers are done
+finalize_node_arrays("embedding.nodes", source="model 3")
+```
+
+The segments are in `embedding.nodes.segments/`, beside the store. Each
+`append` is one record there, complete when `append` returns; a worker that
+fails or is killed later keeps the blocks it had appended. Nothing changes
+at the store's path until `finalize_node_arrays`, which builds a new store
+from the one that is there and every segment, moves it into place, and
+removes the segments. A run that is taken up again therefore adds to what
+the earlier run finalized, and a reader sees the store of the last finalize,
+whole, or none.
+
+What to know about this mode:
+
+- Finalize when the writers are done. A record appended to a segment while
+  that segment is being merged is lost. Several finalizes at once are safe;
+  they run one after the other.
+- A block that ran twice wrote its nodes twice. By default the finalize
+  refuses that with `ValueError` and changes nothing;
+  `finalize_node_arrays(path, duplicates="last")` keeps the value written
+  last instead.
+- Every writer of one store declares the same attributes and dtypes; the
+  finalize refuses segments that disagree. `source` is given to the
+  finalize, not to a worker.
+- Segments left behind by a run that was given up are merged by the next
+  finalize. Remove `<path>.segments` to discard them.
+- The finalize copies every value once and sorts the node ids in memory.
+- An open `NodeArrays` keeps reading the store it opened; open it again
+  after a finalize to see the new one.
