@@ -44,12 +44,12 @@ def test_an_unknown_attribute_is_refused_with_the_ones_stored(tmp_path):
         stored(tmp_path).read([7], attrs=["nope"])
 
 
-def test_the_store_says_what_it_holds_and_which_graph_it_belongs_to(tmp_path):
-    arrays = stored(tmp_path, graph_digest="abc", source="fragments")
+def test_the_store_says_what_it_holds_and_where_it_comes_from(tmp_path):
+    arrays = stored(tmp_path, source="fragments")
     assert arrays.num_nodes == 5
     assert arrays.attrs == {"vec": 3, "score": None}
-    assert arrays.graph_digest == "abc"
     assert arrays.source == "fragments"
+    assert "graph_digest" not in arrays.meta
     assert arrays.ids.tolist() == IDS.tolist()
 
 

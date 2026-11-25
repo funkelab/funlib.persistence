@@ -23,7 +23,6 @@ process does that. Reads see the arrays of the last finalize.
 from __future__ import annotations
 
 import fcntl
-import hashlib
 import json
 import logging
 import os
@@ -397,14 +396,6 @@ class CSRGraphDataBase(GraphDataBase):
     @property
     def num_edges(self) -> int:
         return self.meta["num_edges"]
-
-    @property
-    def digest(self) -> str:
-        """What identifies the content of the database: the sha256 of its
-        ``meta.json``, which names the set of arrays last built. It changes
-        with every :meth:`finalize` that had something to merge, and is the
-        same for every copy of the directory."""
-        return hashlib.sha256((self.path / "meta.json").read_bytes()).hexdigest()
 
     def close(self) -> None:
         for segment in self._segments.values():

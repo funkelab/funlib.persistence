@@ -3,11 +3,9 @@
 Values computed on a graph (an embedding, a score, a label per node) do not
 have to go into the graph database: the graph stays as it is, and a
 64-vector per node would outweigh the graph it describes. They are stored
-on their own, as memory-mapped arrays keyed by node id, and name the graph
-they were computed on by its digest
-(:attr:`~funlib.persistence.graphs.CSRGraphDataBase.digest`)::
+on their own, as memory-mapped arrays keyed by node id::
 
-    <path>/meta.json        version, num_nodes, attrs, graph_digest, source
+    <path>/meta.json        version, num_nodes, attrs, source
     <path>/ids.npy          uint64 (N,)   node ids, in stored order
     <path>/order.npy        int64  (N,)   argsort of ids
     <path>/node_<attr>.npy  (N,) or (N, k)
@@ -16,7 +14,8 @@ they were computed on by its digest
 0 for a scalar. Rows are in the order they were written: a writer that
 goes block by block over a spatially sorted graph leaves neighbours near
 each other on disk, so the read of a block touches few pages. A read is by
-node id, through ``order``.
+node id, through ``order``. ``source`` is free text that says where the
+values come from; the store does not interpret it.
 """
 
 from __future__ import annotations
@@ -71,12 +70,8 @@ class NodeArrays:
         }
 
     @property
-    def graph_digest(self) -> str | None:
-        """The digest of the graph the values were computed on."""
-        return self.meta.get("graph_digest")
-
-    @property
     def source(self) -> str | None:
+        """What the writer recorded about where the values come from."""
         return self.meta.get("source")
 
     def _load(self, file: str) -> np.ndarray:
@@ -143,7 +138,7 @@ class NodeArraysWriter:
 
     ::
 
-        with NodeArraysWriter(path, {"embedding": 64}, graph_digest=d) as out:
+        with NodeArraysWriter(path, {"embedding": 64}) as out:
             for ids, embedding in blocks:
                 out.append(ids, embedding=embedding)
 
@@ -158,7 +153,6 @@ class NodeArraysWriter:
         attrs: Mapping[str, int | None],
         *,
         dtypes: Mapping[str, Any] | None = None,
-        graph_digest: str | None = None,
         source: str | None = None,
     ):
         self.path = Path(path)
@@ -172,7 +166,6 @@ class NodeArraysWriter:
         for name, dtype in self.dtypes.items():
             if dtype.kind not in "fiub":
                 raise ValueError(f"attribute {name!r}: {dtype} is not a number type")
-        self.graph_digest = graph_digest
         self.source = source
         self.num_nodes = 0
         self._partial = self.path.with_name(self.path.name + ".partial")
@@ -246,7 +239,6 @@ class NodeArraysWriter:
                 name: {"dtype": self.dtypes[name].str, "size": length or 0}
                 for name, length in self.attrs.items()
             },
-            "graph_digest": self.graph_digest,
             "source": self.source,
         }
         (self._partial / META).write_text(json.dumps(meta, indent=2) + "\n")
@@ -260,7 +252,6 @@ def write_node_arrays(
     ids: Any,
     values: Mapping[str, Any],
     *,
-    graph_digest: str | None = None,
     source: str | None = None,
 ) -> Path:
     """Write node attributes that are in memory as one store."""
@@ -270,8 +261,6 @@ def write_node_arrays(
         for name, value in arrays.items()
     }
     dtypes = {name: value.dtype for name, value in arrays.items()}
-    with NodeArraysWriter(
-        path, attrs, dtypes=dtypes, graph_digest=graph_digest, source=source
-    ) as out:
+    with NodeArraysWriter(path, attrs, dtypes=dtypes, source=source) as out:
         out.append(ids, **arrays)
     return Path(path)

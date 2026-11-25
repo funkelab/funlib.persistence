@@ -396,7 +396,7 @@ def test_read_block_marks_the_nodes_of_the_block_among_its_surroundings(tmp_path
         db.read_block(block, context=-1)
 
 
-def test_a_database_is_told_from_other_directories_and_names_its_content(tmp_path):
+def test_a_database_is_told_from_other_directories(tmp_path):
     db = chain(tmp_path)
     assert CSRGraphDataBase.is_database(db.path)
     assert not CSRGraphDataBase.is_database(tmp_path)
@@ -407,10 +407,3 @@ def test_a_database_is_told_from_other_directories_and_names_its_content(tmp_pat
     assert not CSRGraphDataBase.is_database(other)
     (other / "meta.json").write_text("not json")
     assert not CSRGraphDataBase.is_database(other)
-
-    before = db.digest
-    assert CSRGraphDataBase(db.path).digest == before
-    db.write_node_arrays(
-        np.array([7], dtype=np.uint64), position=np.array([[0.0, 0.0, 65.0]])
-    )
-    assert db.digest != before

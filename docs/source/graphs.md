@@ -81,22 +81,18 @@ nodes, edges = db.read_block(roi, context=500, num_steps=2)
 values = compute(nodes, edges)[nodes["own"]]
 ```
 
-`CSRGraphDataBase.is_database(path)` tells such a directory from any other,
-and `db.digest` identifies the content of the database.
+`CSRGraphDataBase.is_database(path)` tells such a directory from any other.
 
 ## Values on the nodes of a graph
 
 Values computed on a graph, such as an embedding per node, can be kept
 beside the graph without rewriting it. A node attribute store is a
-directory of memory-mapped arrays keyed by node id, and records the digest
-of the graph the values belong to:
+directory of memory-mapped arrays keyed by node id:
 
 ```python
 from funlib.persistence.graphs import NodeArrays, NodeArraysWriter
 
-with NodeArraysWriter(
-    "embedding.nodes", {"embedding": 64}, graph_digest=db.digest
-) as out:
+with NodeArraysWriter("embedding.nodes", {"embedding": 64}) as out:
     for roi in blocks:
         nodes, edges = db.read_block(roi, num_steps=2)
         own = nodes["own"]
