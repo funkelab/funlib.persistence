@@ -62,4 +62,8 @@ The graph databases are importable from `funlib.persistence.graphs`.
 .. autoclass:: funlib.persistence.graphs.csr_graph_database.CSRGraphDataBase
    :members:
    :show-inheritance:
+
+.. autoexception:: funlib.persistence.graphs.csr_graph_database.UnfinalizedWrites
+
+.. autoexception:: funlib.persistence.graphs.csr_graph_database.GraphIsReadOnly
 ```

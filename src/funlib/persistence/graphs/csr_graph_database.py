@@ -18,6 +18,12 @@ handle, so any number of processes can write at once without coordinating.
 :meth:`CSRGraphDataBase.finalize` merges the segments into a new set of
 arrays; leaving :meth:`CSRGraphDataBase.bulk_write_mode` in the main
 process does that. Reads see the arrays of the last finalize.
+
+Node attributes that are computed on a finished graph (an embedding, a
+label per node) can be kept outside the graph's directory, as *extra
+fields*: see ``extra_fields`` of :class:`CSRGraphDataBase`. They are
+written and finalized the same way, into a directory of their own, and the
+graph's directory is not touched.
 """
 
 from __future__ import annotations
@@ -28,7 +34,8 @@ import logging
 import os
 import shutil
 import uuid
-from collections.abc import Iterable, Mapping, Sequence
+import zlib
+from collections.abc import Generator, Iterable, Mapping, Sequence
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
@@ -44,6 +51,7 @@ from .graph_database import AttributeType, GraphDataBase
 logger = logging.getLogger(__name__)
 
 FORMAT_VERSION = 1
+EXTRA_FORMAT_VERSION = 1
 ID_DTYPE = np.dtype("<u8")
 ROW_DTYPE = np.dtype("<i8")
 _PYTHON_TYPES = {"float": "float64", "int": "int64", "bool": "bool"}
@@ -51,6 +59,20 @@ _PYTHON_TYPES = {"float": "float64", "int": "int64", "bool": "bool"}
 
 class UnfinalizedWrites(RuntimeError):
     """Segments have been written since the arrays were last built."""
+
+
+class GraphIsReadOnly(RuntimeError):
+    """A write that would change the graph was made through a handle opened
+    with ``extra_fields``, which writes extra node attributes only."""
+
+
+@contextmanager
+def _locked(folder: Path) -> Generator[None]:
+    """Hold the lock of a directory of arrays: one finalize, or one change
+    of its ``meta.json``, at a time. A second process waits."""
+    with open(folder / "finalize.lock", "w") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        yield
 
 
 def _spec(attr_type: AttributeType) -> dict[str, Any]:
@@ -173,6 +195,60 @@ class _Segment:
         return records
 
 
+class _ExtraFields:
+    """A directory of extra node attributes of one graph::
+
+        meta.json            version, extends, node_attrs, arrays
+        node_<attr>-<x>.npy  one array per attribute, in the graph's row order
+        segments/            writes that are not in the arrays yet
+        finalize.lock
+
+    ``extends`` says which graph the rows are those of: its node count,
+    the name of the set of arrays it was last built into, and a checksum
+    of its node ids in row order. ``arrays`` names the file of each
+    attribute, or nothing for one that was declared and never finalized.
+    """
+
+    def __init__(self, path: Path):
+        self.path = path
+        self.meta: dict[str, Any] | None = None
+        self.reload()
+
+    def reload(self) -> None:
+        file = self.path / "meta.json"
+        if not file.exists():
+            self.meta = None
+            return
+        meta = json.loads(file.read_text())
+        if not isinstance(meta, dict) or "extends" not in meta:
+            raise ValueError(f"{self.path} is not a directory of extra node attributes")
+        if meta["version"] != EXTRA_FORMAT_VERSION:
+            raise RuntimeError(
+                f"{self.path} is extra-fields format version {meta['version']}, "
+                f"this library reads version {EXTRA_FORMAT_VERSION}"
+            )
+        self.meta = meta
+
+    @property
+    def stored(self) -> dict[str, Any]:
+        if self.meta is None:
+            raise RuntimeError(f"{self.path} holds no extra node attributes")
+        return self.meta
+
+    def write(self) -> None:
+        tmp = self.path / f"meta.json.{uuid.uuid4().hex}"
+        tmp.write_text(json.dumps(self.meta, indent=2) + "\n")
+        os.replace(tmp, self.path / "meta.json")
+
+    def pending(self) -> list[Path]:
+        folder = self.path / "segments"
+        return sorted(folder.glob("*.npys")) if folder.exists() else []
+
+    def record_dtype(self, attrs: Iterable[str]) -> np.dtype:
+        specs = self.stored["node_attrs"]
+        return np.dtype([("id", ID_DTYPE)] + [(a, *_field(specs[a])) for a in attrs])
+
+
 class CSRGraphDataBase(GraphDataBase):
     """A graph in memory-mapped CSR arrays under a directory.
 
@@ -203,6 +279,67 @@ class CSRGraphDataBase(GraphDataBase):
             Edge length of a grid cell, in the units of the positions: one
             number or one per dimension. Pick it a few times smaller than
             the regions that will be read.
+
+        extra_fields:
+
+            Node attributes of this graph that are kept in other
+            directories: attribute name to directory. The graph is opened
+            as it is (mode ``"r"`` or ``"r+"``) and the extra attributes
+            are read with it and written through it::
+
+                g = CSRGraphDataBase(path, mode="r+", extra_fields={
+                    "embedding": "pred/modelA", "label": "pred/modelA"},
+                    node_attrs={"embedding": Vec("float32", 64), "label": "int32"})
+                g.write_node_arrays(ids, embedding=e, label=l)   # in bulk_write_mode
+                g.read_arrays(roi, node_attrs=["position", "embedding"])
+
+            A directory holds any number of attributes; a handle sees those
+            it names. An attribute that its directory does not hold yet is
+            created, in mode ``"r+"``, with the type ``node_attrs`` gives
+            it. Extra attributes are read like stored ones (same regions,
+            steps, filters) and listed by :attr:`node_attrs`.
+
+            **The graph is read-only through such a handle.** Writes of
+            edges, of nodes with stored attributes, and ``drop_edges``
+            raise :class:`GraphIsReadOnly`; nothing in the graph's
+            directory is created, changed or locked. The node writes
+            (``write_node_arrays``, ``write_attrs``, ``write_nodes``,
+            ``bulk_write_nodes``) take extra attributes only and need no
+            position.
+
+            Writing works as for the graph: each handle appends to a
+            segment file of its own in the extra directory, from any
+            number of processes, and :meth:`finalize` (or leaving
+            :meth:`bulk_write_mode` in the main process) merges the
+            segments into the arrays of the attributes that were written.
+            It reads the graph's node ids and nothing else of the graph. A
+            later finalize adds to the values that are there; a node
+            written twice keeps its last value.
+
+            Values are stored in the graph's row order, so they belong to
+            one graph. The directory records that graph's node count, the
+            name of its arrays and a checksum of its node ids in row order;
+            opening it with a graph of another node count, or of other ids
+            or another row order, raises ``ValueError``. Adding edges to
+            the graph, or rebuilding it from the same nodes, keeps its
+            extra fields valid.
+
+            Limits. A node that was never written reads as NaN (0 for an
+            integer or a bool, which cannot be told from a written 0). A
+            written NaN counts as not written. Writing an id that is not a
+            node of the graph is found at finalize, which then raises
+            ``ValueError`` and changes nothing; the segments stay until
+            they are removed. Finalize holds the node ids and every
+            attribute it rebuilds in memory. As for the graph: finalize
+            when the writers are done (a record appended to a segment while
+            it is merged is lost), a record cut short by a killed writer is
+            ignored with a warning, and which of two processes wrote "last"
+            is decided by the names of their segment files, not by time. A
+            read that returns an extra attribute raises
+            :class:`UnfinalizedWrites` while its directory has segments;
+            reads of other attributes do not. A handle sees the arrays of
+            the finalize it last loaded: open the graph again to see what
+            another process finalized since.
     """
 
     read_modes = ("r", "r+")
@@ -218,14 +355,22 @@ class CSRGraphDataBase(GraphDataBase):
         node_attrs: dict[str, AttributeType] | None = None,
         edge_attrs: dict[str, AttributeType] | None = None,
         cell_size: float | Iterable[float] | None = None,
+        extra_fields: Mapping[str, Path | str] | None = None,
     ):
         if directed:
             raise NotImplementedError("the CSR backend stores undirected graphs")
         self.path = Path(path)
         self.mode = mode
         self.directed = False
+        self.extra_fields = {k: Path(v) for k, v in (extra_fields or {}).items()}
+        self._extra: dict[str, _ExtraFields] = {}
+        if self.extra_fields and mode not in self.read_modes:
+            raise ValueError(
+                f"mode {mode!r} creates the graph; extra_fields belong to a "
+                "graph that exists and are opened with mode 'r' or 'r+'"
+            )
         self._arrays: dict[str, np.ndarray] | None = None
-        self._segments: dict[str, _Segment] = {}
+        self._segments: dict[Any, _Segment] = {}
         self._bulk_depth = 0
         self.meta: dict[str, Any] = {}
         if mode in self.create_modes:
@@ -276,6 +421,8 @@ class CSRGraphDataBase(GraphDataBase):
                 (edge_attrs, self.meta["edge_attrs"], "edge"),
             ):
                 for name, attr_type in (given or {}).items():
+                    if what == "node" and name in self.extra_fields:
+                        continue  # checked against its own directory below
                     if name not in stored:
                         raise ValueError(
                             f"{what} attribute {name!r} is not in {self.path}; "
@@ -293,6 +440,250 @@ class CSRGraphDataBase(GraphDataBase):
         self.cell_size = np.asarray(self.meta["cell_size"], dtype=float)
         stored_roi = self.meta.get("total_roi")
         self.total_roi = None if stored_roi is None else Roi(*stored_roi)
+        if self.extra_fields:
+            self._open_extra_fields(node_attrs or {})
+
+    # -- extra fields -------------------------------------------------------
+
+    @staticmethod
+    def stored_extra_fields(path: Path | str) -> dict[str, AttributeType]:
+        """The node attributes a directory of extra fields holds, with their
+        types; empty when ``path`` is not such a directory."""
+        try:
+            extra = _ExtraFields(Path(path))
+        except (ValueError, NotADirectoryError):
+            return {}
+        if extra.meta is None:
+            return {}
+        return CSRGraphDataBase._types(extra.meta["node_attrs"])
+
+    def _extends(self) -> dict[str, Any]:
+        """What an extra directory records of this graph."""
+        ids = np.load(self.path / self.meta["generation"] / "ids.npy", mmap_mode="r")
+        checksum = 0
+        for start in range(0, len(ids), 1 << 22):
+            checksum = zlib.crc32(np.asarray(ids[start : start + (1 << 22)]), checksum)
+        return {
+            "num_nodes": self.meta["num_nodes"],
+            "generation": self.meta["generation"],
+            "ids_crc32": checksum,
+        }
+
+    def _check_extends(self, extra: _ExtraFields) -> None:
+        of = extra.stored["extends"]
+        if of["num_nodes"] != self.meta["num_nodes"]:
+            raise ValueError(
+                f"{extra.path} holds attributes of a graph of {of['num_nodes']} "
+                f"nodes; {self.path} has {self.meta['num_nodes']}"
+            )
+        # the same set of arrays is the same rows; another set (edges were
+        # added, the graph was built again) is compared by its node ids
+        if of["generation"] != self.meta["generation"]:
+            if of["ids_crc32"] != self._extends()["ids_crc32"]:
+                raise ValueError(
+                    f"{extra.path} holds attributes of a graph with other nodes, "
+                    f"or the same nodes in another order, than {self.path}"
+                )
+
+    def _open_extra_fields(self, given: Mapping[str, AttributeType]) -> None:
+        if self.meta["generation"] is None:
+            raise ValueError(
+                f"{self.path} was never finalized; extra fields belong to a "
+                "graph whose nodes are written"
+            )
+        taken = sorted(set(self.extra_fields) & set(self.meta["node_attrs"]))
+        if taken:
+            raise ValueError(
+                f"{taken} are node attributes of {self.path} itself and cannot "
+                "be extra fields"
+            )
+        folders: dict[Path, _ExtraFields] = {}
+        for name, folder in self.extra_fields.items():
+            key = folder.resolve()
+            if key == self.path.resolve():
+                raise ValueError("extra fields are kept outside the graph's directory")
+            if key not in folders:
+                folders[key] = _ExtraFields(folder)
+            self._extra[name] = folders[key]
+        for extra in folders.values():
+            names = [n for n, e in self._extra.items() if e is extra]
+            specs = {n: _spec(given[n]) for n in names if n in given}
+            held = {} if extra.meta is None else extra.meta["node_attrs"]
+            new = [n for n in names if n not in held]
+            if new and self.mode == "r":
+                raise ValueError(
+                    f"node attributes {new} are not in {extra.path}; it has "
+                    f"{sorted(held)}. Open with mode 'r+' to create them"
+                )
+            untyped = [n for n in new if n not in specs]
+            if untyped:
+                raise ValueError(
+                    f"{untyped} are new in {extra.path}: give their types in node_attrs"
+                )
+            if new:
+                extra.path.mkdir(parents=True, exist_ok=True)
+                with _locked(extra.path):
+                    extra.reload()  # another process may have declared them
+                    if extra.meta is None:
+                        extra.meta = {
+                            "version": EXTRA_FORMAT_VERSION,
+                            "extends": self._extends(),
+                            "node_attrs": {},
+                            "arrays": {},
+                        }
+                    for name in new:
+                        extra.meta["node_attrs"].setdefault(name, specs[name])
+                    extra.write()
+            self._check_extends(extra)
+            for name, spec in specs.items():
+                if spec != extra.stored["node_attrs"][name]:
+                    raise ValueError(
+                        f"node attribute {name!r} is {extra.stored['node_attrs'][name]} "
+                        f"in {extra.path}, not {spec}"
+                    )
+
+    def _extra_folders(self) -> list[_ExtraFields]:
+        return list({id(e): e for e in self._extra.values()}.values())
+
+    def _node_specs(self) -> dict[str, dict[str, Any]]:
+        """Every node attribute this handle reads: stored, then extra."""
+        specs = dict(self.meta["node_attrs"])
+        for name, extra in self._extra.items():
+            specs[name] = extra.stored["node_attrs"][name]
+        return specs
+
+    def _refuse(self, what: str) -> None:
+        if self._extra:
+            raise GraphIsReadOnly(
+                f"{what}: {self.path} is read-only through a handle opened with "
+                "extra_fields; only the extra node attributes "
+                f"{sorted(self._extra)} are written. Open the graph without "
+                "extra_fields to change it"
+            )
+
+    def _split_extra(
+        self, attrs: Iterable[str]
+    ) -> list[tuple[_ExtraFields, list[str]]]:
+        """Extra attribute names by the directory that holds them."""
+        attrs = list(attrs)
+        stored = [a for a in attrs if a in self.meta["node_attrs"]]
+        if stored:
+            self._refuse(f"cannot write the node attributes {stored}")
+        unknown = [a for a in attrs if a not in self._extra]
+        if unknown:
+            raise ValueError(f"unknown node attributes {unknown}")
+        return [
+            (extra, [a for a in attrs if self._extra[a] is extra])
+            for extra in self._extra_folders()
+            if any(self._extra[a] is extra for a in attrs)
+        ]
+
+    def _write_extra_arrays(self, ids: np.ndarray, attrs: Mapping[str, Any]) -> None:
+        ids = np.asarray(ids)
+        for extra, names in self._split_extra(attrs):
+            records = np.empty(len(ids), dtype=extra.record_dtype(names))
+            records["id"] = ids
+            for name in names:
+                values = np.asarray(attrs[name])
+                if values.ndim == 0 or len(values) != len(ids):
+                    raise ValueError(
+                        f"node attribute {name!r} has shape {values.shape}; "
+                        f"expected one entry for each of the {len(ids)} ids"
+                    )
+                records[name] = values
+            self._segment("nodes", extra.path).append(records)
+
+    def _write_extra_rows(self, nodes, roi: Roi | None, attributes) -> None:
+        names = list(self._extra) if attributes is None else list(attributes)
+        for extra, own in self._split_extra(names):
+            groups: dict[tuple[str, ...], list[tuple]] = {}
+            for node_id, data in nodes.items():
+                if roi is not None:
+                    position = self._position(data)
+                    if position is None or not roi.contains(tuple(position)):
+                        continue
+                present = tuple(a for a in own if data.get(a) is not None)
+                if not present:
+                    continue
+                values = [
+                    tuple(data[a]) if np.ndim(data[a]) else data[a] for a in present
+                ]
+                groups.setdefault(present, []).append((node_id, *values))
+            for present, rows in groups.items():
+                self._segment("nodes", extra.path).append(
+                    np.array(rows, dtype=extra.record_dtype(present))
+                )
+
+    def _finalize_extra(self, extra: _ExtraFields) -> None:
+        paths = extra.pending()
+        if not paths:
+            return
+        extra.reload()
+        self._reload_meta()
+        self._check_extends(extra)
+        # the node ids are all that is read of the graph
+        ids = np.load(self.path / self.meta["generation"] / "ids.npy")
+        n = len(ids)
+        by_id = np.argsort(ids, kind="stable")
+        sorted_ids = ids[by_id]
+        specs = extra.stored["node_attrs"]
+        files = extra.stored["arrays"]
+        values: dict[str, np.ndarray] = {}
+        for path in paths:
+            for batch in _Segment.read(path):
+                at = np.searchsorted(sorted_ids, batch["id"])
+                at[at == n] = 0
+                known = (
+                    sorted_ids[at] == batch["id"]
+                    if n
+                    else np.zeros(len(batch), dtype=bool)
+                )
+                if not known.all():
+                    some = np.unique(batch["id"][~known])[:5].tolist()
+                    raise ValueError(
+                        f"{path} holds values for {int((~known).sum())} ids that "
+                        f"are not nodes of {self.path} (for example {some}); "
+                        f"nothing was finalized in {extra.path}"
+                    )
+                rows = by_id[at]
+                for name in (batch.dtype.names or ())[1:]:
+                    if name not in specs:
+                        raise ValueError(
+                            f"{path} holds {name!r}, unknown to {extra.path}"
+                        )
+                    if name not in values:
+                        values[name] = self._extra_array(extra, name, n, copy=True)
+                    written = self._present(batch[name])
+                    values[name][rows[written]] = batch[name][written]
+        previous = [files.get(name) for name in values]
+        for name, array in values.items():
+            file = f"node_{name}-{uuid.uuid4().hex[:12]}.npy"
+            np.save(extra.path / file, array)
+            files[name] = file
+        extra.stored["extends"] = {
+            "num_nodes": n,
+            "generation": self.meta["generation"],
+            "ids_crc32": zlib.crc32(ids),
+        }
+        extra.write()
+        for file in previous:
+            if file is not None:
+                (extra.path / file).unlink(missing_ok=True)
+        for path in paths:
+            path.unlink(missing_ok=True)
+
+    @staticmethod
+    def _extra_array(extra: _ExtraFields, name: str, n: int, copy: bool = False):
+        """One extra attribute of every node, in row order. One that was
+        never finalized is all missing values."""
+        file = extra.stored["arrays"].get(name)
+        if file is not None:
+            return np.load(extra.path / file, mmap_mode=None if copy else "r")
+        dtype, *shape = _field(extra.stored["node_attrs"][name])
+        full = (n, *(shape[0] if shape else ()))
+        if copy:
+            return np.full(full, _missing(dtype), dtype=dtype)
+        return np.broadcast_to(np.asarray(_missing(dtype), dtype=dtype), full)
 
     @staticmethod
     def is_database(path: Path | str) -> bool:
@@ -423,7 +814,8 @@ class CSRGraphDataBase(GraphDataBase):
     def _reload_meta(self) -> None:
         self.meta = json.loads((self.path / "meta.json").read_text())
 
-    def _types(self, specs: dict[str, dict]) -> dict[str, AttributeType]:
+    @staticmethod
+    def _types(specs: dict[str, dict]) -> dict[str, AttributeType]:
         out: dict[str, AttributeType] = {}
         for name, spec in specs.items():
             dtype = np.dtype(spec["dtype"]).name
@@ -432,7 +824,9 @@ class CSRGraphDataBase(GraphDataBase):
 
     @property
     def node_attrs(self) -> dict[str, AttributeType]:
-        return self._types(self.meta["node_attrs"])
+        """The node attributes and their types: those stored in the graph,
+        then the extra fields this handle was opened with."""
+        return self._types(self._node_specs())
 
     @property
     def edge_attrs(self) -> dict[str, AttributeType]:
@@ -473,10 +867,16 @@ class CSRGraphDataBase(GraphDataBase):
         if self.meta["generation"] is None:
             return None
         folder = self.path / self.meta["generation"]
-        self._arrays = {
+        arrays = {
             name: np.load(folder / f"{name}.npy", mmap_mode="r")
             for name in self._array_names()
         }
+        for extra in self._extra_folders():
+            extra.reload()
+            self._check_extends(extra)
+        for name, extra in self._extra.items():
+            arrays[f"node_{name}"] = self._extra_array(extra, name, len(arrays["ids"]))
+        self._arrays = arrays
         return self._arrays
 
     def _readable(self) -> dict[str, np.ndarray] | None:
@@ -489,13 +889,18 @@ class CSRGraphDataBase(GraphDataBase):
 
     # -- writing ------------------------------------------------------------
 
-    def _segment(self, kind: str) -> _Segment:
+    def _segment(self, kind: str, folder: Path | None = None) -> _Segment:
+        """This handle's segment of ``kind`` in the graph's directory, or in
+        ``folder``, a directory of extra fields."""
         if self.mode == "r":
             raise RuntimeError("Trying to write to read-only DB")
-        if kind not in self._segments:
+        if folder is None:
+            self._refuse(f"cannot write {kind}")
+        key = (kind, folder)
+        if key not in self._segments:
             name = f"{kind}-{os.getpid()}-{uuid.uuid4().hex}.npys"
-            self._segments[kind] = _Segment(self.path / "segments" / name)
-        return self._segments[kind]
+            self._segments[key] = _Segment((folder or self.path) / "segments" / name)
+        return self._segments[key]
 
     def _record_dtype(self, kind: str, attrs: list[str]) -> np.dtype:
         specs = self.meta[f"{kind}_attrs"]
@@ -509,7 +914,12 @@ class CSRGraphDataBase(GraphDataBase):
 
     def write_node_arrays(self, ids: np.ndarray, **attrs: np.ndarray) -> None:
         """Append nodes given as arrays: ``ids`` and one array per attribute
-        (the position among them)."""
+        (the position among them). Through a handle with ``extra_fields``:
+        values of extra attributes for nodes of the graph, no position."""
+        if self._extra:
+            self._write_extra_arrays(ids, attrs)
+            self._after_write()
+            return
         if self.position_attribute not in attrs:
             raise ValueError(f"nodes need their {self.position_attribute!r}")
         records = np.empty(len(ids), dtype=self._record_dtype("node", list(attrs)))
@@ -524,6 +934,7 @@ class CSRGraphDataBase(GraphDataBase):
     ) -> None:
         """Append edges given as arrays: endpoint ids and one array per
         attribute. The order of an edge's endpoints does not matter."""
+        self._refuse("cannot write edges")
         records = np.empty(len(u), dtype=self._record_dtype("edge", list(attrs)))
         u, v = np.asarray(u, dtype=ID_DTYPE), np.asarray(v, dtype=ID_DTYPE)
         records["u"], records["v"] = np.minimum(u, v), np.maximum(u, v)
@@ -559,6 +970,10 @@ class CSRGraphDataBase(GraphDataBase):
             )
 
     def bulk_write_nodes(self, nodes, roi: Roi | None = None, attributes=None) -> None:
+        if self._extra:
+            self._write_extra_rows(nodes, roi, attributes)
+            self._after_write()
+            return
         attrs = (
             list(attributes)
             if attributes is not None
@@ -580,6 +995,7 @@ class CSRGraphDataBase(GraphDataBase):
     def bulk_write_edges(
         self, nodes, edges, roi: Roi | None = None, attributes=None
     ) -> None:
+        self._refuse("cannot write edges")
         attrs = (
             list(attributes)
             if attributes is not None
@@ -605,6 +1021,8 @@ class CSRGraphDataBase(GraphDataBase):
         node_attrs: list[str] | None = None,
         edge_attrs: list[str] | None = None,
     ) -> None:
+        if write_edges:
+            self._refuse("cannot write edges (pass write_edges=False)")
         with self.bulk_write_mode(worker=self._bulk_depth > 0):
             if write_nodes:
                 self.bulk_write_nodes(graph.nodes, roi=roi, attributes=node_attrs)
@@ -668,6 +1086,8 @@ class CSRGraphDataBase(GraphDataBase):
     ) -> None:
         """Write attribute values of nodes and edges that exist. Values are
         merged at finalize: an attribute keeps its last written value."""
+        if edge_attrs:
+            self._refuse("cannot write edge attributes")
         with self.bulk_write_mode(worker=self._bulk_depth > 0):
             if node_attrs:
                 self.bulk_write_nodes(graph.nodes, roi=roi, attributes=node_attrs)
@@ -695,6 +1115,7 @@ class CSRGraphDataBase(GraphDataBase):
         """Remove every edge, keeping the nodes."""
         if self.mode == "r":
             raise RuntimeError("Trying to write to read-only DB")
+        self._refuse("cannot drop edges")
         for path in self._pending():
             if path.name.startswith("edges-"):
                 path.unlink()
@@ -777,7 +1198,11 @@ class CSRGraphDataBase(GraphDataBase):
 
         A node or edge written more than once keeps, per attribute, its last
         written value. An edge with an endpoint that is not a node is
-        dropped. Holds the whole graph in memory."""
+        dropped. Holds the whole graph in memory.
+
+        Through a handle with ``extra_fields`` it merges the segments of
+        the extra directories instead, into the arrays of the attributes
+        that were written, and leaves the graph alone."""
         if self.mode == "r":
             raise RuntimeError("Trying to write to read-only DB")
         for segment in self._segments.values():
@@ -785,8 +1210,13 @@ class CSRGraphDataBase(GraphDataBase):
         self._segments = {}
         # one finalize at a time: a second process waits, then finds the
         # segments the first one merged gone
-        with open(self.path / "finalize.lock", "w") as lock:
-            fcntl.flock(lock, fcntl.LOCK_EX)
+        if self._extra:
+            for extra in self._extra_folders():
+                with _locked(extra.path):
+                    self._finalize_extra(extra)
+            self._arrays = None
+            return
+        with _locked(self.path):
             self._finalize()
 
     def _finalize(self) -> None:
@@ -970,9 +1400,19 @@ class CSRGraphDataBase(GraphDataBase):
 
     def _node_columns(self, arrays, rows, attrs: list[str]) -> dict[str, np.ndarray]:
         out = {"id": np.asarray(arrays["ids"][rows])}
+        specs = self._node_specs()
         for name in attrs:
-            if name not in self.meta["node_attrs"]:
+            if name not in specs:
                 raise ValueError(f"unknown node attribute {name!r}")
+        for extra in {
+            id(self._extra[a]): self._extra[a] for a in attrs if a in self._extra
+        }.values():
+            if extra.pending():
+                raise UnfinalizedWrites(
+                    f"{extra.path} has writes that are not in its arrays yet; "
+                    "call finalize(), or read without its attributes"
+                )
+        for name in attrs:
             out[name] = np.asarray(arrays[f"node_{name}"][rows])
         return out
 
@@ -1026,7 +1466,7 @@ class CSRGraphDataBase(GraphDataBase):
                 f"edge_ends is {edge_ends!r}; it is one of 'both', 'u', 'either'"
             )
         arrays = self._readable()
-        node_attrs = list(self.meta["node_attrs"]) if node_attrs is None else node_attrs
+        node_attrs = list(self._node_specs()) if node_attrs is None else node_attrs
         edge_attrs = list(self.meta["edge_attrs"]) if edge_attrs is None else edge_attrs
         if arrays is None:
             arrays = self._empty()
@@ -1109,7 +1549,7 @@ class CSRGraphDataBase(GraphDataBase):
         """
         if num_steps < 0:
             raise ValueError("num_steps must be >= 0")
-        wanted = list(self.meta["node_attrs"]) if node_attrs is None else node_attrs
+        wanted = list(self._node_specs()) if node_attrs is None else node_attrs
         if context is None:
             nodes, edges = self.read_arrays(
                 roi, num_steps, wanted, edge_attrs, step_edges, edge_ends
@@ -1191,7 +1631,7 @@ class CSRGraphDataBase(GraphDataBase):
     ) -> list[dict[str, Any]]:
         """The nodes in ``roi`` as dictionaries, as the SQL backends do."""
         arrays = self._readable() or self._empty()
-        read_attrs = list(self.meta["node_attrs"]) if read_attrs is None else read_attrs
+        read_attrs = list(self._node_specs()) if read_attrs is None else read_attrs
         needed = list(dict.fromkeys(read_attrs + list(attr_filter or {})))
         columns = self._node_columns(arrays, self._rows_in(arrays, roi), needed)
         mask = self._filter(columns, attr_filter)

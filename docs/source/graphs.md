@@ -98,3 +98,96 @@ values = compute(nodes, edges)[nodes["own"]]
 ```
 
 `CSRGraphDataBase.is_database(path)` tells such a directory from any other.
+
+## Values on the nodes of a graph: extra fields
+
+Values computed on a finished graph, such as an embedding per node, do not
+have to go into the graph's directory. The graph is opened with
+`extra_fields`, a mapping from attribute name to the directory that holds
+it, and the extra attributes are written and read through the database
+like stored ones:
+
+```python
+from funlib.persistence.graphs import CSRGraphDataBase
+from funlib.persistence.types import Vec
+
+g = CSRGraphDataBase(
+    "fragments.csr",
+    mode="r+",
+    extra_fields={"embedding": "pred/model_a", "label": "pred/model_a"},
+    node_attrs={"embedding": Vec("float32", 64), "label": "int32"},
+)
+with g.bulk_write_mode():
+    for roi in blocks:
+        nodes, edges = g.read_block(roi, num_steps=2, node_attrs=["position"])
+        own = nodes["own"]
+        e, l = model(nodes, edges)
+        g.write_node_arrays(nodes["id"][own], embedding=e[own], label=l[own])
+
+nodes, edges = g.read_arrays(roi, node_attrs=["position", "embedding"])
+```
+
+A directory holds any number of attributes, and a handle can name
+attributes from several directories. An attribute its directory does not
+hold yet is created when the graph is opened with mode `"r+"`, with the
+type `node_attrs` gives it; later the type may be left out. `g.node_attrs`
+lists the extra attributes after the stored ones, and `read_arrays`,
+`read_block`, `read_nodes` and `read_graph` return them by name, for the
+same regions and steps.
+
+**The graph is read-only through such a handle.** Nothing in the graph's
+directory is created, changed or locked. Writing edges, writing nodes with
+stored attributes, and `drop_edges` raise `GraphIsReadOnly`. The node
+writes (`write_node_arrays`, `write_attrs`, `write_nodes`,
+`bulk_write_nodes`) take extra attributes only, for nodes that exist, and
+need no position.
+
+Writing is the database's: each handle appends to a segment file of its own
+in the extra directory, and `finalize()`, or leaving `bulk_write_mode` in
+the main process, merges the segments into the arrays. In a blockwise task
+each worker opens the graph with the same `extra_fields` and writes inside
+`bulk_write_mode(worker=True)`; the main process finalizes at the end. The
+finalize rebuilds the arrays of the attributes that were written and reads
+the graph's node ids, nothing else of the graph. A later finalize adds to
+the values that are there, so a run can be taken up again; a node written
+twice keeps its last value.
+
+The values are stored in the graph's row order, one array per attribute, so
+a region read has the graph's locality and there is no lookup by id. This
+ties a directory to one graph. It records the graph's node count, the name
+of the graph's arrays, and a checksum of its node ids in row order, and
+opening it with a graph of another node count, other ids or another row
+order raises `ValueError`. Adding edges to the graph, or building it again
+from the same nodes, keeps the extra fields valid; adding nodes does not.
+
+```
+pred/model_a/meta.json                 version, extends, node_attrs, arrays
+pred/model_a/node_embedding-<x>.npy    (N, 64), in the graph's row order
+pred/model_a/node_label-<x>.npy        (N,)
+pred/model_a/segments/                 writes not yet in the arrays
+pred/model_a/finalize.lock
+```
+
+What to know:
+
+- A node that was never written reads as NaN, and as 0 for an integer or a
+  bool, which cannot be told from a written 0. Use a float, or a value
+  other than 0, where the difference matters. A written NaN counts as not
+  written.
+- A value for an id that is not a node of the graph is found at the
+  finalize, which raises `ValueError` and changes nothing. The segments
+  stay; remove the one named in the error to go on.
+- Finalize when the writers are done: a record appended to a segment while
+  it is being merged is lost. Several finalizes at once run one after the
+  other. A record cut short by a killed writer is ignored with a warning,
+  and its block has to be written again.
+- Which of two processes wrote a node "last" is decided by the names of
+  their segment files, not by time. Within one process it is the order of
+  the writes.
+- A read that returns an extra attribute raises `UnfinalizedWrites` while
+  its directory has segments. A read that names other attributes does not,
+  so a worker reads the graph (`node_attrs=[...]` without the attribute it
+  is writing) while the run is under way.
+- Finalize holds the node ids and the attributes it rebuilds in memory.
+- A handle sees the arrays of the finalize it last loaded; open the graph
+  again to see what another process finalized since.
