@@ -308,6 +308,26 @@ def test_a_later_write_has_the_type_that_was_recorded(tmp_path):
                 node_attrs={name: "float32"},
                 extra_fields=tmp_path / "pred",
             )
+    # a name is part of the name of a file
+    for name in ("a/b", "..", ".hidden", "-x", "", "a b", "a\\b"):
+        with pytest.raises(ValueError, match="are not names of extra node attr"):
+            db.write_node_arrays(few, **{name: np.ones(4, np.float32)})
+        with pytest.raises(ValueError, match="are not names of extra node attr"):
+            db.write_nodes({int(few[0]): {name: 1}}, attributes=[name])
+        with pytest.raises(ValueError, match="are not names of extra node attr"):
+            CSRGraphDataBase(
+                tmp_path / "g.csr",
+                mode="r+",
+                node_attrs={name: "float32"},
+                extra_fields=tmp_path / "pred",
+            )
+    db.write_node_arrays(few[:0], **{"ok-1.b_2": np.ones(0, np.float32)})
+    assert "ok-1.b_2" in db.node_attrs
+    # node ids are integers: 2.5 is not node 2
+    for bad in (few.astype(np.float64), few.reshape(2, 2), np.array(["1"] * 4)):
+        with pytest.raises(ValueError, match="node ids are integers, one per node"):
+            db.write_node_arrays(bad, late=np.ones(4))
+    assert "late" not in db.node_attrs
     # a call that is refused for one attribute declares none of the others
     with pytest.raises(ValueError, match="'label' is int32 in .*pred, not int64"):
         db.write_node_arrays(few, fresh=np.ones(4), label=np.ones(4, np.int64))
@@ -322,10 +342,11 @@ def test_a_later_write_has_the_type_that_was_recorded(tmp_path):
     assert list((tmp_path / "pred" / "segments").glob("*.npys")) == []
     assert sorted(CSRGraphDataBase.stored_extra_fields(tmp_path / "pred")) == [
         "label",
+        "ok-1.b_2",
         "vec",
     ]
     nodes, _ = opened(tmp_path).read_arrays()
-    assert sorted(nodes) == ["id", "label", "position", "step", "vec"]
+    assert sorted(nodes) == ["id", "label", "ok-1.b_2", "position", "step", "vec"]
     assert nodes["id"].dtype == np.uint64 and sorted(nodes["id"]) == sorted(ids)
     # a directory that holds such a name (written by an earlier version) is
     # refused when it is opened, not read with the node ids overwritten
@@ -467,9 +488,26 @@ def test_nodes_given_as_dictionaries_write_their_extra_attributes(tmp_path):
     # with a region the nodes carry their position: one that has none is not
     # silently left out
     bare = db.read_graph(roi, node_attrs=["label"])
-    with pytest.raises(ValueError, match="carries no 'position'.*without a roi"):
+    with pytest.raises(ValueError, match="values and no 'position'.*without a roi"):
         db.write_attrs(bare, roi=roi, node_attrs=["label"])
     assert list((tmp_path / "pred" / "segments").glob("*.npys")) == []
+    # a block read with its region and written back: read_graph adds the far
+    # end of an edge that leaves the region as a node that carries nothing,
+    # and that node is not a reason to refuse the block
+    block = db.read_graph(roi, node_attrs=["position", "label"])
+    outside = [n for n, d in block.nodes(data=True) if "position" not in d]
+    assert outside and all(not block.nodes[n] for n in outside)
+    for _, data in block.nodes(data=True):
+        if "position" in data:
+            data["label"] = 55
+    db.write_attrs(block, roi=roi, node_attrs=["label"])
+    labels = by_id(db.read_arrays()[0], "label")
+    written = sorted(n for n, label in labels.items() if label == 55)
+    assert written == sorted(n for n in block.nodes if n not in outside)
+    assert written == sorted(db.read_arrays(roi)[0]["id"].tolist())
+    for node, data in block.nodes(data=True):
+        data["label"] = node % 9 + 1  # as it was, for what follows
+    db.write_attrs(block, node_attrs=["label"])
 
     # a value is stored in the recorded type or refused, never changed:
     # label is int32, vec a float32 vector of 3
@@ -488,8 +526,24 @@ def test_nodes_given_as_dictionaries_write_their_extra_attributes(tmp_path):
     for values in changed:
         with pytest.raises(ValueError, match="is not stored as that without chang"):
             db.write_nodes({one: values}, attributes=list(values))
-    with pytest.raises(OverflowError):
-        db.write_nodes({one: {"label": 2**40}}, attributes=["label"])
+    # out of the range of the recorded type; with it, an attribute of the
+    # same call that would have been new is not created
+    out_of_range: list[dict[str, Any]] = [
+        {"label": 2**40},
+        {"label": -(2**31) - 1},
+        {"label": 2**70},
+        {"vec": (1e300, 0.0, 0.0)},
+    ]
+    for values in out_of_range:
+        with pytest.raises(ValueError, match="is not stored as that without chang"):
+            db.write_nodes({one: {"znew": 1.0, **values}}, attributes=["znew", *values])
+    assert "znew" not in CSRGraphDataBase.stored_extra_fields(tmp_path / "pred")
+    two = int(ids[1])
+    db.write_nodes({two: {"vec": (float("inf"), 0.0, 1e30)}})  # inf is a value
+    assert by_id(db.read_arrays()[0], "vec")[two][0] == float("inf")
+    for key in (1.5, "7", True):
+        with pytest.raises(ValueError, match="is not a node id"):
+            db.write_nodes({key: {"label": 1}})
     after = {k: by_id(db.read_arrays()[0], k)[one] for k in before}
     np.testing.assert_equal(after, before)
     assert list((tmp_path / "pred" / "segments").glob("*.npys")) == []
@@ -625,6 +679,9 @@ def test_extra_fields_that_cannot_be_opened_are_refused(tmp_path):
     refused: list[tuple[dict[str, Any], str]] = [
         ({"mode": "w", "cell_size": 1.0}, "mode 'w' creates the graph"),
         ({"extra_fields": graph}, "outside the graph's directory"),
+        ({"extra_fields": graph / "pred"}, "outside the graph's directory"),
+        ({"extra_fields": graph / "segments" / ".." / "a" / "b"}, "outside the graph"),
+        ({"extra_fields": [pred, tmp_path]}, "holds the graph's directory"),
         ({"extra_fields": [pred, tmp_path / "x" / ".." / "pred"]}, "is given twice"),
         # a directory that holds something else
         ({"extra_fields": tmp_path / "h.csr"}, "not a directory of extra node attr"),
@@ -800,3 +857,44 @@ def test_an_array_that_no_record_names_is_removed_by_the_next_finalize(tmp_path)
     assert now.name.startswith("node_label-") and now != kept
     assert (pred / "notes.npy").exists()
     assert int(opened(tmp_path).read_arrays()[0]["label"].sum()) == 3
+
+
+def test_a_handle_reads_an_attribute_it_found_another_handle_had_created(tmp_path):
+    ids, _ = make_graph(tmp_path / "g.csr")
+    first, second = opened(tmp_path, "r+"), opened(tmp_path, "r+")
+    assert len(first.read_arrays()[0]["id"]) == N  # its arrays are loaded
+    with second.bulk_write_mode(worker=True):
+        second.write_node_arrays(ids[:2], b=np.ones(2, np.float32))
+    with first.bulk_write_mode(worker=True):
+        first.write_node_arrays(ids[2:4], b=np.full(2, 2, np.float32))
+    opened(tmp_path, "r+").finalize()
+    assert "b" in first.node_attrs
+    for nodes in (first.read_arrays()[0], first.read_arrays(node_attrs=["b"])[0]):
+        b = by_id(nodes, "b")
+        assert [b[int(i)] for i in ids[:4]] == [1.0, 1.0, 2.0, 2.0]
+
+
+def test_a_graph_without_nodes_takes_extra_fields(tmp_path):
+    none = np.zeros(0, dtype=np.uint64)
+    db = CSRGraphDataBase.from_arrays(
+        tmp_path / "g.csr", none, {"position": np.zeros((0, 3))}, cell_size=10.0
+    )
+    assert db.num_nodes == 0 and len(db.read_arrays()[0]["id"]) == 0
+    assert db.read_graph(Roi((0, 0, 0), (10, 10, 10))).number_of_nodes() == 0
+    # it is a graph like any other: nodes can still be written to it
+    more = CSRGraphDataBase.from_arrays(
+        tmp_path / "h.csr", none, {"position": np.zeros((0, 3))}, cell_size=10.0
+    )
+    more.write_node_arrays(np.array([4], dtype=np.uint64), position=np.ones((1, 3)))
+    assert CSRGraphDataBase(tmp_path / "h.csr").read_arrays()[0]["id"].tolist() == [4]
+
+    extended = opened(tmp_path, "r+")
+    with extended.bulk_write_mode():
+        extended.write_node_arrays(none, vec=np.zeros((0, 3), np.float32))
+    assert extended.node_attrs["vec"] == Vec("float32", 3)
+    nodes, edges = opened(tmp_path).read_arrays()
+    assert nodes["vec"].shape == (0, 3) and len(edges["u"]) == 0
+    with pytest.raises(ValueError, match="ids that are not nodes"):
+        extended.write_node_arrays(
+            np.array([1], dtype=np.uint64), vec=np.zeros((1, 3), np.float32)
+        )

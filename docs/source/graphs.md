@@ -134,7 +134,8 @@ holds without opening a graph.
 of all of them. An attribute that two of them hold, or that the graph itself
 stores, is refused when the graph is opened. A directory that is empty or
 does not exist yet is created by the first write in mode `"r+"`; in mode
-`"r"` it is an error.
+`"r"` it is an error. An extra directory is never inside the graph's
+directory, nor the other way round: both are refused.
 
 **A new attribute is created by the first write that names it**, with the
 type of the values written: `embedding=e` with `e` a float32 array of shape
@@ -155,8 +156,11 @@ float takes the recorded float width and an integer the recorded integer
 width, or becomes a float.
 
 A write that is refused records nothing: none of the attributes it names is
-created. `id`, `step` and `own` are not names of attributes, because the
-reads return arrays of those names.
+created. The name of an extra attribute is made of letters, digits, `_`,
+`.` and `-`, and does not start with `.` or `-`, because it is part of the
+name of a file. `id`, `step` and `own` are not names of attributes, because
+the reads return arrays of those names. Node ids are integers, and a value
+has to be in the range of the recorded type.
 
 `node_attrs` is never needed for an extra attribute. It may name one with a
 type, `node_attrs={"score": "float32"}`, to create it up front in mode
@@ -173,8 +177,12 @@ directory is created, changed or locked. Writing edges, writing nodes with
 stored attributes, and `drop_edges` raise `GraphIsReadOnly`. The node
 writes (`write_node_arrays`, `write_attrs`, `write_nodes`,
 `bulk_write_nodes`) take extra attributes only, for nodes that exist, and
-need no position, unless a `roi` is given: then every node carries its
-position (read the graph with it), and a node without one raises.
+need no position, unless a `roi` is given: then a node with a value to write
+carries its position (read the graph with it), and one without raises. A
+node that carries neither a value nor a position is left out. `read_graph(roi)`
+adds such a node for every edge that leaves the region, so
+`g.write_attrs(g.read_graph(roi), roi=roi, node_attrs=[...])` writes the
+nodes inside the region.
 
 Writing is the database's: each handle appends to a segment file of its own
 in the extra directory, and `finalize()`, or leaving `bulk_write_mode` in

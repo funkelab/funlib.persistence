@@ -32,6 +32,7 @@ import fcntl
 import json
 import logging
 import os
+import re
 import shutil
 import uuid
 import zlib
@@ -55,6 +56,9 @@ EXTRA_FORMAT_VERSION = 1
 RESERVED_NODE_NAMES = ("id", "step", "own")
 """Names the reads give to arrays of their own (the node id, the step that
 reached a node, the block's own nodes): not names of extra attributes."""
+_EXTRA_NAME = re.compile(r"[A-Za-z0-9_][A-Za-z0-9_.\-]*")
+"""The name of an extra attribute: letters, digits, ``_``, ``.`` and ``-``,
+not starting with ``.`` or ``-``. It is part of the name of a file."""
 ID_DTYPE = np.dtype("<u8")
 ROW_DTYPE = np.dtype("<i8")
 _PYTHON_TYPES = {"float": "float64", "int": "int64", "bool": "bool"}
@@ -302,7 +306,8 @@ class CSRGraphDataBase(GraphDataBase):
             two of the directories hold, or that the graph itself stores,
             is refused when the graph is opened. A directory that is empty
             or does not exist is created by the first write in mode
-            ``"r+"`` and is an error in mode ``"r"``.
+            ``"r+"`` and is an error in mode ``"r"``. A directory inside
+            the graph's directory, or one that holds it, is refused.
 
             **A new attribute is created by the first write that names
             it**, with the type of the values written:
@@ -324,8 +329,12 @@ class CSRGraphDataBase(GraphDataBase):
             than the vector raise; a Python float takes the recorded float
             width, an integer the recorded integer width (or becomes a
             float). A call that is refused records nothing: no attribute
-            of it is created. ``id``, ``step`` and ``own`` are not names of
-            attributes; the reads use them. ``node_attrs`` is
+            of it is created. The name of an extra attribute is made of
+            letters, digits, ``_``, ``.`` and ``-`` and does not start with
+            ``.`` or ``-``: it is part of the name of a file. ``id``,
+            ``step`` and ``own`` are not names of attributes; the reads use
+            them. Node ids are integers. A value has to be in the range of
+            the recorded type. ``node_attrs`` is
             never needed for an extra attribute. It may name one with a
             type, to create it up front in mode ``"r+"`` (float32 rather
             than the float64 Python numbers give), or to have the type that
@@ -342,8 +351,11 @@ class CSRGraphDataBase(GraphDataBase):
             directory is created, changed or locked. The node writes
             (``write_node_arrays``, ``write_attrs``, ``write_nodes``,
             ``bulk_write_nodes``) take extra attributes only and need no
-            position, unless a ``roi`` is given: then every node carries
-            its position, and one that does not raises.
+            position, unless a ``roi`` is given: then a node with a value
+            to write carries its position, and one that does not raises. A
+            node that carries neither is left out: ``read_graph(roi)`` adds
+            such a node for an edge that leaves the region, so a block that
+            is read with its region can be written back with it.
 
             Writing works as for the graph: each handle appends to a
             segment file of its own in the extra directory, from any
@@ -514,7 +526,8 @@ class CSRGraphDataBase(GraphDataBase):
         ids = np.load(self.path / self.meta["generation"] / "ids.npy", mmap_mode="r")
         checksum = 0
         for start in range(0, len(ids), 1 << 22):
-            checksum = zlib.crc32(np.asarray(ids[start : start + (1 << 22)]), checksum)
+            chunk = np.ascontiguousarray(ids[start : start + (1 << 22)])
+            checksum = zlib.crc32(memoryview(chunk), checksum)
         return {
             "num_nodes": self.meta["num_nodes"],
             "generation": self.meta["generation"],
@@ -545,9 +558,17 @@ class CSRGraphDataBase(GraphDataBase):
             )
         seen: set[Path] = set()
         for folder in self.extra_fields:
-            key = folder.resolve()
-            if key == self.path.resolve():
-                raise ValueError("extra fields are kept outside the graph's directory")
+            key, graph = folder.resolve(), self.path.resolve()
+            if key == graph or key.is_relative_to(graph):
+                raise ValueError(
+                    f"{folder}: extra fields are kept outside the graph's "
+                    f"directory {self.path}, which they never change"
+                )
+            if graph.is_relative_to(key):
+                raise ValueError(
+                    f"{folder} holds the graph's directory {self.path}: extra "
+                    "fields are kept in a directory of their own"
+                )
             if key in seen:
                 raise ValueError(f"{folder} is given twice in extra_fields")
             seen.add(key)
@@ -615,9 +636,11 @@ class CSRGraphDataBase(GraphDataBase):
 
     def _check_new_extra(self, names: Iterable[str]) -> None:
         """Whether attributes of these names may be created by this handle."""
-        names = sorted(names)
+        names = sorted(names, key=str)
         if not names:
             return
+        if any(not isinstance(n, str) for n in names):
+            raise ValueError(f"{names} are not all names: an attribute name is a str")
         if self.mode == "r":
             raise RuntimeError("Trying to write to read-only DB")
         reserved = [n for n in names if n in RESERVED_NODE_NAMES]
@@ -625,6 +648,13 @@ class CSRGraphDataBase(GraphDataBase):
             raise ValueError(
                 f"{reserved} are not names of node attributes: the reads use "
                 f"{list(RESERVED_NODE_NAMES)} for arrays of their own"
+            )
+        unfit = [n for n in names if not _EXTRA_NAME.fullmatch(n)]
+        if unfit:
+            raise ValueError(
+                f"{unfit} are not names of extra node attributes: a name is "
+                "made of letters, digits, '_', '.' and '-', and does not start "
+                "with '.' or '-' (it is part of the name of a file)"
             )
         if len(self._extra_dirs) != 1:
             raise ValueError(
@@ -707,6 +737,8 @@ class CSRGraphDataBase(GraphDataBase):
             for extra in self._extra_dirs:
                 extra.reload()  # another process may have created them
             self._map_extra_fields()
+            # the arrays this handle loaded do not hold what was found
+            self._arrays = None
         new = [a for a in attrs if a not in self._extra]
         self._check_new_extra(new)
         return new
@@ -729,6 +761,11 @@ class CSRGraphDataBase(GraphDataBase):
 
     def _write_extra_arrays(self, ids: np.ndarray, attrs: Mapping[str, Any]) -> None:
         ids = np.asarray(ids)
+        if ids.ndim != 1 or (len(ids) and ids.dtype.kind not in "iu"):
+            raise ValueError(
+                f"ids are {ids.dtype} of shape {ids.shape}; node ids are "
+                "integers, one per node"
+            )
         arrays = {name: np.asarray(values) for name, values in attrs.items()}
         # every check of the call comes before anything is recorded: a write
         # that is refused declares no attribute
@@ -760,12 +797,22 @@ class CSRGraphDataBase(GraphDataBase):
         integer for a bool, anything that is not a number, and a sequence
         of another length than the vector. A Python number has no width, so
         a float is stored in the recorded float type and an integer in the
-        recorded integer type (numpy refuses one that is out of range)."""
+        recorded integer type, when it is in the range of that type."""
         given = np.asarray(value)
         dtype = np.dtype(spec["dtype"])
         allowed = {"f": "fiub", "i": "iub", "u": "iub", "b": "b"}[dtype.kind]
         shape = (spec["size"],) if spec["size"] else ()
-        if given.dtype.kind not in allowed or given.shape != shape:
+        fits = given.dtype.kind in allowed and given.shape == shape
+        if fits and dtype.kind in "iu":
+            # exact Python integers: a value past int64 has dtype object
+            # and was refused above
+            bounds = np.iinfo(dtype.name)
+            fits = all(bounds.min <= int(x) <= bounds.max for x in given.flat)
+        elif fits and dtype.kind == "f":
+            with np.errstate(over="ignore"):
+                stored = given.astype(dtype)
+            fits = bool((np.isfinite(stored) | ~np.isfinite(given)).all())
+        if not fits:
             wanted = f"a vector of {spec['size']}" if spec["size"] else "one value"
             raise ValueError(
                 f"node attribute {name!r} is {dtype.name}, {wanted}; "
@@ -778,13 +825,21 @@ class CSRGraphDataBase(GraphDataBase):
         names = list(self._extra) if attributes is None else list(attributes)
         kept = []
         for node_id, data in nodes.items():
+            if isinstance(node_id, bool) or not isinstance(node_id, int | np.integer):
+                raise ValueError(f"{node_id!r} is not a node id: an id is an integer")
             if roi is not None:
                 position = self._position(data)
                 if position is None:
+                    # a node that read_graph(roi) added for an edge leaving
+                    # the roi carries nothing; one with a value to write and
+                    # no position cannot be placed and is not left out
+                    if all(data.get(a) is None for a in names):
+                        continue
                     raise ValueError(
-                        f"node {node_id} carries no {self.position_attribute!r}: "
-                        "with a roi, the nodes carry their position (read them "
-                        "with it, or write without a roi)"
+                        f"node {node_id} carries values and no "
+                        f"{self.position_attribute!r}: with a roi, the nodes "
+                        "carry their position (read them with it, or write "
+                        "without a roi)"
                     )
                 if not roi.contains(tuple(position)):
                     continue
@@ -884,7 +939,7 @@ class CSRGraphDataBase(GraphDataBase):
         extra.stored["extends"] = {
             "num_nodes": n,
             "generation": self.meta["generation"],
-            "ids_crc32": zlib.crc32(ids),
+            "ids_crc32": zlib.crc32(memoryview(np.ascontiguousarray(ids))),
         }
         extra.write()
         # the arrays that were replaced, and any that a finalize which was
@@ -1021,6 +1076,17 @@ class CSRGraphDataBase(GraphDataBase):
                 db.write_node_arrays(ids, **node_arrays)
                 if u is not None and v is not None:
                     db.write_edge_arrays(u, v, **edge_arrays)
+            if db.meta["generation"] is None:
+                # no node: nothing was appended, so nothing was merged. The
+                # arrays of an empty graph are built all the same, so that
+                # it is a finalized graph like any other
+                empty = db._empty()
+                db._build(
+                    empty["ids"],
+                    {k: empty[f"node_{k}"] for k in db.meta["node_attrs"]},
+                    None,
+                    sort_nodes=True,
+                )
             db.close()
         except BaseException:
             shutil.rmtree(scratch, ignore_errors=True)
@@ -1418,7 +1484,7 @@ class CSRGraphDataBase(GraphDataBase):
         if values.dtype.kind != "f":
             return np.ones(len(values), dtype=bool)
         missing = np.isnan(values)
-        return ~(missing.all(axis=1) if values.ndim > 1 else missing)
+        return np.asarray(~(missing.all(axis=1) if values.ndim > 1 else missing))
 
     def _edge_list(self, arrays: dict[str, np.ndarray]):
         """Every edge of the arrays once, as ids, from its smaller end."""
@@ -1508,7 +1574,9 @@ class CSRGraphDataBase(GraphDataBase):
             path.unlink(missing_ok=True)
 
     def _build(self, ids, nodes, edges, sort_nodes: bool) -> None:
-        position = nodes[self.position_attribute].reshape(len(ids), -1).astype(float)
+        position = (
+            nodes[self.position_attribute].reshape(len(ids), self.ndims).astype(float)
+        )
         if sort_nodes or self.meta.get("origin") is None:
             lowest = position.min(axis=0) if len(ids) else np.zeros(self.ndims)
             origin = np.floor(lowest / self.cell_size) * self.cell_size
