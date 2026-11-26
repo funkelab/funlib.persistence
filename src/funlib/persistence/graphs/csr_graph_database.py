@@ -202,6 +202,15 @@ class _Segment:
         return records
 
 
+def _ids_crc32(ids: np.ndarray) -> int:
+    """The crc32 of node ids in row order, a few million at a time."""
+    checksum = 0
+    for start in range(0, len(ids), 1 << 22):
+        chunk = np.asarray(ids[start : start + (1 << 22)], dtype=ID_DTYPE)
+        checksum = zlib.crc32(chunk.tobytes(), checksum)
+    return checksum
+
+
 class _ExtraFields:
     """A directory of extra node attributes of one graph::
 
@@ -524,14 +533,10 @@ class CSRGraphDataBase(GraphDataBase):
     def _extends(self) -> dict[str, Any]:
         """What an extra directory records of this graph."""
         ids = np.load(self.path / self.meta["generation"] / "ids.npy", mmap_mode="r")
-        checksum = 0
-        for start in range(0, len(ids), 1 << 22):
-            chunk = np.ascontiguousarray(ids[start : start + (1 << 22)])
-            checksum = zlib.crc32(memoryview(chunk), checksum)
         return {
             "num_nodes": self.meta["num_nodes"],
             "generation": self.meta["generation"],
-            "ids_crc32": checksum,
+            "ids_crc32": _ids_crc32(ids),
         }
 
     def _check_extends(self, extra: _ExtraFields) -> None:
@@ -939,7 +944,7 @@ class CSRGraphDataBase(GraphDataBase):
         extra.stored["extends"] = {
             "num_nodes": n,
             "generation": self.meta["generation"],
-            "ids_crc32": zlib.crc32(memoryview(np.ascontiguousarray(ids))),
+            "ids_crc32": _ids_crc32(ids),
         }
         extra.write()
         # the arrays that were replaced, and any that a finalize which was
