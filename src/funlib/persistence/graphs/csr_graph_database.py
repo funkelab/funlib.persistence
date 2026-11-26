@@ -56,9 +56,11 @@ EXTRA_FORMAT_VERSION = 1
 RESERVED_NODE_NAMES = ("id", "step", "own")
 """Names the reads give to arrays of their own (the node id, the step that
 reached a node, the block's own nodes): not names of extra attributes."""
-_EXTRA_NAME = re.compile(r"[A-Za-z0-9_][A-Za-z0-9_.\-]*")
+_EXTRA_NAME = re.compile(r"[A-Za-z0-9_][A-Za-z0-9_.\-]{0,232}")
 """The name of an extra attribute: letters, digits, ``_``, ``.`` and ``-``,
-not starting with ``.`` or ``-``. It is part of the name of a file."""
+not starting with ``.`` or ``-``, at most 233 characters. It is part of the
+name of a file, ``node_<name>-<12 characters>.npy``, which a file system
+commonly limits to 255 bytes."""
 ID_DTYPE = np.dtype("<u8")
 ROW_DTYPE = np.dtype("<i8")
 _PYTHON_TYPES = {"float": "float64", "int": "int64", "bool": "bool"}
@@ -339,10 +341,11 @@ class CSRGraphDataBase(GraphDataBase):
             width, an integer the recorded integer width (or becomes a
             float). A call that is refused records nothing: no attribute
             of it is created. The name of an extra attribute is made of
-            letters, digits, ``_``, ``.`` and ``-`` and does not start with
-            ``.`` or ``-``: it is part of the name of a file. ``id``,
+            letters, digits, ``_``, ``.`` and ``-``, does not start with
+            ``.`` or ``-`` and has at most 233 characters: it is part of
+            the name of a file. ``id``,
             ``step`` and ``own`` are not names of attributes; the reads use
-            them. Node ids are integers. A value has to be in the range of
+            them. Node ids are integers, not negative. A value has to be in the range of
             the recorded type. ``node_attrs`` is
             never needed for an extra attribute. It may name one with a
             type, to create it up front in mode ``"r+"`` (float32 rather
@@ -658,8 +661,9 @@ class CSRGraphDataBase(GraphDataBase):
         if unfit:
             raise ValueError(
                 f"{unfit} are not names of extra node attributes: a name is "
-                "made of letters, digits, '_', '.' and '-', and does not start "
-                "with '.' or '-' (it is part of the name of a file)"
+                "made of letters, digits, '_', '.' and '-', does not start "
+                "with '.' or '-' and has at most 233 characters (it is part of "
+                "the name of a file)"
             )
         if len(self._extra_dirs) != 1:
             raise ValueError(
@@ -771,6 +775,10 @@ class CSRGraphDataBase(GraphDataBase):
                 f"ids are {ids.dtype} of shape {ids.shape}; node ids are "
                 "integers, one per node"
             )
+        if ids.dtype.kind == "i" and len(ids) and int(ids.min()) < 0:
+            raise ValueError(
+                f"{int(ids.min())} is not a node id: an id is not negative"
+            )
         arrays = {name: np.asarray(values) for name, values in attrs.items()}
         # every check of the call comes before anything is recorded: a write
         # that is refused declares no attribute
@@ -830,8 +838,14 @@ class CSRGraphDataBase(GraphDataBase):
         names = list(self._extra) if attributes is None else list(attributes)
         kept = []
         for node_id, data in nodes.items():
-            if isinstance(node_id, bool) or not isinstance(node_id, int | np.integer):
-                raise ValueError(f"{node_id!r} is not a node id: an id is an integer")
+            if (
+                isinstance(node_id, bool)
+                or not isinstance(node_id, int | np.integer)
+                or node_id < 0
+            ):
+                raise ValueError(
+                    f"{node_id!r} is not a node id: an id is an integer, not negative"
+                )
             if roi is not None:
                 position = self._position(data)
                 if position is None:
@@ -1896,7 +1910,10 @@ class CSRGraphDataBase(GraphDataBase):
             step_edges,
             edge_ends,
         )
-        at = np.asarray(nodes[position], dtype=float).reshape(len(nodes["id"]), -1)
+        # the number of dimensions is given: no node leaves nothing to infer
+        at = np.asarray(nodes[position], dtype=float).reshape(
+            len(nodes["id"]), self.ndims
+        )
         own = nodes["step"] == 0
         bounds = self._bounds(roi)
         if bounds is not None:

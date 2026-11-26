@@ -157,9 +157,11 @@ width, or becomes a float.
 
 A write that is refused records nothing: none of the attributes it names is
 created. The name of an extra attribute is made of letters, digits, `_`,
-`.` and `-`, and does not start with `.` or `-`, because it is part of the
+`.` and `-`, does not start with `.` or `-`, and has at most 233
+characters, because it is part of the
 name of a file. `id`, `step` and `own` are not names of attributes, because
-the reads return arrays of those names. Node ids are integers, and a value
+the reads return arrays of those names. Node ids are integers that are not
+negative, and a value
 has to be in the range of the recorded type.
 
 `node_attrs` is never needed for an extra attribute. It may name one with a

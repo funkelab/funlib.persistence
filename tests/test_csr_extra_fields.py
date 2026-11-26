@@ -321,6 +321,22 @@ def test_a_later_write_has_the_type_that_was_recorded(tmp_path):
                 node_attrs={name: "float32"},
                 extra_fields=tmp_path / "pred",
             )
+    # and the file is node_<name>-<12 characters>.npy, of at most 255 bytes
+    for name in ("x" * 234, "x" * 300):
+        with pytest.raises(ValueError, match="at most 233 characters"):
+            db.write_node_arrays(few, **{name: np.ones(4, np.float32)})
+    longest = CSRGraphDataBase(
+        tmp_path / "g.csr", mode="r+", extra_fields=tmp_path / "l"
+    )
+    longest.write_node_arrays(few, **{"x" * 233: np.ones(4, np.float32)})
+    (stored,) = (tmp_path / "l").glob("node_*.npy")
+    assert len(stored.name) == 255
+    assert np.nansum(opened(tmp_path, folder="l").read_arrays()[0]["x" * 233]) == 4
+    # an id is not negative
+    with pytest.raises(ValueError, match="-1 is not a node id"):
+        db.write_node_arrays(np.array([-1, 2, 3, 4]), late=np.ones(4))
+    with pytest.raises(ValueError, match="-1 is not a node id"):
+        db.write_nodes({-1: {"label": 1}})
     db.write_node_arrays(few[:0], **{"ok-1.b_2": np.ones(0, np.float32)})
     assert "ok-1.b_2" in db.node_attrs
     # node ids are integers: 2.5 is not node 2

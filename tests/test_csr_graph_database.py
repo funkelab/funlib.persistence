@@ -524,6 +524,12 @@ def test_read_block_marks_the_nodes_of_the_block_among_its_surroundings(tmp_path
 
     with pytest.raises(ValueError, match="num_steps must be >= 0"):
         db.read_block(block, num_steps=-1)
+    # a block whose surroundings hold no node, with a context or without
+    far = Roi((500, 500, 500), (10, 10, 10))
+    for context in (None, 0, 5, [1, 2, 3]):
+        nodes, edges = db.read_block(far, context=context, num_steps=1)
+        assert nodes["position"].shape == (0, 3) and nodes["own"].shape == (0,)
+        assert nodes["own"].dtype == bool and len(edges["u"]) == 0
     for negative in (-1, -0.5, [0, 0, -0.25], float("nan")):
         with pytest.raises(ValueError, match="context must be >= 0"):
             db.read_block(block, context=negative)
