@@ -47,6 +47,12 @@ def _location_kwargs(kwargs: dict) -> dict:
     }
 
 
+def _stored_chunks(data: zarr.Array) -> tuple[int, ...]:
+    """The dask chunking that follows how ``data`` is stored: its shard shape when
+    sharded, else its chunk shape."""
+    return tuple(data.shards) if data.shards is not None else tuple(data.chunks)
+
+
 def open_ds(
     store,
     mode: Literal["r", "r+", "a", "w", "w-"] = "r",
@@ -104,11 +110,9 @@ def open_ds(
 
         chunks (`Coordinate`, (optional)):
 
-            An override for the size of the chunks in the dataset.
-            The default value ("strict") chunks the dask view as the dataset is
-            stored: by shard for a sharded zarr v3 array, else by chunk. One dask
-            block per inner chunk would make the view of a sharded array of many
-            small inner chunks cost minutes and gigabytes per read.
+            The chunks of the dask view. The default value ("strict") chunks
+            it as the dataset is stored: by shard for a sharded zarr v3 array,
+            else by chunk. Anything else is an override, passed to dask as given.
 
             Otherwise, you can provide chunks in any format supported by dask.
             See https://docs.dask.org/en/stable/generated/dask.array.from_array.html
@@ -166,13 +170,6 @@ def open_ds(
         _stored_chunks(data) if chunks == "strict" else chunks,
         scheduler=scheduler,
     )
-
-
-def _stored_chunks(data: zarr.Array) -> tuple[int, ...]:
-    """The dask chunking that follows how ``data`` is stored: its shard shape when
-    sharded, else its chunk shape."""
-    shards = getattr(data, "shards", None)
-    return tuple(shards) if shards is not None else tuple(data.chunks)
 
 
 def _validate_layout(

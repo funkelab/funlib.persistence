@@ -883,20 +883,17 @@ def test_sharded_dask_view_is_chunked_by_shard(tmp_path, store):
     appended = _sharded(store, mode="a")
     assert Coordinate(appended.data.chunksize) == SHARD
 
-    overridden = open_ds(store, chunks=tuple(INNER))
-    assert Coordinate(overridden.data.chunksize) == INNER
-    assert overridden.inner_chunk_shape == INNER
+    override = Coordinate(1, 32, 32)
+    overridden = open_ds(store, chunks=tuple(override))
+    assert Coordinate(overridden.data.chunksize) == override
+    assert (overridden.chunk_shape, overridden.inner_chunk_shape) == (SHARD, override)
     np.testing.assert_array_equal(overridden[overridden.roi], data)
 
 
-def test_unsharded_dask_view_is_chunked_by_chunk(tmp_path):
-    plain = prepare_ds(
-        tmp_path / stores["zarr"],
-        shape=(8, 8),
-        voxel_size=Coordinate(1, 1),
-        chunk_shape=Coordinate(4, 4),
-        dtype=np.uint8,
-        mode="w",
-    )
-    assert Coordinate(plain.data.chunksize) == Coordinate(4, 4)
-    assert plain.chunk_shape == plain.inner_chunk_shape == Coordinate(4, 4)
+def test_inner_chunk_shape_of_data_that_is_not_zarr_is_the_views_chunk():
+    import dask.array as da
+
+    array = Array(da.zeros((4, 6), chunks=(2, 3)), offset=(0, 0), voxel_size=(1, 1))
+    assert array.chunk_shape == array.inner_chunk_shape == Coordinate(2, 3)
+    array.lazy_op(np.s_[0])
+    assert array.inner_chunk_shape == Coordinate(3)

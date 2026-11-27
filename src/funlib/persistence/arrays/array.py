@@ -110,6 +110,11 @@ class Array(Freezable):
             self.data = data
         self._uncollapsed_dims = [True for _ in self.data.shape]
         self._source_data = data
+        # whether the dask view is chunked as the data is stored (by shard when
+        # sharded, else by chunk); `inner_chunk_shape` names the stored chunk only then
+        self._view_as_stored = isinstance(data, ZarrArray) and tuple(
+            self._dask_chunk_shape()
+        ) == tuple(data.shards if data.shards is not None else data.chunks)
         self._metadata = MetaData(
             offset=Coordinate(offset) if offset is not None else None,
             voxel_size=Coordinate(voxel_size) if voxel_size is not None else None,
@@ -161,20 +166,22 @@ class Array(Freezable):
 
     @property
     def inner_chunk_shape(self) -> Coordinate | None:
-        """Chunk shape for efficient reads: the stored chunk, which is smaller
-        than the write-safe :attr:`chunk_shape` in the case of sharding. The dask
-        view is chunked by :attr:`chunk_shape`, not by this. ``None`` for a view
-        that lazy operations moved off the stored chunk grid; the dask chunk
-        shape for data that is not a zarr array."""
+        """Chunk shape for efficient reads. On a view chunked as stored (the
+        default) it is the stored chunk, smaller than the write-safe
+        :attr:`chunk_shape` in the case of sharding; under an
+        ``open_ds(chunks=...)`` override, or for data that is not a zarr array,
+        it is the view's own chunk shape. ``None`` for a view that lazy
+        operations moved off the stored chunk grid."""
         if not self._on_chunk_grid:
             return None
-        chunks = getattr(self._source_data, "chunks", None)
-        if chunks is None:
+        if not self._view_as_stored:
             return self._dask_chunk_shape()
         return Coordinate(
             c
-            for c, uncollapsed in zip(chunks, self._uncollapsed_dims, strict=False)
-            if uncollapsed
+            for c, u in zip(
+                self._source_data.chunks, self._uncollapsed_dims, strict=False
+            )
+            if u
         )
 
     @property
