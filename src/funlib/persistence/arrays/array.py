@@ -161,10 +161,21 @@ class Array(Freezable):
 
     @property
     def inner_chunk_shape(self) -> Coordinate | None:
-        """Chunk shape for efficient reads. Can be smaller than the write-safe
-        :attr:`chunk_shape` in the case of sharding. ``None`` for a view that
-        lazy operations moved off the stored chunk grid."""
-        return self._dask_chunk_shape() if self._on_chunk_grid else None
+        """Chunk shape for efficient reads: the stored chunk, which is smaller
+        than the write-safe :attr:`chunk_shape` in the case of sharding. The dask
+        view is chunked by :attr:`chunk_shape`, not by this. ``None`` for a view
+        that lazy operations moved off the stored chunk grid; the dask chunk
+        shape for data that is not a zarr array."""
+        if not self._on_chunk_grid:
+            return None
+        chunks = getattr(self._source_data, "chunks", None)
+        if chunks is None:
+            return self._dask_chunk_shape()
+        return Coordinate(
+            c
+            for c, uncollapsed in zip(chunks, self._uncollapsed_dims, strict=False)
+            if uncollapsed
+        )
 
     @property
     def shard_shape(self) -> Coordinate | None:

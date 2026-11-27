@@ -858,3 +858,45 @@ def test_scheduler_is_passed_through_open_ds_and_prepare_ds(tmp_path, scheduler)
         scheduler=scheduler,
     )
     assert reopened.scheduler == scheduler
+
+
+# --- the dask view follows the write unit: one block per shard, never per inner chunk -------
+
+
+@pytest.mark.parametrize("store", SHARDED_STORES)
+def test_sharded_dask_view_is_chunked_by_shard(tmp_path, store):
+    """`open_ds` and `prepare_ds` chunk the dask view by shard; `inner_chunk_shape`
+    still names the stored inner chunk, and a `chunks=` override is honoured."""
+    store = tmp_path / stores[store]
+    data = _sharded_with_data(store)
+
+    created = _sharded(tmp_path / f"created_{stores['zarr']}")
+    assert Coordinate(created.data.chunksize) == SHARD
+
+    reopened = open_ds(store)
+    assert Coordinate(reopened.data.chunksize) == SHARD
+    assert (reopened.chunk_shape, reopened.inner_chunk_shape) == (SHARD, INNER)
+    shards = [-(-n // s) for n, s in zip(reopened.shape, SHARD, strict=False)]
+    assert list(reopened.data.numblocks) == shards
+    np.testing.assert_array_equal(reopened[reopened.roi], data)
+
+    appended = _sharded(store, mode="a")
+    assert Coordinate(appended.data.chunksize) == SHARD
+
+    overridden = open_ds(store, chunks=tuple(INNER))
+    assert Coordinate(overridden.data.chunksize) == INNER
+    assert overridden.inner_chunk_shape == INNER
+    np.testing.assert_array_equal(overridden[overridden.roi], data)
+
+
+def test_unsharded_dask_view_is_chunked_by_chunk(tmp_path):
+    plain = prepare_ds(
+        tmp_path / stores["zarr"],
+        shape=(8, 8),
+        voxel_size=Coordinate(1, 1),
+        chunk_shape=Coordinate(4, 4),
+        dtype=np.uint8,
+        mode="w",
+    )
+    assert Coordinate(plain.data.chunksize) == Coordinate(4, 4)
+    assert plain.chunk_shape == plain.inner_chunk_shape == Coordinate(4, 4)

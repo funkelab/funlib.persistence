@@ -105,7 +105,10 @@ def open_ds(
         chunks (`Coordinate`, (optional)):
 
             An override for the size of the chunks in the dataset.
-            The default value ("strict") will use the chunksize of the dataset.
+            The default value ("strict") chunks the dask view as the dataset is
+            stored: by shard for a sharded zarr v3 array, else by chunk. One dask
+            block per inner chunk would make the view of a sharded array of many
+            small inner chunks cost minutes and gigabytes per read.
 
             Otherwise, you can provide chunks in any format supported by dask.
             See https://docs.dask.org/en/stable/generated/dask.array.from_array.html
@@ -160,9 +163,16 @@ def open_ds(
         metadata.axis_names,
         metadata.units,
         metadata.types,
-        data.chunks if chunks == "strict" else chunks,
+        _stored_chunks(data) if chunks == "strict" else chunks,
         scheduler=scheduler,
     )
+
+
+def _stored_chunks(data: zarr.Array) -> tuple[int, ...]:
+    """The dask chunking that follows how ``data`` is stored: its shard shape when
+    sharded, else its chunk shape."""
+    shards = getattr(data, "shards", None)
+    return tuple(shards) if shards is not None else tuple(data.chunks)
 
 
 def _validate_layout(
@@ -537,7 +547,7 @@ def prepare_ds(
                 existing_metadata.axis_names,
                 existing_metadata.units,
                 existing_metadata.types,
-                ds.chunks,
+                _stored_chunks(ds),
                 scheduler=scheduler,
             )
 
@@ -578,5 +588,12 @@ def prepare_ds(
 
     # chunked as stored, so `chunk_shape` reports what it does from `open_ds`
     return Array(
-        ds, offset, voxel_size, axis_names, units, types, ds.chunks, scheduler=scheduler
+        ds,
+        offset,
+        voxel_size,
+        axis_names,
+        units,
+        types,
+        _stored_chunks(ds),
+        scheduler=scheduler,
     )
