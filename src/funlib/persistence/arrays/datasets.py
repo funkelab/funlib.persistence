@@ -9,7 +9,7 @@ import zarr.storage
 from funlib.geometry import Coordinate
 from numpy.typing import DTypeLike
 
-from .array import Array
+from .array import Array, stored_chunks
 from .metadata import MetaDataFormat, get_default_metadata_format
 
 logger = logging.getLogger(__name__)
@@ -45,6 +45,16 @@ def _location_kwargs(kwargs: dict) -> dict:
     return {
         k: kwargs[k] for k in ("path", "storage_options", "zarr_format") if k in kwargs
     }
+
+
+def _view_chunks(data: zarr.Array, chunks):
+    """The dask chunking ``open_ds(chunks=...)`` asks for: ``"strict"`` is the
+    stored write unit, ``"inner"`` the stored chunk, anything else dask's own."""
+    if isinstance(chunks, str) and chunks == "strict":
+        return stored_chunks(data)
+    if isinstance(chunks, str) and chunks == "inner":
+        return tuple(data.chunks)
+    return chunks
 
 
 def open_ds(
@@ -104,12 +114,18 @@ def open_ds(
 
         chunks (`Coordinate`, (optional)):
 
-            An override for the size of the chunks in the dataset.
-            The default value ("strict") will use the chunksize of the dataset.
-
-            Otherwise, you can provide chunks in any format supported by dask.
-            See https://docs.dask.org/en/stable/generated/dask.array.from_array.html
-            for more information.
+            The chunks of the dask view. The default value ("strict") chunks
+            it as the dataset is stored: by shard for a sharded zarr v3 array,
+            else by chunk. "inner" chunks it by stored chunk, the inner chunk of
+            a sharded array. Anything else is passed to dask as given, in any
+            format `dask.array.from_array` accepts
+            (https://docs.dask.org/en/stable/generated/dask.array.from_array.html).
+            A block is the unit a callable lazy op (see :meth:`Array.lazy_op`)
+            computes on and holds in memory, so on an array of large shards
+            "inner" or a smaller override makes small reads through such an op
+            cheaper; plain slicing fuses into the read and is not affected.
+            Neither changes :attr:`Array.chunk_shape` or
+            :attr:`Array.inner_chunk_shape`, which describe the stored layout.
 
         strict_metadata (`bool`, (optional)):
 
@@ -160,7 +176,7 @@ def open_ds(
         metadata.axis_names,
         metadata.units,
         metadata.types,
-        data.chunks if chunks == "strict" else chunks,
+        _view_chunks(data, chunks),
         scheduler=scheduler,
     )
 
@@ -255,7 +271,7 @@ def _data_mismatches(
     ``(what, given, existing)`` triples: shape, dtype, write-safe chunk shape (the
     shard if sharded) and, if given, inner chunk shape. Empty means compatible."""
     source = existing._source_data
-    write_unit = source.shards if source.shards is not None else source.chunks
+    write_unit = stored_chunks(source) or ()  # a zarr source always records one
     mismatches = []
     if tuple(shape) != tuple(existing.shape):
         mismatches.append(_differ("Shapes", tuple(shape), existing.shape))
@@ -537,7 +553,7 @@ def prepare_ds(
                 existing_metadata.axis_names,
                 existing_metadata.units,
                 existing_metadata.types,
-                ds.chunks,
+                stored_chunks(ds),
                 scheduler=scheduler,
             )
 
@@ -578,5 +594,12 @@ def prepare_ds(
 
     # chunked as stored, so `chunk_shape` reports what it does from `open_ds`
     return Array(
-        ds, offset, voxel_size, axis_names, units, types, ds.chunks, scheduler=scheduler
+        ds,
+        offset,
+        voxel_size,
+        axis_names,
+        units,
+        types,
+        stored_chunks(ds),
+        scheduler=scheduler,
     )

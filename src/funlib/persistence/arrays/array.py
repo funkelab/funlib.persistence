@@ -14,6 +14,21 @@ from .lazy_ops import LazyOp
 from .metadata import MetaData
 from .utils import interleave
 
+
+def stored_chunks(data) -> tuple[int, ...] | None:
+    """How ``data`` is stored: its shard shape when sharded, else its chunk shape.
+    ``None`` for data that records no stored chunking (a dask or numpy array). A
+    zarr array records both; so does anything else carrying ``chunks`` and
+    ``shards`` attributes, such as an OME image array."""
+    if isinstance(data, da.Array):
+        return None
+    shards = getattr(data, "shards", None)
+    if shards is not None:
+        return tuple(int(s) for s in shards)
+    chunks = getattr(data, "chunks", None)
+    return tuple(int(c) for c in chunks) if chunks is not None else None
+
+
 logger = logging.getLogger(__name__)
 
 
@@ -148,23 +163,39 @@ class Array(Freezable):
         else:
             return self._attrs
 
+    def _stored_unit(self, unit: Sequence[int]) -> Coordinate:
+        """A per-axis unit of the source array over this view's uncollapsed axes."""
+        return Coordinate(
+            c for c, u in zip(unit, self._uncollapsed_dims, strict=False) if u
+        )
+
     @property
     def chunk_shape(self) -> Coordinate | None:
-        """The write-safe chunk shape: the shard shape if sharded, else the chunk
-        shape (an ``open_ds(chunks=...)`` override is reported as given). ``None``
-        for a view that is not writeable or that lazy operations moved off the
-        stored chunk grid."""
+        """The write-safe chunk shape of a stored source (a zarr array, or any
+        data carrying ``chunks`` and ``shards``): the shard shape if sharded,
+        else the chunk shape, whatever the dask view is chunked by
+        (``data.chunksize`` shows that). For data that records no stored
+        chunking it is the view's own chunk shape. ``None`` for a view that is not writeable or
+        that lazy operations moved off the stored chunk grid."""
         if not self.is_writeable or not self._on_chunk_grid:
             return None
-        shards = self.shard_shape
-        return shards if shards is not None else self._dask_chunk_shape()
+        stored = stored_chunks(self._source_data)
+        if stored is not None:
+            return self._stored_unit(stored)
+        return self._dask_chunk_shape()
 
     @property
     def inner_chunk_shape(self) -> Coordinate | None:
-        """Chunk shape for efficient reads. Can be smaller than the write-safe
-        :attr:`chunk_shape` in the case of sharding. ``None`` for a view that
-        lazy operations moved off the stored chunk grid."""
-        return self._dask_chunk_shape() if self._on_chunk_grid else None
+        """Chunk shape for efficient reads: the stored chunk of a stored source,
+        smaller than the write-safe :attr:`chunk_shape` in the case of sharding,
+        whatever the dask view is chunked by; for data that records no stored
+        chunking the view's own chunk shape. ``None`` for a view that lazy operations
+        moved off the stored chunk grid."""
+        if not self._on_chunk_grid:
+            return None
+        if stored_chunks(self._source_data) is not None:
+            return self._stored_unit(self._source_data.chunks)
+        return self._dask_chunk_shape()
 
     @property
     def shard_shape(self) -> Coordinate | None:
@@ -379,6 +410,13 @@ class Array(Freezable):
                 or normalizing (e.g. `array.lazy_op(lambda d: d / 255)`).
                 Note that the lazy operation must come in the form of a slicing operation or a callable that
                 takes a dask array and returns a dask array.
+                A read through a callable computes it on every dask block the read touches, and the
+                default view is chunked as the data is stored (one block per shard of a sharded
+                zarr v3 array), so a read through `lambda d: d / 255` decodes and transforms every
+                shard it touches whole, up to 2**ndim of them for a small read across shard
+                boundaries, each at the callable's output dtype. Plain slices and integer indices
+                fuse into the read and do not. Open with `open_ds(..., chunks="inner")` (one
+                block per stored chunk) or a smaller `chunks=` where that cost matters.
                 Lazy operations that would change the shape of the array may make it impossible to properly query
                 the data with `Coordinate` or `Roi` objects. In these cases, it may be more appropriate to recreate
                 the array with the appropriate metadata. For example:

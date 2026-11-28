@@ -858,3 +858,129 @@ def test_scheduler_is_passed_through_open_ds_and_prepare_ds(tmp_path, scheduler)
         scheduler=scheduler,
     )
     assert reopened.scheduler == scheduler
+
+
+# --- the dask view follows the write unit: one block per shard, never per inner chunk -------
+
+
+def _dask_chunks(array: Array) -> Coordinate:
+    return Coordinate(array.data.chunksize)  # ty: ignore[unresolved-attribute]
+
+
+@pytest.mark.parametrize("store", SHARDED_STORES)
+def test_sharded_dask_view_is_chunked_by_shard(tmp_path, store):
+    """`open_ds` and `prepare_ds` chunk the dask view by shard; `inner_chunk_shape`
+    still names the stored inner chunk, and a `chunks=` override is honoured."""
+    store = tmp_path / stores[store]
+    data = _sharded_with_data(store)
+
+    (tmp_path / "created").mkdir()
+    created = _sharded(tmp_path / "created" / store.relative_to(tmp_path))
+    assert _dask_chunks(created) == SHARD
+
+    reopened = open_ds(store)
+    assert _dask_chunks(reopened) == SHARD
+    assert (reopened.chunk_shape, reopened.inner_chunk_shape) == (SHARD, INNER)
+    shards = [-(-n // s) for n, s in zip(reopened.shape, SHARD, strict=False)]
+    assert list(reopened.data.numblocks) == shards
+    np.testing.assert_array_equal(reopened[reopened.roi], data)
+
+    appended = _sharded(store, mode="a")
+    assert _dask_chunks(appended) == SHARD
+
+    # the dask chunking is a read strategy; the layout properties keep describing the store
+    inner = open_ds(store, chunks="inner")
+    assert _dask_chunks(inner) == INNER
+    assert list(inner.data.numblocks) == [
+        -(-n // c) for n, c in zip(inner.shape, INNER, strict=False)
+    ]
+    override = Coordinate(1, 32, 32)
+    overridden = open_ds(store, chunks=tuple(override))
+    assert _dask_chunks(overridden) == override
+    for view in (inner, overridden):
+        assert (view.chunk_shape, view.inner_chunk_shape) == (SHARD, INNER)
+        np.testing.assert_array_equal(view[view.roi], data)
+
+
+@pytest.mark.parametrize("store", SHARDED_STORES)
+def test_unsharded_dask_view_is_chunked_by_chunk(tmp_path, store):
+    store = tmp_path / stores[store]
+    chunk = Coordinate(2, 16, 16)
+    created = _sharded(store, chunk_shape=chunk, sharding=False, inner_chunk_shape=None)
+    reopened = open_ds(store)
+    for array in (created, reopened):
+        assert _dask_chunks(array) == chunk
+        assert (array.chunk_shape, array.inner_chunk_shape) == (chunk, chunk)
+        assert array.shard_shape is None
+    blocks = [-(-n // c) for n, c in zip(reopened.shape, chunk, strict=False)]
+    assert list(reopened.data.numblocks) == blocks
+
+
+def test_a_shard_longer_than_the_array_still_names_the_stored_inner_chunk(tmp_path):
+    """dask clips a block to the array, so the view's chunk is shorter than the
+    shard along that axis; the layout read off the view must still copy."""
+    store = tmp_path / stores["zarr"]
+    shape = (2, 50, 64)  # 50 < the shard's 64
+    array = _sharded(store, shape=shape)
+    reopened = open_ds(store)
+    for a in (array, reopened):
+        assert _dask_chunks(a) == Coordinate(2, 50, 32)
+        assert (a.chunk_shape, a.inner_chunk_shape) == (SHARD, INNER)
+    copied = prepare_ds(
+        tmp_path / "copy.zarr",
+        shape,
+        chunk_shape=reopened.chunk_shape,
+        inner_chunk_shape=reopened.inner_chunk_shape,
+        sharding=True,
+        dtype=np.uint8,
+    )
+    assert (copied.chunk_shape, copied.inner_chunk_shape) == (SHARD, INNER)
+    assert _sharded(store, mode="a", shape=shape).shape == shape
+
+    # unsharded: the stored chunk is the write unit AND the read unit, unclipped
+    plain = tmp_path / "plain.zarr"
+    _sharded(plain, shape=shape, sharding=False, inner_chunk_shape=None)
+    reopened = open_ds(plain)
+    assert _dask_chunks(reopened) == Coordinate(2, 50, 32)
+    assert (reopened.chunk_shape, reopened.inner_chunk_shape) == (SHARD, SHARD)
+    assert reopened.shard_shape is None
+    appended = prepare_ds(
+        plain, shape, chunk_shape=reopened.chunk_shape, dtype=np.uint8, mode="a"
+    )
+    assert appended.chunk_shape == SHARD
+
+
+def test_a_source_that_is_not_a_zarr_array_but_records_its_layout_is_read_as_stored(
+    tmp_path,
+):
+    """What `open_ome_ds` hands `Array` is not a zarr array but carries `chunks` and `shards`,
+    and the constructor default chunks the view by dask's `auto`: the layout properties must
+    still describe the store."""
+    import zarr
+
+    _sharded(tmp_path / stores["zarr"])
+    z = zarr.open_array(tmp_path / stores["zarr"], mode="r")
+
+    class Recorded:
+        shape, dtype, ndim = z.shape, z.dtype, z.ndim
+        chunks, shards = z.chunks, z.shards
+
+        def __getitem__(self, key):
+            return z[key]
+
+    array = Array(Recorded(), offset=(0, 0), voxel_size=(1, 1))
+    assert (array.chunk_shape, array.inner_chunk_shape, array.shard_shape) == (
+        SHARD,
+        INNER,
+        SHARD,
+    )
+    assert _dask_chunks(array) != SHARD  # the view keeps dask's own chunking
+
+
+def test_inner_chunk_shape_of_data_that_is_not_zarr_is_the_views_chunk():
+    import dask.array as da
+
+    array = Array(da.zeros((4, 6), chunks=(2, 3)), offset=(0, 0), voxel_size=(1, 1))
+    assert array.chunk_shape == array.inner_chunk_shape == Coordinate(2, 3)
+    array.lazy_op(np.s_[0])
+    assert array.inner_chunk_shape == Coordinate(3)
