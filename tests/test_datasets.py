@@ -863,6 +863,10 @@ def test_scheduler_is_passed_through_open_ds_and_prepare_ds(tmp_path, scheduler)
 # --- the dask view follows the write unit: one block per shard, never per inner chunk -------
 
 
+def _dask_chunks(array: Array) -> Coordinate:
+    return Coordinate(array.data.chunksize)  # ty: ignore[unresolved-attribute]
+
+
 @pytest.mark.parametrize("store", SHARDED_STORES)
 def test_sharded_dask_view_is_chunked_by_shard(tmp_path, store):
     """`open_ds` and `prepare_ds` chunk the dask view by shard; `inner_chunk_shape`
@@ -871,21 +875,21 @@ def test_sharded_dask_view_is_chunked_by_shard(tmp_path, store):
     data = _sharded_with_data(store)
 
     created = _sharded(tmp_path / f"created_{stores['zarr']}")
-    assert Coordinate(created.data.chunksize) == SHARD
+    assert _dask_chunks(created) == SHARD
 
     reopened = open_ds(store)
-    assert Coordinate(reopened.data.chunksize) == SHARD
+    assert _dask_chunks(reopened) == SHARD
     assert (reopened.chunk_shape, reopened.inner_chunk_shape) == (SHARD, INNER)
     shards = [-(-n // s) for n, s in zip(reopened.shape, SHARD, strict=False)]
     assert list(reopened.data.numblocks) == shards
     np.testing.assert_array_equal(reopened[reopened.roi], data)
 
     appended = _sharded(store, mode="a")
-    assert Coordinate(appended.data.chunksize) == SHARD
+    assert _dask_chunks(appended) == SHARD
 
     override = Coordinate(1, 32, 32)
     overridden = open_ds(store, chunks=tuple(override))
-    assert Coordinate(overridden.data.chunksize) == override
+    assert _dask_chunks(overridden) == override
     assert (overridden.chunk_shape, overridden.inner_chunk_shape) == (SHARD, override)
     np.testing.assert_array_equal(overridden[overridden.roi], data)
 
