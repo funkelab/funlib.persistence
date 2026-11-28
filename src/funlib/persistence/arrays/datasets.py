@@ -9,7 +9,7 @@ import zarr.storage
 from funlib.geometry import Coordinate
 from numpy.typing import DTypeLike
 
-from .array import Array
+from .array import Array, stored_chunks
 from .metadata import MetaDataFormat, get_default_metadata_format
 
 logger = logging.getLogger(__name__)
@@ -45,12 +45,6 @@ def _location_kwargs(kwargs: dict) -> dict:
     return {
         k: kwargs[k] for k in ("path", "storage_options", "zarr_format") if k in kwargs
     }
-
-
-def _stored_chunks(data: zarr.Array) -> tuple[int, ...]:
-    """The dask chunking that follows how ``data`` is stored: its shard shape when
-    sharded, else its chunk shape."""
-    return tuple(data.shards) if data.shards is not None else tuple(data.chunks)
 
 
 def open_ds(
@@ -113,6 +107,10 @@ def open_ds(
             The chunks of the dask view. The default value ("strict") chunks
             it as the dataset is stored: by shard for a sharded zarr v3 array,
             else by chunk. Anything else is an override, passed to dask as given.
+            A block is the unit a callable lazy op (see :meth:`Array.lazy_op`)
+            computes on, so on an array of large shards a smaller override makes
+            small reads through such an op cheaper; pure slicing fuses into the
+            read and is not affected.
 
             Otherwise, you can provide chunks in any format supported by dask.
             See https://docs.dask.org/en/stable/generated/dask.array.from_array.html
@@ -167,7 +165,7 @@ def open_ds(
         metadata.axis_names,
         metadata.units,
         metadata.types,
-        _stored_chunks(data) if chunks == "strict" else chunks,
+        stored_chunks(data) if chunks == "strict" else chunks,
         scheduler=scheduler,
     )
 
@@ -262,7 +260,7 @@ def _data_mismatches(
     ``(what, given, existing)`` triples: shape, dtype, write-safe chunk shape (the
     shard if sharded) and, if given, inner chunk shape. Empty means compatible."""
     source = existing._source_data
-    write_unit = source.shards if source.shards is not None else source.chunks
+    write_unit = stored_chunks(source)
     mismatches = []
     if tuple(shape) != tuple(existing.shape):
         mismatches.append(_differ("Shapes", tuple(shape), existing.shape))
@@ -544,7 +542,7 @@ def prepare_ds(
                 existing_metadata.axis_names,
                 existing_metadata.units,
                 existing_metadata.types,
-                _stored_chunks(ds),
+                stored_chunks(ds),
                 scheduler=scheduler,
             )
 
@@ -591,6 +589,6 @@ def prepare_ds(
         axis_names,
         units,
         types,
-        _stored_chunks(ds),
+        stored_chunks(ds),
         scheduler=scheduler,
     )

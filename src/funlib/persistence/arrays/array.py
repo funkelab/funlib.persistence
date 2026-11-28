@@ -14,6 +14,12 @@ from .lazy_ops import LazyOp
 from .metadata import MetaData
 from .utils import interleave
 
+
+def stored_chunks(data: ZarrArray) -> tuple[int, ...]:
+    """How ``data`` is stored: its shard shape when sharded, else its chunk shape."""
+    return tuple(data.shards) if data.shards is not None else tuple(data.chunks)
+
+
 logger = logging.getLogger(__name__)
 
 
@@ -112,9 +118,13 @@ class Array(Freezable):
         self._source_data = data
         # whether the dask view is chunked as the data is stored (by shard when
         # sharded, else by chunk); `inner_chunk_shape` names the stored chunk only then
+        # (dask clips a chunk to the array's shape; a stored unit longer than the
+        # array along an axis is compared clipped the same way)
         self._view_as_stored = isinstance(data, ZarrArray) and tuple(
             self._dask_chunk_shape()
-        ) == tuple(data.shards if data.shards is not None else data.chunks)
+        ) == tuple(
+            min(c, n) for c, n in zip(stored_chunks(data), data.shape, strict=True)
+        )
         self._metadata = MetaData(
             offset=Coordinate(offset) if offset is not None else None,
             voxel_size=Coordinate(voxel_size) if voxel_size is not None else None,
@@ -397,6 +407,11 @@ class Array(Freezable):
                 or normalizing (e.g. `array.lazy_op(lambda d: d / 255)`).
                 Note that the lazy operation must come in the form of a slicing operation or a callable that
                 takes a dask array and returns a dask array.
+                A read through a callable computes it on every dask block the read touches, and the
+                default view is chunked as the data is stored (one block per shard of a sharded
+                zarr v3 array), so a small read through `lambda d: d / 255` decodes and transforms
+                whole shards; pure slicing is fused into the read and does not. Open with a smaller
+                `chunks=` (`open_ds(..., chunks=...)`) where that cost matters.
                 Lazy operations that would change the shape of the array may make it impossible to properly query
                 the data with `Coordinate` or `Roi` objects. In these cases, it may be more appropriate to recreate
                 the array with the appropriate metadata. For example:

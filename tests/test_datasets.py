@@ -874,7 +874,8 @@ def test_sharded_dask_view_is_chunked_by_shard(tmp_path, store):
     store = tmp_path / stores[store]
     data = _sharded_with_data(store)
 
-    created = _sharded(tmp_path / f"created_{stores['zarr']}")
+    (tmp_path / "created").mkdir()
+    created = _sharded(tmp_path / "created" / store.relative_to(tmp_path))
     assert _dask_chunks(created) == SHARD
 
     reopened = open_ds(store)
@@ -892,6 +893,42 @@ def test_sharded_dask_view_is_chunked_by_shard(tmp_path, store):
     assert _dask_chunks(overridden) == override
     assert (overridden.chunk_shape, overridden.inner_chunk_shape) == (SHARD, override)
     np.testing.assert_array_equal(overridden[overridden.roi], data)
+
+
+@pytest.mark.parametrize("store", SHARDED_STORES)
+def test_unsharded_dask_view_is_chunked_by_chunk(tmp_path, store):
+    store = tmp_path / stores[store]
+    chunk = Coordinate(2, 16, 16)
+    created = _sharded(store, chunk_shape=chunk, sharding=False, inner_chunk_shape=None)
+    reopened = open_ds(store)
+    for array in (created, reopened):
+        assert _dask_chunks(array) == chunk
+        assert (array.chunk_shape, array.inner_chunk_shape) == (chunk, chunk)
+        assert array.shard_shape is None
+    blocks = [-(-n // c) for n, c in zip(reopened.shape, chunk, strict=False)]
+    assert list(reopened.data.numblocks) == blocks
+
+
+def test_a_shard_longer_than_the_array_still_names_the_stored_inner_chunk(tmp_path):
+    """dask clips a block to the array, so the view's chunk is shorter than the
+    shard along that axis; the layout read off the view must still copy."""
+    store = tmp_path / stores["zarr"]
+    shape = (2, 50, 64)  # 50 < the shard's 64
+    array = _sharded(store, shape=shape)
+    reopened = open_ds(store)
+    for a in (array, reopened):
+        assert _dask_chunks(a) == Coordinate(2, 50, 32)
+        assert (a.chunk_shape, a.inner_chunk_shape) == (SHARD, INNER)
+    copied = prepare_ds(
+        tmp_path / "copy.zarr",
+        shape,
+        chunk_shape=reopened.chunk_shape,
+        inner_chunk_shape=reopened.inner_chunk_shape,
+        sharding=True,
+        dtype=np.uint8,
+    )
+    assert (copied.chunk_shape, copied.inner_chunk_shape) == (SHARD, INNER)
+    assert _sharded(store, mode="a", shape=shape).shape == shape
 
 
 def test_inner_chunk_shape_of_data_that_is_not_zarr_is_the_views_chunk():
