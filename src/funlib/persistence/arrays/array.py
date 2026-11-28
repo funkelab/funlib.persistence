@@ -116,15 +116,6 @@ class Array(Freezable):
             self.data = data
         self._uncollapsed_dims = [True for _ in self.data.shape]
         self._source_data = data
-        # whether the dask view is chunked as the data is stored (by shard when
-        # sharded, else by chunk); `inner_chunk_shape` names the stored chunk only then
-        # (dask clips a chunk to the array's shape; a stored unit longer than the
-        # array along an axis is compared clipped the same way)
-        self._view_as_stored = isinstance(data, ZarrArray) and tuple(
-            self._dask_chunk_shape()
-        ) == tuple(
-            min(c, n) for c, n in zip(stored_chunks(data), data.shape, strict=True)
-        )
         self._metadata = MetaData(
             offset=Coordinate(offset) if offset is not None else None,
             voxel_size=Coordinate(voxel_size) if voxel_size is not None else None,
@@ -163,36 +154,37 @@ class Array(Freezable):
         else:
             return self._attrs
 
+    def _stored_unit(self, unit: Sequence[int]) -> Coordinate:
+        """A per-axis unit of the source array over this view's uncollapsed axes."""
+        return Coordinate(
+            c for c, u in zip(unit, self._uncollapsed_dims, strict=False) if u
+        )
+
     @property
     def chunk_shape(self) -> Coordinate | None:
-        """The write-safe chunk shape: the shard shape if sharded, else the chunk
-        shape (an ``open_ds(chunks=...)`` override is reported as given). ``None``
-        for a view that is not writeable or that lazy operations moved off the
-        stored chunk grid."""
+        """The write-safe chunk shape of a zarr source as stored: the shard shape
+        if sharded, else the chunk shape, whatever the dask view is chunked by
+        (``data.chunksize`` shows that). For data that is not a zarr array it is
+        the view's own chunk shape. ``None`` for a view that is not writeable or
+        that lazy operations moved off the stored chunk grid."""
         if not self.is_writeable or not self._on_chunk_grid:
             return None
-        shards = self.shard_shape
-        return shards if shards is not None else self._dask_chunk_shape()
+        if isinstance(self._source_data, ZarrArray):
+            return self._stored_unit(stored_chunks(self._source_data))
+        return self._dask_chunk_shape()
 
     @property
     def inner_chunk_shape(self) -> Coordinate | None:
-        """Chunk shape for efficient reads. On a view chunked as stored (the
-        default) it is the stored chunk, smaller than the write-safe
-        :attr:`chunk_shape` in the case of sharding; under an
-        ``open_ds(chunks=...)`` override, or for data that is not a zarr array,
-        it is the view's own chunk shape. ``None`` for a view that lazy
-        operations moved off the stored chunk grid."""
+        """Chunk shape for efficient reads: the stored chunk of a zarr source,
+        smaller than the write-safe :attr:`chunk_shape` in the case of sharding,
+        whatever the dask view is chunked by; for data that is not a zarr array
+        the view's own chunk shape. ``None`` for a view that lazy operations
+        moved off the stored chunk grid."""
         if not self._on_chunk_grid:
             return None
-        if not self._view_as_stored:
-            return self._dask_chunk_shape()
-        return Coordinate(
-            c
-            for c, u in zip(
-                self._source_data.chunks, self._uncollapsed_dims, strict=False
-            )
-            if u
-        )
+        if isinstance(self._source_data, ZarrArray):
+            return self._stored_unit(self._source_data.chunks)
+        return self._dask_chunk_shape()
 
     @property
     def shard_shape(self) -> Coordinate | None:
@@ -409,9 +401,11 @@ class Array(Freezable):
                 takes a dask array and returns a dask array.
                 A read through a callable computes it on every dask block the read touches, and the
                 default view is chunked as the data is stored (one block per shard of a sharded
-                zarr v3 array), so a small read through `lambda d: d / 255` decodes and transforms
-                whole shards; pure slicing is fused into the read and does not. Open with a smaller
-                `chunks=` (`open_ds(..., chunks=...)`) where that cost matters.
+                zarr v3 array), so a read through `lambda d: d / 255` decodes and transforms every
+                shard it touches whole, up to 2**ndim of them for a small read across shard
+                boundaries, each at the callable's output dtype. Plain slices and integer indices
+                fuse into the read and do not. Open with `open_ds(..., chunks="inner")` (one
+                block per stored chunk) or a smaller `chunks=` where that cost matters.
                 Lazy operations that would change the shape of the array may make it impossible to properly query
                 the data with `Coordinate` or `Roi` objects. In these cases, it may be more appropriate to recreate
                 the array with the appropriate metadata. For example:

@@ -47,6 +47,16 @@ def _location_kwargs(kwargs: dict) -> dict:
     }
 
 
+def _view_chunks(data: zarr.Array, chunks):
+    """The dask chunking ``open_ds(chunks=...)`` asks for: ``"strict"`` is the
+    stored write unit, ``"inner"`` the stored chunk, anything else dask's own."""
+    if chunks == "strict":
+        return stored_chunks(data)
+    if chunks == "inner":
+        return tuple(data.chunks)
+    return chunks
+
+
 def open_ds(
     store,
     mode: Literal["r", "r+", "a", "w", "w-"] = "r",
@@ -106,15 +116,16 @@ def open_ds(
 
             The chunks of the dask view. The default value ("strict") chunks
             it as the dataset is stored: by shard for a sharded zarr v3 array,
-            else by chunk. Anything else is an override, passed to dask as given.
+            else by chunk. "inner" chunks it by stored chunk, the inner chunk of
+            a sharded array. Anything else is passed to dask as given, in any
+            format `dask.array.from_array` accepts
+            (https://docs.dask.org/en/stable/generated/dask.array.from_array.html).
             A block is the unit a callable lazy op (see :meth:`Array.lazy_op`)
-            computes on, so on an array of large shards a smaller override makes
-            small reads through such an op cheaper; pure slicing fuses into the
-            read and is not affected.
-
-            Otherwise, you can provide chunks in any format supported by dask.
-            See https://docs.dask.org/en/stable/generated/dask.array.from_array.html
-            for more information.
+            computes on and holds in memory, so on an array of large shards
+            "inner" or a smaller override makes small reads through such an op
+            cheaper; plain slicing fuses into the read and is not affected.
+            Neither changes :attr:`Array.chunk_shape` or
+            :attr:`Array.inner_chunk_shape`, which describe the stored layout.
 
         strict_metadata (`bool`, (optional)):
 
@@ -165,7 +176,7 @@ def open_ds(
         metadata.axis_names,
         metadata.units,
         metadata.types,
-        stored_chunks(data) if chunks == "strict" else chunks,
+        _view_chunks(data, chunks),
         scheduler=scheduler,
     )
 

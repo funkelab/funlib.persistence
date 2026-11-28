@@ -888,11 +888,18 @@ def test_sharded_dask_view_is_chunked_by_shard(tmp_path, store):
     appended = _sharded(store, mode="a")
     assert _dask_chunks(appended) == SHARD
 
+    # the dask chunking is a read strategy; the layout properties keep describing the store
+    inner = open_ds(store, chunks="inner")
+    assert _dask_chunks(inner) == INNER
+    assert list(inner.data.numblocks) == [
+        -(-n // c) for n, c in zip(inner.shape, INNER, strict=False)
+    ]
     override = Coordinate(1, 32, 32)
     overridden = open_ds(store, chunks=tuple(override))
     assert _dask_chunks(overridden) == override
-    assert (overridden.chunk_shape, overridden.inner_chunk_shape) == (SHARD, override)
-    np.testing.assert_array_equal(overridden[overridden.roi], data)
+    for view in (inner, overridden):
+        assert (view.chunk_shape, view.inner_chunk_shape) == (SHARD, INNER)
+        np.testing.assert_array_equal(view[view.roi], data)
 
 
 @pytest.mark.parametrize("store", SHARDED_STORES)
@@ -929,6 +936,18 @@ def test_a_shard_longer_than_the_array_still_names_the_stored_inner_chunk(tmp_pa
     )
     assert (copied.chunk_shape, copied.inner_chunk_shape) == (SHARD, INNER)
     assert _sharded(store, mode="a", shape=shape).shape == shape
+
+    # unsharded: the stored chunk is the write unit AND the read unit, unclipped
+    plain = tmp_path / "plain.zarr"
+    _sharded(plain, shape=shape, sharding=False, inner_chunk_shape=None)
+    reopened = open_ds(plain)
+    assert _dask_chunks(reopened) == Coordinate(2, 50, 32)
+    assert (reopened.chunk_shape, reopened.inner_chunk_shape) == (SHARD, SHARD)
+    assert reopened.shard_shape is None
+    appended = prepare_ds(
+        plain, shape, chunk_shape=reopened.chunk_shape, dtype=np.uint8, mode="a"
+    )
+    assert appended.chunk_shape == SHARD
 
 
 def test_inner_chunk_shape_of_data_that_is_not_zarr_is_the_views_chunk():
