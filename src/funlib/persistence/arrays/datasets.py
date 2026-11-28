@@ -50,9 +50,9 @@ def _location_kwargs(kwargs: dict) -> dict:
 def _view_chunks(data: zarr.Array, chunks):
     """The dask chunking ``open_ds(chunks=...)`` asks for: ``"strict"`` is the
     stored write unit, ``"inner"`` the stored chunk, anything else dask's own."""
-    if chunks == "strict":
+    if isinstance(chunks, str) and chunks == "strict":
         return stored_chunks(data)
-    if chunks == "inner":
+    if isinstance(chunks, str) and chunks == "inner":
         return tuple(data.chunks)
     return chunks
 
@@ -271,7 +271,7 @@ def _data_mismatches(
     ``(what, given, existing)`` triples: shape, dtype, write-safe chunk shape (the
     shard if sharded) and, if given, inner chunk shape. Empty means compatible."""
     source = existing._source_data
-    write_unit = stored_chunks(source)
+    write_unit = stored_chunks(source) or ()  # a zarr source always records one
     mismatches = []
     if tuple(shape) != tuple(existing.shape):
         mismatches.append(_differ("Shapes", tuple(shape), existing.shape))

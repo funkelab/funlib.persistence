@@ -15,9 +15,18 @@ from .metadata import MetaData
 from .utils import interleave
 
 
-def stored_chunks(data: ZarrArray) -> tuple[int, ...]:
-    """How ``data`` is stored: its shard shape when sharded, else its chunk shape."""
-    return tuple(data.shards) if data.shards is not None else tuple(data.chunks)
+def stored_chunks(data) -> tuple[int, ...] | None:
+    """How ``data`` is stored: its shard shape when sharded, else its chunk shape.
+    ``None`` for data that records no stored chunking (a dask or numpy array). A
+    zarr array records both; so does anything else carrying ``chunks`` and
+    ``shards`` attributes, such as an OME image array."""
+    if isinstance(data, da.Array):
+        return None
+    shards = getattr(data, "shards", None)
+    if shards is not None:
+        return tuple(int(s) for s in shards)
+    chunks = getattr(data, "chunks", None)
+    return tuple(int(c) for c in chunks) if chunks is not None else None
 
 
 logger = logging.getLogger(__name__)
@@ -162,27 +171,29 @@ class Array(Freezable):
 
     @property
     def chunk_shape(self) -> Coordinate | None:
-        """The write-safe chunk shape of a zarr source as stored: the shard shape
-        if sharded, else the chunk shape, whatever the dask view is chunked by
-        (``data.chunksize`` shows that). For data that is not a zarr array it is
-        the view's own chunk shape. ``None`` for a view that is not writeable or
+        """The write-safe chunk shape of a stored source (a zarr array, or any
+        data carrying ``chunks`` and ``shards``): the shard shape if sharded,
+        else the chunk shape, whatever the dask view is chunked by
+        (``data.chunksize`` shows that). For data that records no stored
+        chunking it is the view's own chunk shape. ``None`` for a view that is not writeable or
         that lazy operations moved off the stored chunk grid."""
         if not self.is_writeable or not self._on_chunk_grid:
             return None
-        if isinstance(self._source_data, ZarrArray):
-            return self._stored_unit(stored_chunks(self._source_data))
+        stored = stored_chunks(self._source_data)
+        if stored is not None:
+            return self._stored_unit(stored)
         return self._dask_chunk_shape()
 
     @property
     def inner_chunk_shape(self) -> Coordinate | None:
-        """Chunk shape for efficient reads: the stored chunk of a zarr source,
+        """Chunk shape for efficient reads: the stored chunk of a stored source,
         smaller than the write-safe :attr:`chunk_shape` in the case of sharding,
-        whatever the dask view is chunked by; for data that is not a zarr array
-        the view's own chunk shape. ``None`` for a view that lazy operations
+        whatever the dask view is chunked by; for data that records no stored
+        chunking the view's own chunk shape. ``None`` for a view that lazy operations
         moved off the stored chunk grid."""
         if not self._on_chunk_grid:
             return None
-        if isinstance(self._source_data, ZarrArray):
+        if stored_chunks(self._source_data) is not None:
             return self._stored_unit(self._source_data.chunks)
         return self._dask_chunk_shape()
 

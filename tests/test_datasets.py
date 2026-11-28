@@ -950,6 +950,33 @@ def test_a_shard_longer_than_the_array_still_names_the_stored_inner_chunk(tmp_pa
     assert appended.chunk_shape == SHARD
 
 
+def test_a_source_that_is_not_a_zarr_array_but_records_its_layout_is_read_as_stored(
+    tmp_path,
+):
+    """What `open_ome_ds` hands `Array` is not a zarr array but carries `chunks` and `shards`,
+    and the constructor default chunks the view by dask's `auto`: the layout properties must
+    still describe the store."""
+    import zarr
+
+    _sharded(tmp_path / stores["zarr"])
+    z = zarr.open_array(tmp_path / stores["zarr"], mode="r")
+
+    class Recorded:
+        shape, dtype, ndim = z.shape, z.dtype, z.ndim
+        chunks, shards = z.chunks, z.shards
+
+        def __getitem__(self, key):
+            return z[key]
+
+    array = Array(Recorded(), offset=(0, 0), voxel_size=(1, 1))
+    assert (array.chunk_shape, array.inner_chunk_shape, array.shard_shape) == (
+        SHARD,
+        INNER,
+        SHARD,
+    )
+    assert _dask_chunks(array) != SHARD  # the view keeps dask's own chunking
+
+
 def test_inner_chunk_shape_of_data_that_is_not_zarr_is_the_views_chunk():
     import dask.array as da
 
